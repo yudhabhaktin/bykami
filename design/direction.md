@@ -89,18 +89,26 @@ should drive the layout rhythm rather than a generic 3-column card row.
 - **Whose brand:** studiobykami's own. So this is brand *implementation*, not
   brand creation — real assets come from the owner, not from this reference
   read. See `assets-needed.md`.
-- **Stack:** React frontend, Go backend.
+- **Stack:** Astro, with React only for interactive islands (backdrop picker,
+  gallery lightbox). Supersedes an earlier "React frontend, Go backend" note —
+  prices have to be crawlable HTML, and Astro ships no JS by default.
 - **Primary CTA:** WhatsApp click-to-chat with a prefilled message.
 
-### Consequence: what the Go backend is for
+### Consequence: no backend in phase 1
 
 WhatsApp booking is entirely client-side — a `wa.me` link with an encoded
-message. It needs no server. So the backend earns its place only if it serves
-*editable content*: packages, prices, backdrops, gallery. That lets the studio
-change a price without a redeploy, which is the realistic ongoing need.
+message. It needs no server. The backend would earn its place only by serving
+*editable content*: packages, prices, backdrops, gallery — letting the studio
+change a price without a redeploy.
 
-If that's not wanted, this is a static React build and there is no backend.
-Worth settling before writing either half.
+**Settled: it doesn't earn it, not yet.** An editing interface needs
+authentication, and authentication is the phase 2 identity system; building a
+throwaway admin auth now is waste. Phase 1 is fully static — the catalogue lives
+in the repo as schema-validated content collections, so a price change is a
+commit. A studio changes prices a few times a year, not daily.
+
+A git-backed CMS commits to those same files, so it can be added later without
+changing the architecture.
 
 ## Still open
 

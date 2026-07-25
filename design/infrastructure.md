@@ -53,9 +53,12 @@ Traefik would add ~70 MB — 7% of total RAM — to route traffic that has one
 destination. It earns its place with many services, middleware chains, or
 label-based discovery. None of those apply yet.
 
-**Recommendation: drop Traefik for now.** Cloudflare Tunnel → Go binary. Add
-Traefik when a second dynamic service exists and middleware is genuinely needed;
-it slots in without disturbing anything else.
+**Decided: dropped.** Cloudflare Tunnel → Go binary. Add Traefik when a second
+dynamic service exists and middleware is genuinely needed; it slots in without
+disturbing anything else.
+
+Moot for phase 1 regardless — that phase is static only, and nothing runs on the
+VPS at all.
 
 ### Resulting budget
 
@@ -147,7 +150,6 @@ The repo is **public**. Nothing sensitive in the tree, ever.
 
 - Which VPS provider? Determines whether Terraform can manage the instance or
   only Cloudflare.
-- Keep or drop Traefik — see the recommendation above.
 - Where does Terraform state live? (Cloudflare R2 with the S3 backend is free and
   avoids adding a vendor.)
 
