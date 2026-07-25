@@ -1,0 +1,11 @@
+# Reference captures from third-party Instagram accounts.
+# Kept local on purpose: these are someone else's copyrighted images,
+# used here only to derive design direction. Never commit or publish them.
+refs/screenshots/
+refs/.playwright-raw/
+refs/*.pdf
+
+.DS_Store
+node_modules/
+dist/
+.env
