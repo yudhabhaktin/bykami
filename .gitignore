@@ -8,6 +8,7 @@ refs/*.pdf
 .DS_Store
 node_modules/
 dist/
+.astro/
 .env
 .claude/
 .playwright-mcp/

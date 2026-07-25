@@ -1,0 +1,103 @@
+---
+import { valueOf, verticals, type Vertical } from "@bykami/content";
+
+interface Props {
+  vertical: Vertical;
+}
+
+const { vertical } = Astro.props;
+const others = verticals.filter((v) => v.id !== vertical.id);
+
+const address = vertical.nap ? valueOf(vertical.nap.address) : undefined;
+const hours = vertical.nap ? valueOf(vertical.nap.openingHours) : undefined;
+---
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <h2 class="ui">{vertical.displayName}</h2>
+        <p class="muted">{vertical.tagline}</p>
+      </div>
+
+      {
+        (address || hours) && (
+          <div>
+            <h2 class="ui">Lokasi</h2>
+            {address && (
+              <p class="muted">
+                {address.streetAddress}
+                <br />
+                {address.addressLocality}
+                <br />
+                {address.addressRegion}
+              </p>
+            )}
+            {hours && <p class="muted">{hours.join(", ")}</p>}
+          </div>
+        )
+      }
+
+      <div>
+        <h2 class="ui">bykami</h2>
+        <ul>
+          {
+            others.map((v) => (
+              <li>
+                <a class="muted" href={`https://${v.hostname}`}>
+                  {v.displayName}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </div>
+
+    <p class="muted fine">© {new Date().getFullYear()} bykami · Banyuwangi, Jawa Timur</p>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    margin-top: var(--space-16);
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    padding-block: var(--space-12) var(--space-8);
+  }
+
+  .cols {
+    display: grid;
+    gap: var(--space-8);
+  }
+
+  @media (min-width: 768px) {
+    .cols {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  h2 {
+    margin-bottom: var(--space-2);
+    font-size: 14px;
+    letter-spacing: 0;
+  }
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
+    text-decoration: none;
+  }
+
+  .fine {
+    margin-top: var(--space-8);
+    font-size: 14px;
+  }
+</style>

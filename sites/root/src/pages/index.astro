@@ -1,0 +1,85 @@
+---
+import { byId, verticals } from "@bykami/content";
+import BaseLayout from "@bykami/ui/BaseLayout.astro";
+import Faq from "@bykami/ui/Faq.astro";
+
+const vertical = byId("root");
+const others = verticals.filter((v) => v.id !== "root");
+---
+
+<BaseLayout
+  vertical={vertical}
+  title="bykami — studio foto, photobooth, dan kuliner di Banyuwangi"
+  description="bykami menaungi studio by KAMI, booth by KAMI, dan Dimsamcong di Banyuwangi, Jawa Timur."
+>
+  <section class="wrap hero">
+    <h1>bykami</h1>
+    <p class="lede">{vertical.description}</p>
+  </section>
+
+  <section class="wrap section">
+    <h2>Usaha kami</h2>
+    <ul class="grid">
+      {
+        others.map((v) => (
+          <li class="card tile">
+            <h3>{v.displayName}</h3>
+            <p class="muted">{v.tagline}</p>
+            <a class="ui" href={`https://${v.hostname}`}>
+              Buka {v.hostname}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <Faq vertical={vertical} />
+</BaseLayout>
+
+<style>
+  .hero {
+    margin-block: var(--space-12) var(--space-16);
+  }
+
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+  }
+
+  .section {
+    margin-block: var(--space-16);
+  }
+
+  .grid {
+    display: grid;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  @media (min-width: 768px) {
+    .grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .tile {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-4);
+  }
+
+  h3 {
+    margin-bottom: var(--space-2);
+    font-size: 18px;
+  }
+
+  .tile a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
+    margin-top: auto;
+  }
+</style>

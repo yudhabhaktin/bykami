@@ -1,0 +1,22 @@
+---
+/**
+ * Renders structured data blocks that have already passed the publication gate.
+ *
+ * This component does no filtering of its own — by the time a block reaches here
+ * it has been cleared by `pageLd`, which drops anything not owner-verified.
+ */
+interface Props {
+  blocks: Record<string, unknown>[];
+}
+
+const { blocks } = Astro.props;
+---
+
+{
+  blocks.map((block) => (
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify(block)}
+    />
+  ))
+}

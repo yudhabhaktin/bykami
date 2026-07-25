@@ -1,0 +1,82 @@
+---
+import { verticals } from "@bykami/content";
+
+/**
+ * Cross-property navigation.
+ *
+ * Every property links to every other one. Link authority does not flow between
+ * subdomains, but internal links still carry signal and this is what makes four
+ * hostnames legible as one company to a human.
+ */
+interface Props {
+  current: string;
+}
+
+const { current } = Astro.props;
+const others = verticals.filter((v) => v.id !== current);
+const home = verticals.find((v) => v.id === current)!;
+---
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a href="/" class="brand ui">{home.displayName}</a>
+    <nav aria-label="Vertikal lain">
+      <ul>
+        {
+          others.map((v) => (
+            <li>
+              <a class="ui" href={`https://${v.hostname}`}>
+                {v.displayName}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .nav {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  .nav-inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-6);
+    align-items: center;
+    justify-content: space-between;
+    min-height: var(--tap);
+    padding-block: var(--space-3);
+  }
+
+  .brand {
+    text-decoration: none;
+    letter-spacing: -0.2px;
+  }
+
+  ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  .brand,
+  a:hover,
+  a:focus-visible {
+    color: var(--text);
+  }
+</style>
