@@ -262,16 +262,25 @@ key, `SHA256:YWCg0VdnM9eoXW6RrfxFKpvyJK/zDFJkb2XXa6+nfgQ`, verified by logging
 in with it and confirming every other local key is refused. The previous file is
 kept as a `.bak` beside it.
 
-Two things are still open, both console-only, because the setup AccessKey has
-been disabled and the CLI returns `Forbidden.AccessKeyDisabled`:
+Both follow-ups are now closed, audited against the API rather than assumed:
 
-- **The ECS key pair `bykami-deploy` may still hold the burned public key.**
-  Removing it from `authorized_keys` does not change what Alibaba stores, and
-  re-attaching the key pair would put it straight back. Check its fingerprint
-  under ECS → Key Pairs; if it is not the one above, delete and recreate it.
-- **The security group `sg-t4n7sxn0wwzevsiowbta` has not been audited** for
-  `0.0.0.0/0` inbound rules. Port 22 should be reachable from one admin address
-  and nothing else until `cloudflared` is up.
+- **The ECS key pair holds the good key, not the burned one.** One pair exists
+  in `ap-southeast-1`, `bykami-deploy`, MD5 `42:04:3f:56:52:2e:4e:f3:c8:3d:ac:
+  04:a1:cb:b5:a8` — identical to the surviving local key. Re-attaching it
+  cannot resurrect the disclosed key, which was the thing worth checking.
+- **The security group carries exactly one inbound rule**, TCP 22/22 from a
+  single `/32`. No `0.0.0.0/0`.
+
+That rule is **not** Terraform-managed, despite carrying the description text
+from `alicloud_security_group_rule.ssh_bootstrap`. There is no state, and
+`ssh_admin_cidr` is empty, so the resource's `count` is 0. Two consequences
+worth knowing before either is discovered the hard way: clearing
+`ssh_admin_cidr` will never remove this rule, and setting it to the same
+address would try to create a rule that already exists rather than adopt it.
+Removing the rule is a console action, or an import first.
+
+It is also pinned to a residential address, so it goes stale whenever that IP
+changes — one more reason the tunnel is the destination rather than a nicety.
 
 Rotating a key is two steps, and the second one is the whole point. Adding the
 new key restores access, which makes it feel finished; removing the old one is
