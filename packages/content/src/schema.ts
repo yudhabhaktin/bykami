@@ -112,6 +112,18 @@ export const vertical = z.object({
     "PhotographyBusiness",
     "Restaurant",
   ]),
+  /**
+   * Whether this property has enough content to deserve a place in the index.
+   *
+   * Separate from the BYKAMI_INDEXABLE environment gate, which answers a
+   * different question: *is this the real domain, or a pages.dev preview?* Both
+   * must be true before anything is indexed. Environment is CI's call; this is
+   * an editorial one and belongs in the repo next to the catalogue it describes.
+   *
+   * A property with no catalogue is worse than absent: it teaches search engines
+   * that the hostname is thin, and that judgement outlives the empty page.
+   */
+  indexable: z.boolean(),
   nap: nap.optional(),
   brand,
   offerings: z.array(offering),

@@ -20,6 +20,7 @@ export const root: Vertical = {
   description:
     "bykami menaungi studio by KAMI, booth by KAMI, dan Dimsamcong di Banyuwangi, Jawa Timur.",
   schemaType: "Organization",
+  indexable: true,
 
   brand: {
     logoSvg: blocked("Original vector never supplied. See design/assets-needed.md."),

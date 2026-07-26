@@ -18,6 +18,7 @@ export const studio: Vertical = {
   description:
     "Self photo studio, photobox, dan pas foto di Jajag, Banyuwangi. Sewa studio dengan lighting siap pakai, potret sendiri tanpa fotografer, hasil langsung cetak.",
   schemaType: "PhotographyBusiness",
+  indexable: true,
 
   nap: {
     legalName: "studio by KAMI",

@@ -1,11 +1,14 @@
 import type { APIRoute } from "astro";
+import { byId } from "@bykami/content";
 
 /**
- * Indexing is opt-in. While the sites live on *.pages.dev this file disallows
- * everything; forgetting the flag keeps them out of the index rather than
- * letting them in.
+ * Indexing needs two gates open: BYKAMI_INDEXABLE says this build is the real
+ * domain rather than a *.pages.dev preview, and the vertical's own `indexable`
+ * flag says this property has content worth indexing. Either one closed
+ * disallows everything, so forgetting a flag keeps a page out rather than
+ * letting it in.
  *
- * Once BYKAMI_INDEXABLE is set, AI crawlers are named and allowed explicitly.
+ * Once both are open, AI crawlers are named and allowed explicitly.
  * That is a deliberate content-licensing choice: this catalogue exists to be
  * quoted by answer engines, so granting them access is the entire point.
  *
@@ -32,7 +35,8 @@ const AI_CRAWLERS = [
 ];
 
 export const GET: APIRoute = ({ site }) => {
-  const indexable = import.meta.env["BYKAMI_INDEXABLE"] === "true";
+  const indexable =
+    import.meta.env["BYKAMI_INDEXABLE"] === "true" && byId("studio").indexable;
 
   const body = indexable
     ? [

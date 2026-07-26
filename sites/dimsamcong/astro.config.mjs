@@ -8,7 +8,7 @@ import { defineConfig } from "astro/config";
 // domain and cutover is a DNS change rather than a content migration.
 export default defineConfig({
   site: "https://dimsamcong.bykami.id",
-  integrations: [react(), sitemap(), pagesHeaders()],
+  integrations: [react(), sitemap(), pagesHeaders("dimsamcong")],
   build: { inlineStylesheets: "always" },
   compressHTML: true,
 });

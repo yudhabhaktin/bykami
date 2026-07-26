@@ -108,16 +108,40 @@ describe.each(verticals.map((v) => [v.id, v] as const))("%s", (id, vertical: Ver
     expect(html).not.toContain("pages.dev");
   });
 
-  it("is non-indexable until the flag is set", () => {
-    expect(html).toContain('name="robots" content="noindex, nofollow"');
-    expect(read(id, "robots.txt")).toContain("Disallow: /");
+  /**
+   * Indexing is the conjunction of the environment gate the build ran under and
+   * the vertical's own editorial flag, so this reads the same two inputs the
+   * build did rather than assuming an answer. CI's verify job builds with the
+   * environment gate open, which is what puts both branches below under test in
+   * every run: three properties take the indexable path, dimsamcong the other.
+   */
+  const shouldIndex = process.env["BYKAMI_INDEXABLE"] === "true" && vertical.indexable;
+
+  it(`is ${shouldIndex ? "indexable" : "held out of the index"}`, () => {
+    const robots = read(id, "robots.txt");
+    // robots.txt stops a fetch; it does not stop an externally-linked URL from
+    // being indexed. X-Robots-Tag does, and unlike a meta tag it also applies to
+    // llms.txt and the sitemaps — so all three have to agree.
+    if (shouldIndex) {
+      expect(html).not.toContain('name="robots" content="noindex');
+      expect(robots).toContain("Allow: /");
+      expect(robots).not.toContain("Disallow: /");
+      expect(read(id, "_headers")).not.toContain("X-Robots-Tag");
+    } else {
+      expect(html).toContain('name="robots" content="noindex, nofollow"');
+      expect(robots).toContain("Disallow: /");
+      expect(read(id, "_headers")).toContain("X-Robots-Tag: noindex, nofollow");
+    }
   });
 
-  it("serves X-Robots-Tag, which covers what a meta tag cannot", () => {
-    // robots.txt stops a fetch; it does not stop an externally-linked URL from
-    // being indexed. This header does, and unlike a meta tag it also applies to
-    // llms.txt and the sitemaps.
-    expect(read(id, "_headers")).toContain("X-Robots-Tag: noindex, nofollow");
+  it("names the AI crawlers explicitly once it is indexable", () => {
+    if (!shouldIndex) return;
+    // The catalogue exists to be quoted by answer engines. Naming each crawler
+    // rather than relying on `User-agent: *` is what makes that a grant instead
+    // of an accident.
+    for (const ua of ["GPTBot", "ClaudeBot", "PerplexityBot", "CCBot", "Google-Extended"]) {
+      expect(read(id, "robots.txt"), `${ua} not named`).toContain(`User-agent: ${ua}`);
+    }
   });
 
   it("links to every other property", () => {

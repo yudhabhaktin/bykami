@@ -22,17 +22,19 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  # Indexing is opt-in and stays off until the real domain is attached. An
-  # indexed *.pages.dev copy would compete with bykami.id for its own queries.
-  BYKAMI_INDEXABLE: "false"
-
 jobs:
   # Builds every site and asserts the SEO contract against the built output.
   # The contract spans all four properties (cross-property links, distinct
   # copy), so it runs once here rather than redundantly inside each deploy.
   verify:
     runs-on: ubuntu-latest
+    # Build with the environment gate open so the configuration under test is
+    # the one that ships. Nothing from this job is deployed — the deploy job
+    # rebuilds and decides indexing for itself — so opening the gate here is
+    # what puts the real production contract under test, including on pull
+    # requests, rather than only ever asserting the pre-launch one.
+    env:
+      BYKAMI_INDEXABLE: "true"
     outputs:
       sites: ${{ steps.filter.outputs.sites }}
     steps:
@@ -133,7 +135,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The environment gate opens only on main. A preview build on *.pages.dev
+      # must stay out of the index — an indexed preview would compete with
+      # bykami.id for its own queries. Whether a given property is indexable
+      # even then is the editorial call recorded in `vertical.indexable`.
       - name: Build
+        env:
+          BYKAMI_INDEXABLE: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
         run: pnpm --filter "@bykami/site-${{ matrix.site }}" build
 
       # Branch names reach a shell command, and on a pull request the head ref

@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { byId } from "@bykami/content";
 
 /**
  * Emits a Cloudflare Pages `_headers` file at the end of the build.
@@ -12,14 +13,18 @@ import { writeFile } from "node:fs/promises";
  * That matters here specifically: an indexed *.pages.dev copy would compete
  * with bykami.id for the same queries the moment the real domain launches.
  *
- * Indexing stays opt-in — this writes the noindex header unless
- * BYKAMI_INDEXABLE is explicitly "true".
+ * Indexing stays opt-in and needs both gates open: BYKAMI_INDEXABLE explicitly
+ * "true" (this is the real domain, not a preview) and the vertical's own
+ * `indexable` flag (this property has content worth indexing).
+ *
+ * @param {import("@bykami/content").Vertical["id"]} verticalId
  */
-export const pagesHeaders = () => ({
+export const pagesHeaders = (verticalId) => ({
   name: "bykami:pages-headers",
   hooks: {
     "astro:build:done": async ({ dir, logger }) => {
-      const indexable = process.env.BYKAMI_INDEXABLE === "true";
+      const indexable =
+        process.env.BYKAMI_INDEXABLE === "true" && byId(verticalId).indexable;
 
       const lines = indexable
         ? [

@@ -49,12 +49,15 @@ full resolution — Instagram downloads are re-compressed and unusable at hero s
 - [x] Platform architecture decided
 - [~] Design direction — structure, type, and content done; palette blocked on
       original brand assets
-- [ ] Phase 1 built
+- [x] Phase 1 built and live on `bykami.id`
 
 ## Blocked on the owner
 
 - Bookable resource count at the studio (blocks booking design)
 - Capacity conflict: PDFs say 1–4 / 1–6 / 1–10, YouCanBook.me says 3–4 / 5–6 / 7–10
-- `bykami.id` nameservers pointed at Cloudflare (registered at Hostinger)
+- Confirmation of the 67 unverified prices — the switch that turns `Offer`
+  schema on. Highest-value unblock on the list.
+- Dimsamcong menu — the property is built but held out of the index until it has
+  one, because there is no source material to build a catalogue from
 - Logo vector, brand hex, licensed fonts, original photography
 - Business entity, NPWP, bank account — gates Xendit onboarding

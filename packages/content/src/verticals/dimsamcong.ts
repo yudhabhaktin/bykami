@@ -20,6 +20,13 @@ export const dimsamcong: Vertical = {
   description:
     "Dimsamcong — dimsum dan makanan ringan di Banyuwangi, bagian dari bykami.",
   schemaType: "Restaurant",
+  /**
+   * Held back deliberately. Every fact on this property is still `blocked` and
+   * `offerings` is empty, so the page has nothing a searcher could want. Letting
+   * it in would trade a permanent thin-content judgement for zero traffic.
+   * Flip this in the same commit that lands the menu.
+   */
+  indexable: false,
 
   nap: {
     legalName: "Dimsamcong",

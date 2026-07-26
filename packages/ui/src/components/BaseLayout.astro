@@ -30,11 +30,12 @@ const {
 const canonical = `https://${vertical.hostname}${path}`;
 
 /**
- * Indexing is opt-in and defaults to off. While the sites live on *.pages.dev
- * they must stay out of the index; forgetting a flag should keep them out, not
- * let them in.
+ * Two gates, both of which must open. BYKAMI_INDEXABLE asks whether this build
+ * is the real domain rather than a *.pages.dev preview; `vertical.indexable`
+ * asks whether this property has content worth indexing. Either one defaulting
+ * closed keeps a page out, which is the safe direction to fail.
  */
-const indexable = import.meta.env["BYKAMI_INDEXABLE"] === "true";
+const indexable = import.meta.env["BYKAMI_INDEXABLE"] === "true" && vertical.indexable;
 
 const blocks = pageLd(vertical, trail);
 ---

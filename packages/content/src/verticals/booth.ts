@@ -18,6 +18,7 @@ export const booth: Vertical = {
   description:
     "Sewa photobooth untuk acara sekolah, pernikahan, dan event di Banyuwangi, Jember, dan Bondowoso. Unlimited photo, limited print, atau unlimited print — lengkap dengan backdrop dan desain frame.",
   schemaType: "PhotographyBusiness",
+  indexable: true,
 
   nap: {
     legalName: "booth by KAMI",
