@@ -21,6 +21,10 @@ set -euo pipefail
 
 REGION="${TENCENTCLOUD_REGION:-ap-jakarta}"
 
+BODY=""
+ENDPOINT=""
+LAST_CODE=""
+
 sha256_hex() { printf '%s' "$1" | openssl dgst -sha256 -hex | sed 's/^.*= //'; }
 hmac_hex() { printf '%s' "$2" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$1" -hex | sed 's/^.*= //'; }
 to_hex() { printf '%s' "$1" | od -An -tx1 | tr -d ' \n'; }
@@ -137,24 +141,28 @@ explain() {
 # returns AuthFailure — the same code a bad key returns. Try the other partition
 # before blaming the credentials, and report which one answered, because
 # everything downstream (Terraform, Ansible) has to point at the same place.
-check_call() { # service action version
-  local service=$1 action=$2 version=$3 out code host
+# Results come back in globals rather than on stdout: capturing stdout would run
+# this in a subshell, where ENDPOINT and LAST_CODE would be set and then thrown
+# away with it.
+check_call() { # service action version -> sets BODY, ENDPOINT, LAST_CODE
+  local service=$1 action=$2 version=$3 host
   for host in "${service}.tencentcloudapi.com" "${service}.intl.tencentcloudapi.com"; do
-    out=$(call "$host" "$service" "$action" "$version" '{}')
-    code=$(printf '%s' "$out" | sed -n 's/.*"Code":"\([^"]*\)".*/\1/p')
-    if [ -z "$code" ]; then
-      ENDPOINT=$host
-      printf '%s' "$out"
+    BODY=$(call "$host" "$service" "$action" "$version" '{}')
+    ENDPOINT=$host
+    LAST_CODE=$(printf '%s' "$BODY" | sed -n 's/.*"Code":"\([^"]*\)".*/\1/p')
+    if [ -z "$LAST_CODE" ]; then
       return 0
     fi
     # Anything that is not an auth failure means the endpoint was right and the
     # problem is real. Retrying the other partition would only obscure it.
-    case "$code" in AuthFailure*) ;; *) break ;; esac
+    case "$LAST_CODE" in AuthFailure*) ;; *) break ;; esac
   done
-  printf '  FAIL  %s (both API partitions tried)\n' "$code" >&2
-  explain "$code" >&2
   return 1
 }
+
+# Tolerates the value being quoted or not: CAM returns account IDs as JSON
+# strings in some responses and as numbers in others.
+field() { printf '%s' "$2" | sed -n "s/.*\"$1\":\"\{0,1\}\([0-9][0-9]*\).*/\1/p"; }
 
 main() {
   if [ "${1:-}" = "--self-test" ]; then
@@ -176,22 +184,41 @@ EOF
     return 1
   fi
 
-  local out state
+  local state
 
-  # Split deliberately. GetCallerIdentity needs no product permission, so it
-  # answers "are these credentials real?" on its own; DescribeRegions then
-  # answers "can they see CVM, and does this account have Jakarta?" A single
+  # Split deliberately: "are these credentials real?" and "may they see CVM in
+  # Jakarta?" fail for different reasons and need different fixes, and a single
   # combined check would blame the key for what is really a CAM policy gap.
-  echo "Identity (sts:GetCallerIdentity, needs no product permission):"
-  out=$(check_call sts GetCallerIdentity 2018-08-13) || return 1
-  printf '  ok    %s\n' "$(printf '%s' "$out" | sed -n 's/.*"Arn":"\([^"]*\)".*/\1/p')"
+  #
+  # Not sts:GetCallerIdentity, which looks like the obvious choice and is not:
+  # it accepts only assumeRole and federated credentials, so it rejects exactly
+  # the kind of permanent key CI uses. cam:GetUserAppId takes a normal key.
+  echo "Identity (cam:GetUserAppId):"
+  if check_call cam GetUserAppId 2019-01-16; then
+    printf '  ok    AppId %s, owner uin %s\n' "$(field AppId "$BODY")" "$(field OwnerUin "$BODY")"
+  else
+    case "$LAST_CODE" in
+      # A rejection for lack of permission still proves the key is genuine,
+      # which is all this step exists to establish. It is also the expected
+      # answer for a least-privilege CI user holding only CVM and VPC policies,
+      # so treating it as failure would punish the correct setup.
+      UnauthorizedOperation*)
+        printf '  ok    credentials valid (no CAM read, correct for a CI user)\n' ;;
+      *)
+        printf '  FAIL  %s\n' "$LAST_CODE"; explain "$LAST_CODE"; return 1 ;;
+    esac
+  fi
   printf '  ok    answered on %s\n' "$ENDPOINT"
 
   echo
   echo "Capability (cvm:DescribeRegions, is ${REGION} usable by this account?):"
-  out=$(check_call cvm DescribeRegions 2017-03-12) || return 1
+  if ! check_call cvm DescribeRegions 2017-03-12; then
+    printf '  FAIL  %s\n' "$LAST_CODE"
+    explain "$LAST_CODE"
+    return 1
+  fi
 
-  state=$(printf '%s' "$out" | tr '{' '\n' | grep "\"Region\":\"${REGION}\"" | sed -n 's/.*"RegionState":"\([^"]*\)".*/\1/p')
+  state=$(printf '%s' "$BODY" | tr '{' '\n' | grep "\"Region\":\"${REGION}\"" | sed -n 's/.*"RegionState":"\([^"]*\)".*/\1/p')
   case "$state" in
     AVAILABLE) printf '  ok    %s is AVAILABLE\n' "$REGION" ;;
     "")        printf '  FAIL  %s is not in this account'"'"'s region list\n' "$REGION"; return 1 ;;
