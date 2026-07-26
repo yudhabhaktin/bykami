@@ -80,7 +80,7 @@ describe("LocalBusiness requires a verified address", () => {
     };
     const ld = localBusinessLd(withAddress);
     expect(ld).toMatchObject({ "@type": "PhotographyBusiness" });
-    expect(ld?.["parentOrganization"]).toEqual({ "@id": "https://bykami.com/#organization" });
+    expect(ld?.["parentOrganization"]).toEqual({ "@id": "https://bykami.id/#organization" });
   });
 
   it("carries makesOffer only for verified prices", () => {
@@ -118,7 +118,7 @@ describe("entity consolidation", () => {
   it("points every vertical at the platform root", () => {
     for (const v of verticals.filter((v) => v.id !== "root")) {
       expect(organizationLd(v)["parentOrganization"]).toEqual({
-        "@id": "https://bykami.com/#organization",
+        "@id": "https://bykami.id/#organization",
       });
     }
   });

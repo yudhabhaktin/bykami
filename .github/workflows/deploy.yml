@@ -24,7 +24,7 @@ permissions:
 
 env:
   # Indexing is opt-in and stays off until the real domain is attached. An
-  # indexed *.pages.dev copy would compete with bykami.com for its own queries.
+  # indexed *.pages.dev copy would compete with bykami.id for its own queries.
   BYKAMI_INDEXABLE: "false"
 
 jobs:

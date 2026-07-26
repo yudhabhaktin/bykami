@@ -15,7 +15,7 @@ import { blocked } from "../sourced.ts";
 export const dimsamcong: Vertical = {
   id: "dimsamcong",
   displayName: "Dimsamcong",
-  hostname: "dimsamcong.bykami.com",
+  hostname: "dimsamcong.bykami.id",
   tagline: "Dimsum di Banyuwangi",
   description:
     "Dimsamcong — dimsum dan makanan ringan di Banyuwangi, bagian dari bykami.",

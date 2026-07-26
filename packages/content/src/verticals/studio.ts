@@ -13,7 +13,7 @@ const PDF = "refs/Price LIst Studio Indoor.pdf (owner PDF, not owner-confirmed)"
 export const studio: Vertical = {
   id: "studio",
   displayName: "studio by KAMI",
-  hostname: "studio.bykami.com",
+  hostname: "studio.bykami.id",
   tagline: "Self photo studio di Banyuwangi",
   description:
     "Self photo studio, photobox, dan pas foto di Jajag, Banyuwangi. Sewa studio dengan lighting siap pakai, potret sendiri tanpa fotografer, hasil langsung cetak.",

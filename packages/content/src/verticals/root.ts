@@ -2,7 +2,7 @@ import type { Vertical } from "../schema.ts";
 import { blocked } from "../sourced.ts";
 
 /**
- * bykami.com — the platform root.
+ * bykami.id — the platform root.
  *
  * Brand, a directory of the verticals, and the sitemap index. It has no physical
  * location, so it is an `Organization` and never a `LocalBusiness` subtype; every
@@ -15,7 +15,7 @@ import { blocked } from "../sourced.ts";
 export const root: Vertical = {
   id: "root",
   displayName: "bykami",
-  hostname: "bykami.com",
+  hostname: "bykami.id",
   tagline: "Studio foto, photobooth, dan kuliner di Banyuwangi",
   description:
     "bykami menaungi studio by KAMI, booth by KAMI, dan Dimsamcong di Banyuwangi, Jawa Timur.",

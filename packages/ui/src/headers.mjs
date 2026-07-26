@@ -10,7 +10,7 @@ import { writeFile } from "node:fs/promises";
  * every other non-HTML response.
  *
  * That matters here specifically: an indexed *.pages.dev copy would compete
- * with bykami.com for the same queries the moment the real domain launches.
+ * with bykami.id for the same queries the moment the real domain launches.
  *
  * Indexing stays opt-in — this writes the noindex header unless
  * BYKAMI_INDEXABLE is explicitly "true".

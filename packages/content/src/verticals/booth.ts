@@ -13,7 +13,7 @@ const PDF = "refs/PRICE LIST PHOTOBOOTH.pdf (owner PDF, not owner-confirmed)";
 export const booth: Vertical = {
   id: "booth",
   displayName: "booth by KAMI",
-  hostname: "booth.bykami.com",
+  hostname: "booth.bykami.id",
   tagline: "Photobooth untuk sekolah, wedding, dan event",
   description:
     "Sewa photobooth untuk acara sekolah, pernikahan, dan event di Banyuwangi, Jember, dan Bondowoso. Unlimited photo, limited print, atau unlimited print — lengkap dengan backdrop dan desain frame.",

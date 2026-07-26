@@ -37,10 +37,10 @@ locals {
   # Each vertical is a separate Pages project so it owns its own sitemap and
   # deploys independently — a studio copy change must not redeploy the others.
   sites = {
-    root       = { project = "bykami-root", hostname = "bykami.com" }
-    studio     = { project = "bykami-studio", hostname = "studio.bykami.com" }
-    booth      = { project = "bykami-booth", hostname = "booth.bykami.com" }
-    dimsamcong = { project = "bykami-dimsamcong", hostname = "dimsamcong.bykami.com" }
+    root       = { project = "bykami-root", hostname = "bykami.id" }
+    studio     = { project = "bykami-studio", hostname = "studio.bykami.id" }
+    booth      = { project = "bykami-booth", hostname = "booth.bykami.id" }
+    dimsamcong = { project = "bykami-dimsamcong", hostname = "dimsamcong.bykami.id" }
   }
 }
 
@@ -52,7 +52,7 @@ resource "cloudflare_pages_project" "site" {
   production_branch = "main"
 }
 
-# Custom domains are deliberately absent. They require the zone, and bykami.com
+# Custom domains are deliberately absent. They require the zone, and bykami.id
 # is not registered yet. Until then every site serves from <project>.pages.dev
 # under noindex, while canonical URLs already point at the hostnames above — so
 # cutover is attaching domains and flipping BYKAMI_INDEXABLE, not a migration.

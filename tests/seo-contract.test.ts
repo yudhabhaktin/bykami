@@ -89,7 +89,7 @@ describe.each(verticals.map((v) => [v.id, v] as const))("%s", (id, vertical: Ver
     if (vertical.id === "root") {
       expect(org!["parentOrganization"]).toBeUndefined();
     } else {
-      expect(org!["parentOrganization"]).toEqual({ "@id": "https://bykami.com/#organization" });
+      expect(org!["parentOrganization"]).toEqual({ "@id": "https://bykami.id/#organization" });
     }
   });
 

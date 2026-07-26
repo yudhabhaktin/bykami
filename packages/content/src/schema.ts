@@ -128,4 +128,4 @@ export type Nap = z.infer<typeof nap>;
 export type Brand = z.infer<typeof brand>;
 export type Vertical = z.infer<typeof vertical>;
 
-export const PLATFORM_ROOT = "https://bykami.com";
+export const PLATFORM_ROOT = "https://bykami.id";
