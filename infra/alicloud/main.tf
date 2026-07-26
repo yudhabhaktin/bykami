@@ -45,12 +45,20 @@ provider "alicloud" {
 # The trial instance is NOT a managed resource, and that is the whole design of
 # this file.
 #
-# The free trial is attached to this specific instance ID via a savings plan. A
-# managed alicloud_instance would let Terraform decide to replace it — image_id
-# and instance_type are both ForceNew — and a replacement is a new instance ID,
-# which is very unlikely to inherit the trial. The failure mode is silent: the
-# apply succeeds, the box comes back, and the billing quietly turns into
-# pay-as-you-go at full rate.
+# The free trial is attached to this specific instance ID via a savings plan, and
+# losing the ID loses the trial silently — the apply succeeds, the box comes back,
+# and billing quietly becomes pay-as-you-go at full rate.
+#
+# Note what does NOT cause that. image_id and instance_type are both modifiable
+# in place: changing image_id calls ReplaceSystemDisk, which wipes the system disk
+# but keeps the instance ID. Re-imaging to Ubuntu is therefore safe for the trial.
+# The ForceNew fields that would actually replace the instance are
+# system_disk_category, availability_zone, data_disks and spot_strategy.
+#
+# The reason this is still a data source is state, not ForceNew: CI has no remote
+# backend, so a stateless `terraform plan` against a managed instance would
+# propose creating a second one on every run. Making this a resource means moving
+# state to R2 first — see the migration note in the terraform block above.
 #
 # So Terraform owns only what is safely additive: the SSH key pair and the
 # security group rules. The instance, VPC, vSwitch, and security group were
@@ -73,6 +81,12 @@ data "alicloud_instances" "trial" {
 #
 # Alibaba accepts RSA only; ed25519 is rejected on import. 2048-bit is what the
 # console generates and what this expects.
+#
+# Leave ssh_public_key empty if the key pair was created in the console instead —
+# the Replace Operating System dialog binds one during the re-image, which is the
+# path taken for the trial box. These resources are for the rebuild after the
+# trial ends, when nothing is console-owned. Setting the variable while a
+# console-made `bykami-deploy` exists fails the apply on a name collision.
 resource "alicloud_ecs_key_pair" "deploy" {
   count = var.ssh_public_key == "" ? 0 : 1
 

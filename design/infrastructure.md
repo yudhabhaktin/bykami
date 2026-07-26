@@ -7,15 +7,25 @@ Provisioned 2026-07-26 on the free trial: instance `i-t4n7sxn0wwzevsimxwnr`,
 `ecs.e-c1m1.large`, Singapore zone A (`ap-southeast-1`), pay-as-you-go, trial
 credit through 2026-10-26.
 
-Two things about it are not yet fit for the design and must be fixed before
-anything is configured:
+Two things about it were not fit for the design, and both were fixed on
+2026-07-26 before anything else was configured:
 
-- **It runs CentOS 7.9**, which went end-of-life on 2024-06-30 — no security
-  updates, repositories moved to vault, and every Ansible role below written
-  against `apt`. Replace the system disk with Ubuntu 24.04.
-- **It has no key pair and no public IP.** Login is a console password reset,
-  which Ansible cannot use; and with no public IP the box has no outbound path
-  to install anything. Both are start-time settings, so fix them together.
+- **It ran CentOS 7.9**, end-of-life since 2024-06-30 — no security updates,
+  repositories moved to vault, and every Ansible role below written against
+  `apt`. Replaced with Ubuntu 24.04 via the console's Replace Operating System
+  flow, which calls `ReplaceSystemDisk`. That wipes the system disk but keeps
+  the instance ID, so the trial's savings-plan binding survived.
+- **It had no key pair and no public IP.** Login was a console password reset,
+  which Ansible cannot use; and with no public IP the box had no outbound path
+  to install anything. Both are start-time settings, so they were fixed together
+  during the re-image.
+
+The re-image also grew the system disk from 20 GB to 100 GB — worth knowing
+because system disks can be grown but never shrunk, so this is fixed for the
+life of the instance and draws against the trial credit continuously whether or
+not the box is doing anything. Nothing here needs 100 GB; check Billing → Cost
+Analysis to see what it actually costs before assuming the credit stretches to
+2026-10-26. Size the disk deliberately on the rebuild.
 
 Its public IP is auto-assigned and pay-by-traffic, which means it is **released
 whenever the instance stops**. Nothing may be pinned to it — it is a bootstrap
@@ -181,12 +191,12 @@ them — `InvalidAccessKeyId.NotFound` and `SignatureDoesNotMatch` against
 |---|---|
 | Instance | `i-t4n7sxn0wwzevsimxwnr` (`ecs.e-c1m1.large`) |
 | Region | Singapore zone A, `ap-southeast-1` |
-| Size | 2 vCPU / 2 GiB, 20 GB system disk |
+| Size | 2 vCPU / 2 GiB, 100 GB system disk (`/dev/vda3`, 99 GB usable) |
 | Network | `vpc-t4nhh131nrk5jf0zbb90y` / `vsw-t4nwwj3yx0q786ie56g1y`, sg `sg-t4n7sxn0wwzevsiowbta` |
-| Public IP | none while stopped — auto-assigned at start, released at stop |
-| Image | CentOS 7.9 — **EOL, must be replaced** |
+| Public IP | auto-assigned at start, released at stop — 5 Mbps pay-by-traffic, $0.081/GB |
+| Image | Ubuntu 24.04.4 LTS, kernel 6.8.0-124-generic (re-imaged 2026-07-26) |
 | Billing | Pay-as-you-go, $90 trial credit through 2026-10-26 |
-| State | Stopped, Economical Mode |
+| State | Running; auto-release set for 2026-10-24 00:00:00 |
 
 Both of the questions this table originally raised are now answered, and the
 answers went the way that needs action rather than the way that needed none:
@@ -199,6 +209,49 @@ answers went the way that needs action rather than the way that needed none:
   public IP at start, restrict port 22 to an admin address via
   `ssh_admin_cidr`, enforce key-only auth (`PasswordAuthentication no`), get
   `cloudflared` dialling out, then clear the rule.
+
+### Bootstrap state as of 2026-07-26
+
+Done: re-imaged to Ubuntu 24.04, hostname `bykami-app`, timezone `Asia/Jakarta`
+(the image ships UTC+8, which silently puts every log line and cron schedule an
+hour ahead of the business), key-only auth enforced via
+`/etc/ssh/sshd_config.d/00-hardening.conf`, and `sshd -T` confirms
+`passwordauthentication no` and `permitrootlogin without-password`.
+
+**Leave `cloud-init` on hold.** The image ships Alibaba's own build, `23.2.2-8`,
+held along with `intel-microcode`, while the archive offers `26.1`. The hold is
+not staleness to tidy up: the package owns
+`/etc/cloud/cloud.cfg.d/aliyun_cloud.cfg`, which pins `datasource_list:
+[ AliYun ]`. Upgrading to the Ubuntu build removes that conffile as obsolete,
+and a box that cannot identify its datasource may come back from a reboot with
+no network configuration — recoverable only through the VNC console. Upstream
+cloud-init does support `AliYun` and would probably re-detect it, but "probably"
+is doing load-bearing work in that sentence. `unattended-upgrades` is enabled
+and its allowed origins include plain `noble` and `noble-security`, both of
+which carry a newer `cloud-init`; the hold is the only thing standing between
+those two facts.
+
+**A deploy private key was disclosed in full and is burned.** It was rotated,
+but rotation only *added* the new key — the burned one stayed authorized for
+root until it was removed on 2026-07-26. `authorized_keys` now holds exactly one
+key, `SHA256:YWCg0VdnM9eoXW6RrfxFKpvyJK/zDFJkb2XXa6+nfgQ`, verified by logging
+in with it and confirming every other local key is refused. The previous file is
+kept as a `.bak` beside it.
+
+Two things are still open, both console-only, because the setup AccessKey has
+been disabled and the CLI returns `Forbidden.AccessKeyDisabled`:
+
+- **The ECS key pair `bykami-deploy` may still hold the burned public key.**
+  Removing it from `authorized_keys` does not change what Alibaba stores, and
+  re-attaching the key pair would put it straight back. Check its fingerprint
+  under ECS → Key Pairs; if it is not the one above, delete and recreate it.
+- **The security group `sg-t4n7sxn0wwzevsiowbta` has not been audited** for
+  `0.0.0.0/0` inbound rules. Port 22 should be reachable from one admin address
+  and nothing else until `cloudflared` is up.
+
+Rotating a key is two steps, and the second one is the whole point. Adding the
+new key restores access, which makes it feel finished; removing the old one is
+what ends the exposure, and nothing fails if you skip it.
 
 ## Residency is an object-storage problem, not a region problem
 
@@ -380,10 +433,18 @@ Cloudflare and the compute provider split cleanly, and the split is deliberate:
   photo objects live — never the VPS disk, because serving galleries is the
   product's dominant egress and R2 has no egress fee.
 
-The VPS should keep **no public IP**: Cloudflare Tunnel dials out, so nothing
-depends on the provider's firewall rules staying correct. The trial box needs one
-temporarily to bootstrap `cloudflared`, which is what `ssh_admin_cidr` in
-`infra/alicloud/` exists to scope — and to be cleared afterwards.
+The VPS should keep **no inbound rules** — not no public IP. The distinction was
+stated wrongly here before, and getting it backwards costs an afternoon: an ECS
+instance in a VPC with no public IP and no NAT gateway has no internet egress at
+all, so `cloudflared` cannot dial out and the tunnel never comes up. It presents
+as a broken tunnel, not as a missing address.
+
+So the end state is a public IP with an empty inbound rule set. A public IP is an
+egress path and a *potential* ingress path; the security group decides whether it
+is an actual one. Port 22 is opened only to bootstrap `cloudflared`, scoped by
+`ssh_admin_cidr` in `infra/alicloud/`, and cleared once the tunnel is up. After
+that nothing depends on the provider's firewall rules staying correct, which was
+the point of the tunnel in the first place.
 
 ## Managed robots.txt contradicts ours
 
