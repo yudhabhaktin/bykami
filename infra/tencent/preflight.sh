@@ -125,14 +125,17 @@ call() { # host service action version payload
 # different fixes.
 explain() {
   case "$1" in
+    # Must precede the generic AuthFailure branch. Despite the prefix this means
+    # the credentials are good and the policy is not, so telling anyone to
+    # re-copy the key would send them to fix the one thing that is already right.
+    AuthFailure.UnauthorizedOperation|UnauthorizedOperation*)
+      echo "        -> credentials are VALID but lack permission for this call." ;;
     AuthFailure.SignatureFailure|AuthFailure.SignatureExpire)
       echo "        -> the signature or the clock, not the key. See the self-test note in this script." ;;
     AuthFailure.SecretIdNotFound)
       echo "        -> SecretId does not exist, or the key was disabled or deleted." ;;
     AuthFailure.*)
       echo "        -> credentials rejected. Re-copy the pair from CAM." ;;
-    UnauthorizedOperation*)
-      echo "        -> credentials are VALID but lack permission for this call." ;;
   esac
 }
 
@@ -160,7 +163,13 @@ check_call() { # service action version -> sets BODY, ENDPOINT, LAST_CODE
     fi
     # Anything that is not an auth failure means the endpoint was right and the
     # problem is real. Retrying the other partition would only obscure it.
-    case "$LAST_CODE" in AuthFailure*) ;; *) break ;; esac
+    # AuthFailure.UnauthorizedOperation counts as "right endpoint" despite the
+    # prefix: the account was found, so only the policy is missing.
+    case "$LAST_CODE" in
+      AuthFailure.UnauthorizedOperation) break ;;
+      AuthFailure*) ;;
+      *) break ;;
+    esac
   done
   return 1
 }
@@ -207,7 +216,7 @@ EOF
       # which is all this step exists to establish. It is also the expected
       # answer for a least-privilege CI user holding only CVM and VPC policies,
       # so treating it as failure would punish the correct setup.
-      UnauthorizedOperation*)
+      AuthFailure.UnauthorizedOperation|UnauthorizedOperation*)
         printf '  ok    credentials valid (no CAM read, correct for a CI user)\n' ;;
       *)
         printf '  FAIL  %s\n' "$LAST_CODE"; explain "$LAST_CODE"; return 1 ;;
