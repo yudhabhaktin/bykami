@@ -13,3 +13,8 @@ dist/
 .claude/
 .playwright-mcp/
 .env.*
+terraform.tfstate
+terraform.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+*.tfvars
