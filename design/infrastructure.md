@@ -111,15 +111,40 @@ reports identically. It signs offline against Tencent's published test vector
 first, so a green self-test means a red API result is genuinely the account
 rather than the script.
 
-Two things it cannot answer without credentials, and both are worth settling
-before the first `apply`: whether Lighthouse (the cheap fixed-bundle product) is
-offered in `ap-jakarta` at all, and what the cheapest usable instance actually
-costs there. Query them rather than assume.
-
 **New-user promotional pricing is a console purchase flow.** If a promo is used,
 the instance is bought by hand and Terraform *imports* it, exactly as the
 Cloudflare zone was. Creating it from Terraform gets standard rates. That is a
 pricing constraint dictating the workflow, not a preference.
+
+## Jakarta costs more than the latency is worth — open
+
+Account is Tencent Cloud **International** (`console.tencentcloud.com`).
+Verified 2026-07-26:
+
+| | Lighthouse | CVM |
+|---|---|---|
+| `ap-jakarta` | **not offered** — HK, Singapore, Tokyo, Silicon Valley, Toronto, Frankfurt, Mumbai only | yes, 3 AZs (zone 3 restricted) |
+| Cheapest | from $1.68/mo new-user, list $4.20/mo for 2 vCPU / 2 GB / 40 GB | standard rates, unmeasured |
+| Free tier | 2C2G, 3 months | 2C4G, 3 months |
+
+So the cheap product and the in-country region are mutually exclusive, which the
+original "cheapest VPS in Indonesia" assumption did not anticipate.
+
+Singapore instead of Jakarta costs roughly 30 ms of extra round trip from
+Banyuwangi. That was the whole stated case for Jakarta, and it is weaker than it
+looks: the pages users actually wait on are static and already served from
+Cloudflare's Jakarta PoP, so the delta applies only to booking and OTP calls —
+a handful of requests, none of them perceptibly slower.
+
+The reason that might still favour Jakarta is **data residency, not speed**.
+The database holds Indonesian customers' phone numbers and booking history, and
+Indonesia's PDP law reaches that. Offshore storage by a private operator is
+generally permitted, but it carries obligations that in-country storage does
+not. Decide this deliberately, and not on latency grounds.
+
+**Do not claim the free tier yet.** Three months, once per account, and the
+first deploy is still blocked on the bookable-resource count and Xendit. Starting
+the clock now spends most of it on an idle box.
 
 **State** — remote backend with encryption. Terraform state contains secrets in
 plaintext and must never sit in the repo, which is public.
