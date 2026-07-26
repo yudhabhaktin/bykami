@@ -1,0 +1,40 @@
+---
+import { byId } from "@bykami/content";
+import BaseLayout from "@bykami/ui/BaseLayout.astro";
+import Faq from "@bykami/ui/Faq.astro";
+import PriceList from "@bykami/ui/PriceList.astro";
+
+/**
+ * No menu source exists for this vertical anywhere in the project, so
+ * `PriceList` and `Faq` both render nothing here. That is the intended
+ * behaviour — the page is deliberately small rather than padded with an empty
+ * menu table or invented dishes.
+ */
+const vertical = byId("dimsamcong");
+---
+
+<BaseLayout
+  vertical={vertical}
+  title="Dimsamcong — dimsum di Banyuwangi"
+  description="Dimsamcong, dimsum dan makanan ringan di Banyuwangi. Bagian dari bykami."
+>
+  <section class="wrap hero">
+    <h1>Dimsamcong</h1>
+    <p class="lede">{vertical.description}</p>
+  </section>
+
+  <PriceList vertical={vertical} heading="Menu" />
+
+  <Faq vertical={vertical} />
+</BaseLayout>
+
+<style>
+  .hero {
+    margin-block: var(--space-12) var(--space-16);
+  }
+
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+  }
+</style>

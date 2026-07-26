@@ -1,0 +1,63 @@
+---
+import { byId } from "@bykami/content";
+import BaseLayout from "@bykami/ui/BaseLayout.astro";
+import Faq from "@bykami/ui/Faq.astro";
+import PriceList from "@bykami/ui/PriceList.astro";
+
+const vertical = byId("studio");
+---
+
+<BaseLayout
+  vertical={vertical}
+  title="Self Photo Studio Banyuwangi — studio by KAMI"
+  description="Self photo studio, photobox, dan pas foto di Jajag, Banyuwangi. Lihat daftar paket dan harga lengkap, lalu booking lewat WhatsApp."
+>
+  <section class="wrap hero">
+    <h1>Self photo studio di Banyuwangi</h1>
+    <p class="lede">
+      Sewa ruang studio yang sudah tertata lighting-nya, lalu potret dirimu sendiri
+      pakai remote shutter. Tanpa fotografer di dalam ruangan, hasil bisa langsung
+      dicetak.
+    </p>
+  </section>
+
+  <PriceList vertical={vertical} />
+
+  <section class="wrap section">
+    <h2>Cara kerjanya</h2>
+    <ol>
+      <li>Pilih paket sesuai jumlah orang dan durasi yang kamu mau.</li>
+      <li>Chat admin lewat WhatsApp untuk memesan slot.</li>
+      <li>Datang ke studio, masuk ruang yang sudah siap dengan lighting.</li>
+      <li>Potret sendiri pakai remote shutter selama durasi paketmu.</li>
+      <li>Pilih foto terbaik untuk dicetak sebelum pulang.</li>
+    </ol>
+  </section>
+
+  <Faq vertical={vertical} />
+</BaseLayout>
+
+<style>
+  .hero {
+    margin-block: var(--space-12) var(--space-16);
+  }
+
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+  }
+
+  .section {
+    margin-block: var(--space-16);
+  }
+
+  ol {
+    max-width: var(--measure);
+    margin: 0;
+    padding-left: 1.25rem;
+  }
+
+  li {
+    margin-bottom: var(--space-2);
+  }
+</style>

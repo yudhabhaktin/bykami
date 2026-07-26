@@ -8,12 +8,22 @@ not exist yet without rebuilding the ones that do.
 
 | Vertical | Status | Domain |
 |---|---|---|
-| studio by KAMI — self photo, photobox, pas foto | Operating | `studio.bykami.com` |
-| photo by KAMI — on-location, video | Operating | `photo.bykami.com` |
-| Dimsamcong — F&B | Operating (seen in IG promos) | `food.bykami.com` *(name TBC)* |
+| studio by KAMI — self photo, pas foto | Operating | `studio.bykami.id` |
+| booth by KAMI — mobile photobooth for events | Operating | `booth.bykami.id` |
+| Dimsamcong — F&B | Operating | `dimsamcong.bykami.id` |
+| photo by KAMI — on-location, video | Operating | Deferred — no catalogue gathered |
 | Further verticals | Undefined | — |
 
-Platform root `bykami.com` — brand, vertical directory, account and loyalty portal.
+Booth was promoted out of studio into its own vertical: it has its own Instagram
+account and its own price list, it serves Banyuwangi, Jember, and Bondowoso, and
+it travels to the customer rather than operating from the Jajag address. Those
+are different customers asking different questions, which makes it a different
+site rather than a section.
+
+Photo is deferred, not dropped. Unlike studio and booth it has no price-list PDF
+to build a catalogue from, so a page for it would be an empty shell.
+
+Platform root `bykami.id` — brand, vertical directory, account and loyalty portal.
 
 **Design for extensibility, not for specific unknowns.** A new vertical should
 need only its own catalog and fulfilment logic; identity, loyalty, payments, and
@@ -23,7 +33,7 @@ notifications come from the platform.
 
 Chosen deliberately. Two consequences, one good and one to manage.
 
-**Good — SSO is nearly free.** A session cookie scoped to `.bykami.com` is
+**Good — SSO is nearly free.** A session cookie scoped to `.bykami.id` is
 readable by every subdomain beneath it. One login works across studio, photo, and
 food with no cross-domain OAuth. Separate domains (`dimsamcong.com`) would have
 forced a redirect dance for every property.
@@ -40,7 +50,7 @@ Local search, not domain structure, drives conversion here. Ranking for
   any F&B outlet are separate businesses to Google regardless of URL structure.
   This outweighs everything else for a local operator.
 - **One `Organization` entity in schema.** Every subdomain declares
-  `parentOrganization` → `bykami.com`. Entity consolidation is independent of link
+  `parentOrganization` → `bykami.id`. Entity consolidation is independent of link
   authority; engines will understand it is one company.
 - **Sitemap index at the root** referencing each subdomain's sitemap.
 - **Cross-link in nav and footer** across all properties — internal links carry
@@ -63,7 +73,7 @@ Phone-first, matching Indonesian norms — **not** email-first.
 - **No passwords.** OTP only. Fewer support requests, no credential-stuffing
   surface, and it matches what this market already expects.
 - Optional: name, email
-- Session cookie scoped to `.bykami.com` for cross-vertical SSO
+- Session cookie scoped to `.bykami.id` for cross-vertical SSO
 - Minimal PII by default — collect only what a booking or order actually needs
 
 ### Loyalty — `#SobatKAMi`
@@ -132,8 +142,9 @@ even though both ship together.
 
 ## Open
 
-- Domain for the F&B vertical — `food.bykami.com` or `dimsamcong.bykami.com`?
-  Affects whether Dimsamcong is a sub-brand or a separate brand under KAMI.
+- ~~Domain for the F&B vertical~~ — settled as `dimsamcong.bykami.id`. It keeps
+  the name customers already know from Instagram, rather than filing it under a
+  generic `food.` that nobody searches for.
 - Loyalty earn and redemption rules
 - Whether verticals share one legal entity — affects the Xendit merchant setup
   and whether one account can settle for all of them

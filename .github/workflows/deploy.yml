@@ -1,0 +1,166 @@
+name: Deploy sites
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sites/**"
+      - "packages/**"
+      - ".github/workflows/deploy.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  pull_request:
+    paths:
+      - "sites/**"
+      - "packages/**"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Indexing is opt-in and stays off until the real domain is attached. An
+  # indexed *.pages.dev copy would compete with bykami.id for its own queries.
+  BYKAMI_INDEXABLE: "false"
+
+jobs:
+  # Builds every site and asserts the SEO contract against the built output.
+  # The contract spans all four properties (cross-property links, distinct
+  # copy), so it runs once here rather than redundantly inside each deploy.
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      sites: ${{ steps.filter.outputs.sites }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Build all sites
+        run: pnpm -r build
+
+      - name: Assert SEO contract
+        run: pnpm test
+
+      - name: Report outstanding owner-blocked facts
+        if: always()
+        run: |
+          {
+            echo '### Facts still awaiting the owner'
+            echo
+            echo '```'
+            pnpm --silent coverage || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Which sites actually changed. A change confined to one site redeploys
+      # only that site; a change to a shared package redeploys all four,
+      # because all four consume it.
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            changed="ALL"
+          else
+            base="$BEFORE"
+            [ "$EVENT" = "pull_request" ] && base="$PR_BASE"
+            # A branch's first push reports an all-zero base, which is not a
+            # valid revision — fall back to rebuilding everything.
+            case "$base" in
+              "" | 0000000000000000000000000000000000000000) changed="ALL" ;;
+              *) changed="$(git diff --name-only "$base" HEAD)" ;;
+            esac
+          fi
+
+          if [ "$changed" = "ALL" ] \
+            || printf '%s\n' "$changed" | grep -qE '^(packages/|package\.json|pnpm-lock\.yaml|\.github/)'; then
+            sites='["root","studio","booth","dimsamcong"]'
+          else
+            sites="$(
+              for s in root studio booth dimsamcong; do
+                printf '%s\n' "$changed" | grep -q "^sites/$s/" && printf '%s\n' "$s"
+              done | jq -R . | jq -sc .
+            )"
+          fi
+
+          echo "sites=$sites" >> "$GITHUB_OUTPUT"
+          echo "Deploying: $sites"
+
+  deploy:
+    needs: verify
+    # Fork PRs cannot read repository secrets, so a deploy would fail with a
+    # confusing auth error rather than an obvious skip.
+    if: >-
+      needs.verify.outputs.sites != '[]' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        site: ${{ fromJSON(needs.verify.outputs.sites) }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm --filter "@bykami/site-${{ matrix.site }}" build
+
+      # Branch names reach a shell command, and on a pull request the head ref
+      # is attacker-controlled. Strip it to the character class Cloudflare
+      # accepts so it cannot carry shell metacharacters.
+      - name: Resolve deploy branch
+        id: branch
+        env:
+          RAW_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          safe="$(printf '%s' "$RAW_REF" | tr -cd 'A-Za-z0-9._/-' | cut -c1-64)"
+          [ -n "$safe" ] || safe="main"
+          echo "name=$safe" >> "$GITHUB_OUTPUT"
+
+      # wrangler is a workspace devDependency rather than something an action
+      # installs at run time: the version is pinned and reviewable, and
+      # cloudflare/wrangler-action shells out to `pnpm add wrangler`, which pnpm
+      # refuses at a workspace root without -w.
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SITE: ${{ matrix.site }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+        run: |
+          set -euo pipefail
+          pnpm exec wrangler pages deploy "sites/$SITE/dist" \
+            --project-name="bykami-$SITE" \
+            --branch="$BRANCH"

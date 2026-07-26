@@ -1,0 +1,68 @@
+---
+import { byId } from "@bykami/content";
+import BaseLayout from "@bykami/ui/BaseLayout.astro";
+import Faq from "@bykami/ui/Faq.astro";
+import PriceList from "@bykami/ui/PriceList.astro";
+
+const vertical = byId("booth");
+---
+
+<BaseLayout
+  vertical={vertical}
+  title="Sewa Photobooth Banyuwangi, Jember, Bondowoso — booth by KAMI"
+  description="Sewa photobooth untuk acara sekolah, pernikahan, dan event. Paket unlimited photo, limited print, dan unlimited print dengan harga lengkap."
+>
+  <section class="wrap hero">
+    <h1>Photobooth untuk acaramu</h1>
+    <p class="lede">
+      Kami bawa photobooth ke lokasi acaramu di Banyuwangi, Jember, dan Bondowoso.
+      Semua paket sudah termasuk backdrop standar dan desain frame.
+    </p>
+  </section>
+
+  <section class="wrap section">
+    <h2>Cocok untuk</h2>
+    <ul class="lines">
+      <li>
+        <strong>Acara sekolah</strong> — mengabadikan momen bersama teman-teman dan guru.
+      </li>
+      <li>
+        <strong>Pernikahan</strong> — kenangan bersama keluarga dan tamu di hari bahagia.
+      </li>
+      <li>
+        <strong>Event</strong> — pameran, konser, ulang tahun, sampai acara perusahaan.
+      </li>
+    </ul>
+  </section>
+
+  <PriceList vertical={vertical} heading="Paket photobooth" />
+
+  <Faq vertical={vertical} />
+</BaseLayout>
+
+<style>
+  .hero {
+    margin-block: var(--space-12) var(--space-16);
+  }
+
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+  }
+
+  .section {
+    margin-block: var(--space-16);
+  }
+
+  .lines {
+    max-width: var(--measure);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .lines li {
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--line);
+  }
+</style>

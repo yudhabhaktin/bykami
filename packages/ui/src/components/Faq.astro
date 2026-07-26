@@ -1,0 +1,76 @@
+---
+import { valueOf, type Vertical } from "@bykami/content";
+
+/**
+ * FAQ depth is the LLM retrieval surface, and it is the widest gap in the local
+ * competitive set — the strongest competitor publishes 55 real Q&As, most publish
+ * none.
+ *
+ * Questions with no answer yet are omitted entirely. A question rendered with
+ * "coming soon" is worse than absent: it wastes the retrieval surface and tells a
+ * customer the business does not know its own policy.
+ *
+ * Uses <details> so it works with JavaScript disabled — the crawl path this whole
+ * project exists to serve.
+ */
+interface Props {
+  vertical: Vertical;
+  heading?: string;
+}
+
+const { vertical, heading = "Pertanyaan umum" } = Astro.props;
+
+const answered = vertical.faqs
+  .map((f) => ({ ...f, text: valueOf(f.answer) }))
+  .filter((f): f is typeof f & { text: string } => f.text !== undefined);
+---
+
+{
+  answered.length > 0 && (
+    <section id="faq" class="wrap section">
+      <h2>{heading}</h2>
+      <ul>
+        {answered.map((f) => (
+          <li class="card">
+            <details>
+              <summary>{f.question}</summary>
+              <p class="muted">{f.text}</p>
+            </details>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+<style>
+  .section {
+    margin-block: var(--space-16);
+  }
+
+  ul {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    padding: 0;
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    min-height: var(--tap);
+    padding: var(--space-3) var(--space-4);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  p {
+    margin: 0;
+    padding: 0 var(--space-4) var(--space-4);
+  }
+</style>

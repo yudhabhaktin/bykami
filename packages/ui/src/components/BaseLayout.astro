@@ -1,0 +1,90 @@
+---
+import { pageLd, type Vertical } from "@bykami/content";
+import Footer from "./Footer.astro";
+import JsonLd from "./JsonLd.astro";
+import Nav from "./Nav.astro";
+import StickyBar from "./StickyBar.astro";
+import "../tokens.css";
+
+interface Props {
+  vertical: Vertical;
+  title?: string;
+  description?: string;
+  path?: string;
+  trail?: { name: string; path: string }[];
+}
+
+const {
+  vertical,
+  title = `${vertical.displayName} — ${vertical.tagline}`,
+  description = vertical.description,
+  path = "/",
+  trail = [],
+} = Astro.props;
+
+/**
+ * Canonical always points at the final hostname, never at the preview host, so
+ * the pages.dev deployment can never compete with the real domain once it lands.
+ * Domain cutover is then a DNS change, not a content migration.
+ */
+const canonical = `https://${vertical.hostname}${path}`;
+
+/**
+ * Indexing is opt-in and defaults to off. While the sites live on *.pages.dev
+ * they must stay out of the index; forgetting a flag should keep them out, not
+ * let them in.
+ */
+const indexable = import.meta.env["BYKAMI_INDEXABLE"] === "true";
+
+const blocks = pageLd(vertical, trail);
+---
+
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    {!indexable && <meta name="robots" content="noindex, nofollow" />}
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content="id_ID" />
+
+    <link rel="sitemap" href="/sitemap-index.xml" />
+
+    <JsonLd blocks={blocks} />
+
+    <style is:global>
+      /*
+       * Self-hosted rather than Google's CDN: avoids a third-party connection and
+       * a render-blocking request on a page whose entire point is fast, crawlable
+       * HTML. Files are fetched by `pnpm fonts` into each site's public/fonts.
+       * Until they exist the stack falls back to the system sans, which is why
+       * the fallback in --font-sans is a real stack and not a bare serif.
+       */
+      @font-face {
+        font-family: "Plus Jakarta Sans";
+        src: url("/fonts/plus-jakarta-sans-variable.woff2") format("woff2-variations");
+        font-weight: 200 800;
+        font-style: normal;
+        font-display: swap;
+      }
+    </style>
+  </head>
+
+  <body>
+    <Nav current={vertical.id} />
+    <main>
+      <slot />
+    </main>
+    <Footer vertical={vertical} />
+    <StickyBar vertical={vertical} />
+  </body>
+</html>

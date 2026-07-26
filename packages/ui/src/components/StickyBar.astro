@@ -1,0 +1,102 @@
+---
+import { valueOf, type Vertical } from "@bykami/content";
+
+/**
+ * Persistent bottom CTA. None of the six competitors studied has one, despite
+ * WhatsApp being the actual conversion path for all of them.
+ *
+ * WhatsApp is primary because that is how this market books. The booking
+ * calendar sits beside it as a real second button rather than a buried link, so a
+ * self-serve funnel exists and has data before phase 2 swaps the calendar for the
+ * self-hosted booking system — that swap then changes a URL, not a habit.
+ *
+ * Renders nothing when neither route is known, rather than showing a dead button.
+ */
+interface Props {
+  vertical: Vertical;
+}
+
+const { vertical } = Astro.props;
+
+const whatsapp = vertical.nap ? valueOf(vertical.nap.whatsapp) : undefined;
+const booking = vertical.nap ? valueOf(vertical.nap.bookingUrl) : undefined;
+
+const message = `Halo ${vertical.displayName}, saya mau tanya soal paket.`;
+const waHref = whatsapp
+  ? `https://wa.me/${whatsapp}?text=${encodeURIComponent(message)}`
+  : null;
+---
+
+{
+  (waHref || booking) && (
+    <div class="bar">
+      <div class="bar-inner">
+        {waHref && (
+          <a class="btn primary ui" href={waHref} rel="noopener">
+            Chat WhatsApp
+          </a>
+        )}
+        {booking && (
+          <a class="btn secondary ui" href={booking} rel="noopener">
+            Cek jadwal
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
+<style>
+  .bar {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 10;
+    border-top: 1px solid var(--line);
+    /*
+     * The one place translucency earns its keep: seeing content pass underneath
+     * is a real affordance here, not an effect.
+     */
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter: blur(8px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .bar-inner {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    width: 100%;
+    max-width: 72rem;
+    margin-inline: auto;
+    min-height: var(--bar-height);
+    padding: var(--space-2) var(--space-4);
+  }
+
+  .btn {
+    display: inline-flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--tap);
+    padding-inline: var(--space-4);
+    border-radius: var(--radius);
+    text-decoration: none;
+  }
+
+  .primary {
+    background: var(--text);
+    color: var(--surface);
+  }
+
+  .secondary {
+    border: 1px solid var(--line);
+    color: var(--text);
+  }
+
+  @supports not (backdrop-filter: blur(8px)) {
+    .bar {
+      background: var(--surface);
+    }
+  }
+</style>

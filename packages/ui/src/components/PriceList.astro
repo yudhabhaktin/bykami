@@ -1,0 +1,221 @@
+---
+import { valueOf, type Vertical } from "@bykami/content";
+
+/**
+ * The catalogue, as crawlable text.
+ *
+ * Cards at 390px, a table from 768px. A table at phone width either overflows the
+ * viewport or shrinks type below legibility, and the body must never scroll
+ * horizontally.
+ *
+ * Prices render whether or not they are owner-verified: they come from the
+ * owner's own price list, which is the best source that exists. The verification
+ * gate governs *structured data*, not what a human sees — a wrong number shown to
+ * one visitor is recoverable, the same number quoted by every answer engine as
+ * fact is not.
+ */
+interface Props {
+  vertical: Vertical;
+  heading?: string;
+}
+
+const { vertical, heading = "Paket & harga" } = Astro.props;
+
+const idr = new Intl.NumberFormat("id-ID", {
+  style: "currency",
+  currency: "IDR",
+  maximumFractionDigits: 0,
+});
+
+const rows = vertical.offerings
+  .slice()
+  .sort((a, b) => a.orderIndex - b.orderIndex)
+  .map((o) => {
+    const price = valueOf(o.priceIDR);
+    const duration = o.durationMinutes ? valueOf(o.durationMinutes) : undefined;
+    const heads = o.headcount ? valueOf(o.headcount) : undefined;
+    const prints = o.printsIncluded ? valueOf(o.printsIncluded) : undefined;
+    return {
+      id: o.id,
+      name: o.name,
+      description: o.description,
+      price: price === undefined ? null : idr.format(price),
+      duration: duration === undefined ? null : `${duration} menit`,
+      heads: heads === undefined ? null : heads.min === heads.max ? `${heads.max} orang` : `${heads.min}–${heads.max} orang`,
+      prints: prints === undefined ? null : `${prints} cetak`,
+    };
+  });
+---
+
+{
+  rows.length > 0 && (
+    <section id="harga" class="wrap section">
+      <h2>{heading}</h2>
+
+      <ul class="cards">
+        {rows.map((r) => (
+          <li class="card item">
+            <div class="head">
+              <h3>{r.name}</h3>
+              {r.price && <span class="price tabular">{r.price}</span>}
+            </div>
+            {r.description && <p class="muted desc">{r.description}</p>}
+            <dl class="meta ui muted tabular">
+              {r.duration && (
+                <div>
+                  <dt>Durasi</dt>
+                  <dd>{r.duration}</dd>
+                </div>
+              )}
+              {r.heads && (
+                <div>
+                  <dt>Kapasitas</dt>
+                  <dd>{r.heads}</dd>
+                </div>
+              )}
+              {r.prints && (
+                <div>
+                  <dt>Cetak</dt>
+                  <dd>{r.prints}</dd>
+                </div>
+              )}
+            </dl>
+          </li>
+        ))}
+      </ul>
+
+      <div class="scroll-x table-wrap">
+        <table class="tabular">
+          <thead>
+            <tr>
+              <th scope="col">Paket</th>
+              <th scope="col">Durasi</th>
+              <th scope="col">Kapasitas</th>
+              <th scope="col">Cetak</th>
+              <th scope="col">Harga</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr>
+                <th scope="row">
+                  {r.name}
+                  {r.description && <span class="muted desc-inline">{r.description}</span>}
+                </th>
+                <td>{r.duration ?? "—"}</td>
+                <td>{r.heads ?? "—"}</td>
+                <td>{r.prints ?? "—"}</td>
+                <td class="price">{r.price ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .section {
+    margin-block: var(--space-16);
+  }
+
+  .cards {
+    display: grid;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .item {
+    padding: var(--space-4);
+  }
+
+  .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 18px;
+    letter-spacing: -0.3px;
+  }
+
+  .price {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .desc {
+    margin: var(--space-2) 0 0;
+    font-size: 14px;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-6);
+    margin: var(--space-3) 0 0;
+  }
+
+  .meta div {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .meta dt,
+  .meta dd {
+    margin: 0;
+  }
+
+  .meta dt::after {
+    content: ":";
+  }
+
+  .table-wrap {
+    display: none;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+  }
+
+  th,
+  td {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  thead th {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+
+  tbody th {
+    font-weight: 600;
+  }
+
+  .desc-inline {
+    display: block;
+    font-weight: 400;
+    font-size: 14px;
+  }
+
+  @media (min-width: 768px) {
+    .cards {
+      display: none;
+    }
+
+    .table-wrap {
+      display: block;
+    }
+  }
+</style>

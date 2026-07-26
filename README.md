@@ -55,6 +55,6 @@ full resolution — Instagram downloads are re-compressed and unusable at hero s
 
 - Bookable resource count at the studio (blocks booking design)
 - Capacity conflict: PDFs say 1–4 / 1–6 / 1–10, YouCanBook.me says 3–4 / 5–6 / 7–10
-- `bykami.com` registration and DNS access
+- `bykami.id` nameservers pointed at Cloudflare (registered at Hostinger)
 - Logo vector, brand hex, licensed fonts, original photography
 - Business entity, NPWP, bank account — gates Xendit onboarding

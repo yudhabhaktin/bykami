@@ -1,0 +1,16 @@
+{
+  "name": "@bykami/content",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "coverage": "node --experimental-strip-types src/bin/coverage.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  }
+}

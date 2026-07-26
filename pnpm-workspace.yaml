@@ -1,0 +1,8 @@
+packages:
+  - "packages/*"
+  - "sites/*"
+allowBuilds:
+  # vitest -> esbuild; the postinstall links its platform-native binary.
+  esbuild: true
+  # wrangler -> workerd; the postinstall links its platform-native binary.
+  workerd: true

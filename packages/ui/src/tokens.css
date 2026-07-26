@@ -1,0 +1,153 @@
+/*
+ * Design tokens.
+ *
+ * Direction: light, single type family, opaque surfaces. Mobile-first at 390px.
+ *
+ * Deliberately not frosted glass. That treatment is cyclical — Vista Aero, iOS 7,
+ * Big Sur, Liquid Glass — current for about three years each and then visibly
+ * dated. What survives is the restraint underneath: near-neutral ground, one
+ * hairline weight, muted secondary text, tight tracking on large headings,
+ * generous whitespace.
+ *
+ * Two local reasons too: `backdrop-filter: blur()` forces layer compositing and
+ * costs scroll FPS on the mid-range Androids that dominate Indonesian traffic,
+ * which threatens the Lighthouse target; and for a photo studio, translucent
+ * chrome competes with the photography, which is the product.
+ */
+
+:root {
+  /* Warm neutrals, not blue-tinted greys — they age better and flatter skin tones. */
+  --ground: #fafaf9;
+  --surface: #ffffff;
+  --line: rgba(10, 10, 10, 0.1);
+  --text: rgba(10, 10, 10, 0.92);
+  --muted: rgba(10, 10, 10, 0.6);
+
+  /*
+   * Accent is blocked on the logo vector. Until it lands, the interface uses ink
+   * only — colour is meant to arrive from the photographs, never from chrome.
+   */
+  --accent: var(--text);
+
+  --radius: 10px;
+  --shadow: none;
+
+  --font-sans:
+    "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  --tap: 44px;
+  --bar-height: 64px;
+  --measure: 68ch;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  /* The sticky bar must never cover the last section. */
+  padding-bottom: calc(var(--bar-height) + env(safe-area-inset-bottom, 0px));
+}
+
+h1,
+h2,
+h3 {
+  margin: 0 0 var(--space-4);
+  font-weight: 700;
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: 36px;
+  line-height: 40px;
+  letter-spacing: -0.9px;
+}
+
+h2 {
+  font-size: 24px;
+  line-height: 32px;
+  letter-spacing: -0.6px;
+}
+
+p {
+  margin: 0 0 var(--space-4);
+  max-width: var(--measure);
+}
+
+a {
+  color: inherit;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Figures align in columns without needing a second font family. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.ui {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/*
+ * Anything that could exceed the viewport scrolls inside its own box. The page
+ * body must never scroll horizontally at 390px.
+ */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
