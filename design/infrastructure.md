@@ -136,11 +136,22 @@ Owns resources with an API and a lifecycle. Never shells out to Ansible.
 
 **The trial instance is deliberately *not* a Terraform resource**, which reverses
 the earlier plan to import it. The trial is attached to this specific instance ID
-through a savings plan, and `image_id` and `instance_type` are both ForceNew — so
-a managed `alicloud_instance` gives Terraform standing permission to replace the
-one thing whose identity the discount depends on. The failure is silent: the
-apply succeeds, the box comes back, and billing has quietly become full-rate
+through a savings plan, and losing the ID loses the trial silently — the apply
+succeeds, the box comes back, and billing has quietly become full-rate
 pay-as-you-go.
+
+An earlier version of this section blamed ForceNew on `image_id` and
+`instance_type`. That was wrong, and it matters because it argued against a
+re-image that turned out to be safe: both are modifiable in place, and changing
+`image_id` calls `ReplaceSystemDisk`, which wipes the system disk but keeps the
+instance ID. The fields that genuinely force replacement are
+`system_disk_category`, `availability_zone`, `data_disks` and `spot_strategy`.
+
+The real blocker is state, not ForceNew. CI has no remote backend, so a
+stateless `terraform plan` against a managed `alicloud_instance` would propose
+creating a second one on every run. Making the instance a resource means moving
+state to R2 first, and adding `lifecycle { prevent_destroy = true }` so that a
+plan which *would* replace it errors instead.
 
 So Terraform owns only what is additive — the SSH key pair and the security group
 rules — and the instance, VPC, vSwitch, and security group stay console-owned
@@ -340,10 +351,20 @@ plaintext and must never sit in the repo, which is public.
 Owns packages, users, systemd units, config files, the deployed app. Never
 creates cloud resources Terraform manages.
 
-Roles:
+Roles, in `ansible/roles/` — see `ansible/README.md` for the run order and the
+non-obvious parts:
 1. `base` — swap, `vm.swappiness`, unattended upgrades, SSH hardening, deploy user
-2. `cloudflared` — install, credentials file, systemd unit, ingress config
+2. `cloudflared` — install, service user, systemd unit, connector token
 3. `app` — binary drop, systemd unit with `GOMEMLIMIT`, SQLite data dir, backups
+   *(not written yet)*
+
+**`cloudflared` owns no ingress config**, which corrects this list's earlier
+claim that it did. The connector runs in remotely-managed mode: the tunnel and
+its routes are Terraform resources, and the box holds only a token. Ingress
+cannot be owned in two places — a `config.yml` on the box plus rules in
+Terraform is two sources of truth, and the failure is a route that works until
+the next playbook run restores a stale copy. Adding a hostname is a Terraform
+change, not an Ansible run.
 
 Rules:
 - Real modules (`ansible.builtin.systemd`, `apt`, `template`, `user`) — never bare

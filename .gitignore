@@ -22,6 +22,16 @@ dist/
 id_rsa*
 id_ed25519*
 
+# Ansible secrets and anything holding the tunnel token. The token is a bearer
+# credential: whoever has it can register a connector and receive traffic for
+# every hostname routed through the tunnel. It is passed in via -e or a vault
+# file, never written into the roles.
+ansible/vault_pass
+ansible/*.vault.yml
+ansible/group_vars/*/vault.yml
+ansible/inventory.local.yml
+ansible/*.retry
+
 terraform.tfstate
 terraform.tfstate.backup
 .terraform/

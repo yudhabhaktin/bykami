@@ -1,0 +1,19 @@
+---
+- name: Configure the bykami VPS
+  hosts: vps
+  become: true
+
+  # There is no pre_task guarding BYKAMI_VPS_HOST. Fact gathering connects
+  # before any task runs, so an assert could never fire first — the inventory
+  # makes the unset case name itself in the connection error instead.
+
+  roles:
+    # Tagged so the base role can run alone. It has to, for now: the tunnel
+    # does not exist until bykami.id is registered and Terraform creates it, so
+    # the cloudflared role has no token to be given.
+    #
+    #   ansible-playbook site.yml --tags base
+    - role: base
+      tags: [base]
+    - role: cloudflared
+      tags: [cloudflared]

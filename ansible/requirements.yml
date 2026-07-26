@@ -1,0 +1,9 @@
+---
+# Pinned, per the design rule: an unpinned collection turns a working playbook
+# into one that breaks on a day nobody changed anything. Upgrade deliberately.
+#
+# Install with:
+#   ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: ansible.posix
+    version: "2.2.2"

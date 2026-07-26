@@ -1,0 +1,103 @@
+---
+# This role runs the connector in remotely-managed mode: the tunnel and its
+# ingress rules live in Terraform (cloudflare_zero_trust_tunnel_cloudflared),
+# and the box holds nothing but a token.
+#
+# That is a deliberate split, and it disagrees with the one-line role summary in
+# design/infrastructure.md, which lists "ingress config" here. Ingress cannot be
+# owned in two places: a config.yml on the box plus rules in Terraform means two
+# sources of truth that drift, and the failure mode is a route that works until
+# the next playbook run puts back a stale copy. Terraform owns routing because
+# the Terraform section of that document already says it does.
+#
+# The practical consequence: adding a hostname is a Terraform change, not an
+# Ansible run, and this role never needs to be touched again once the token is
+# in place.
+
+- name: Require a tunnel token
+  ansible.builtin.assert:
+    that:
+      - cloudflared_token | length > 0
+    fail_msg: >-
+      cloudflared_token is empty. It comes from the Terraform-managed tunnel,
+      which does not exist yet because bykami.id is not registered. Until then
+      run the base role alone: ansible-playbook site.yml --tags base
+    quiet: true
+
+- name: Install the Cloudflare apt signing key
+  ansible.builtin.get_url:
+    url: https://pkg.cloudflare.com/cloudflare-main.gpg
+    dest: /usr/share/keyrings/cloudflare-main.gpg
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add the Cloudflare apt repository
+  # signed_by scopes this key to this one repository. Without it the key is
+  # trusted for every repository the box has, so a compromised Cloudflare key
+  # could sign a replacement for any package on the system.
+  #
+  # deb822 rather than the one-line format: apt_repository is deprecated and
+  # goes away in ansible-core 2.25.
+  ansible.builtin.deb822_repository:
+    name: cloudflared
+    types: [deb]
+    uris: https://pkg.cloudflare.com/cloudflared
+    suites: "{{ ansible_facts.distribution_release }}"
+    components: [main]
+    signed_by: /usr/share/keyrings/cloudflare-main.gpg
+    state: present
+
+- name: Install cloudflared
+  ansible.builtin.apt:
+    name: cloudflared
+    state: present
+    update_cache: true
+
+- name: Create the cloudflared service user
+  # The connector dials out and listens on nothing, so it has no need of root.
+  # The package's own `cloudflared service install` would run it as root.
+  ansible.builtin.user:
+    name: "{{ cloudflared_service_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+
+- name: Create the cloudflared config directory
+  ansible.builtin.file:
+    path: "{{ cloudflared_config_dir }}"
+    state: directory
+    owner: root
+    group: "{{ cloudflared_service_user }}"
+    mode: "0750"
+
+- name: Write the tunnel token
+  # no_log because the token is a bearer credential for the tunnel: anyone
+  # holding it can register a connector and receive traffic for every hostname
+  # routed through it. Without no_log it lands in the playbook output, and from
+  # there in a CI log.
+  ansible.builtin.copy:
+    dest: "{{ cloudflared_config_dir }}/token.env"
+    content: "TUNNEL_TOKEN={{ cloudflared_token }}\n"
+    owner: root
+    group: "{{ cloudflared_service_user }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart cloudflared
+
+- name: Install the cloudflared unit
+  ansible.builtin.template:
+    src: cloudflared.service.j2
+    dest: /etc/systemd/system/cloudflared.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart cloudflared
+
+- name: Enable and start cloudflared
+  ansible.builtin.systemd_service:
+    name: cloudflared
+    enabled: true
+    state: started
+    daemon_reload: true

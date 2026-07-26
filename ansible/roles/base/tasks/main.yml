@@ -1,0 +1,149 @@
+---
+# Swap. There is no core swapfile module, so the three steps that would
+# otherwise report "changed" on every run are each guarded by a condition that
+# reads real state — an unguarded command here is how a playbook stops being
+# able to tell you whether anything actually drifted.
+
+- name: Check for the swapfile
+  ansible.builtin.stat:
+    path: "{{ base_swapfile_path }}"
+  register: base_swapfile_stat
+
+- name: Create the swapfile
+  # dd, not fallocate. fallocate leaves unwritten extents and swapon refuses a
+  # file with holes, which fails at activation rather than at creation.
+  ansible.builtin.command:
+    cmd: "dd if=/dev/zero of={{ base_swapfile_path }} bs=1M count={{ base_swapfile_size_mb }}"
+    creates: "{{ base_swapfile_path }}"
+
+- name: Restrict swapfile permissions
+  # swapon warns and, on some kernels, refuses a world-readable swapfile. It is
+  # also a plain file containing whatever was last paged out of memory.
+  ansible.builtin.file:
+    path: "{{ base_swapfile_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  # Check mode cannot model "created by the previous task", so the file module
+  # would fail on a host that has no swapfile yet — a dry run reporting a
+  # failure for work it is not allowed to do teaches nothing.
+  when: not ansible_check_mode or base_swapfile_stat.stat.exists
+
+- name: Check whether the swapfile is already formatted
+  ansible.builtin.command:
+    cmd: "file -b {{ base_swapfile_path }}"
+  register: base_swapfile_type
+  changed_when: false
+  # Read-only, so run it for real even under --check. Otherwise check mode
+  # skips it, the next task's condition reads an undefined variable, and the
+  # dry run fails for a reason that has nothing to do with the host.
+  check_mode: false
+  # Absent on a first run, because the dd above was only simulated. Not a
+  # failure — an unformatted swapfile is exactly what the next task fixes.
+  failed_when: false
+
+- name: Format the swapfile
+  ansible.builtin.command:
+    cmd: "mkswap {{ base_swapfile_path }}"
+  # The when: above is the idempotence guard, so reaching this task always
+  # means state is about to change. Saying so explicitly keeps the run summary
+  # honest rather than suppressing the linter.
+  changed_when: true
+  when: "'swap file' not in base_swapfile_type.stdout"
+
+- name: Record the swapfile in fstab
+  # state: present writes the entry without activating it, which keeps this
+  # task's job separate from the next one's.
+  ansible.posix.mount:
+    src: "{{ base_swapfile_path }}"
+    path: none
+    fstype: swap
+    opts: sw
+    state: present
+
+- name: Read active swap devices
+  ansible.builtin.command:
+    cmd: swapon --noheadings --show=NAME
+  register: base_active_swap
+  changed_when: false
+  check_mode: false
+
+- name: Activate the swapfile
+  ansible.builtin.command:
+    cmd: "swapon {{ base_swapfile_path }}"
+  changed_when: true
+  when: base_swapfile_path not in base_active_swap.stdout
+
+- name: Set vm.swappiness
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: "{{ base_swappiness | string }}"
+    sysctl_file: /etc/sysctl.d/60-bykami.conf
+    state: present
+    reload: true
+
+# Automatic security updates. Already on in Alibaba's image, which is exactly
+# why it belongs here — configuration that is only true because an image
+# happened to ship it is configuration nobody will notice losing.
+
+- name: Install unattended-upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable periodic unattended upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Hold packages that must not be upgraded
+  # The reason each package is held is in defaults/main.yml. Holding is what
+  # keeps unattended-upgrades — whose allowed origins include plain noble and
+  # noble-security, both carrying a newer cloud-init — from replacing the
+  # vendor build on its own schedule.
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ base_held_packages }}"
+
+# SSH. The validate below runs `sshd -t` against the rendered file before it is
+# put in place, so a template that would break sshd fails the task instead of
+# the next login. Confirmed to accept a fragment: sshd fills the rest from its
+# defaults, so a drop-in containing only these three keywords validates.
+
+- name: Harden sshd
+  ansible.builtin.template:
+    src: sshd-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/00-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload sshd
+
+- name: Create the deploy user
+  ansible.builtin.user:
+    name: "{{ base_deploy_user }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Authorize the deploy user's keys
+  # exclusive: true, and that is the whole point of this task. Rotating a key
+  # by adding the new one leaves the old one authorized, which is precisely how
+  # a disclosed key kept root on this box after it was supposedly rotated.
+  # Declaring the full set means removing a key from the list removes it from
+  # the box, rather than leaving it to be noticed later.
+  ansible.posix.authorized_key:
+    user: "{{ base_deploy_user }}"
+    key: "{{ base_deploy_user_authorized_keys | join('\n') }}"
+    exclusive: true
+    state: present
+  when: base_deploy_user_authorized_keys | length > 0

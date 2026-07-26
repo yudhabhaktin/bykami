@@ -1,0 +1,9 @@
+---
+# Reload, not restart. A reload re-reads the config without dropping
+# established connections, so the session running this playbook survives even
+# if the new config is wrong — and the template's validate step has already
+# refused an unparseable one.
+- name: Reload sshd
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: reloaded

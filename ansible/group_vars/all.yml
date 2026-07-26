@@ -1,0 +1,13 @@
+---
+# Root, because Alibaba's Ubuntu images have no other account and the deploy
+# user does not exist until the base role creates it. Once it does, and once its
+# key is proven, this should become the deploy user plus `become`. Doing that
+# before the key is proven is how you get locked out of a box whose only other
+# entry point is the VNC console.
+ansible_user: root
+ansible_ssh_private_key_file: "~/.ssh/bykami_deploy"
+
+# Refuse to authenticate any way other than by key. Without this, a box that has
+# lost its key silently falls back to prompting for a password, and a playbook
+# that hangs on a prompt looks like a network problem.
+ansible_ssh_common_args: "-o IdentitiesOnly=yes -o PreferredAuthentications=publickey"

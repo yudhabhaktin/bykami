@@ -1,0 +1,45 @@
+# {{ ansible_managed }}
+# Local edits are overwritten. Change roles/cloudflared/templates/ instead.
+
+[Unit]
+Description=Cloudflare Tunnel
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User={{ cloudflared_service_user }}
+Group={{ cloudflared_service_user }}
+
+# The token is passed as an environment variable, never as an argument.
+# cloudflared reads TUNNEL_TOKEN for --token, and an argument would put the
+# credential in /proc/<pid>/cmdline where every local user can read it via ps.
+EnvironmentFile={{ cloudflared_config_dir }}/token.env
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run
+
+# --no-autoupdate above, and this is the reason: cloudflared's self-updater
+# replaces its own binary and restarts, which makes the running version
+# something no playbook chose and no commit records. apt owns the version.
+Restart=on-failure
+RestartSec=5s
+
+# The connector needs outbound network and nothing else. These are the cheap
+# half of systemd's sandboxing — no writable paths, no new privileges, no
+# device access — and they cost nothing to keep correct.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
