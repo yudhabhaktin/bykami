@@ -127,12 +127,29 @@ Verified 2026-07-26:
 | Cheapest | from $1.68/mo new-user, list $4.20/mo for 2 vCPU / 2 GB / 40 GB, bandwidth included | **S5.MEDIUM2**, 2 vCPU / 2 GB, $0.03/hr ≈ **$21.90/mo**, bandwidth billed separately |
 | Free tier | 2C2G, 3 months | 2C4G, 3 months |
 
-CVM prices queried from `DescribeZoneInstanceConfigInfos` for `ap-jakarta-1`,
-2026-07-26. Next cheapest are SA5.MEDIUM2 at $36.50/mo and S5.MEDIUM4 at
-$43.80/mo, so S5 is the only Jakarta option in the intended price range at all.
+**`DescribeZoneInstanceConfigInfos` returns list prices, not the price you are
+offered.** The API quoted SA5.MEDIUM2 at $0.05/hr; the console sells the same
+instance at $0.01/hr under a standing 80% discount. Anything costed from that
+API alone is wrong by a factor of five, and this record was wrong that way until
+the purchase page contradicted it. Check the console before deciding on money.
 
-Jakarta therefore costs roughly **5–13x Lighthouse Singapore before traffic**,
-which is a far wider gap than the original latency-versus-cost framing assumed.
+Actual Jakarta pay-as-you-go, observed 2026-07-26:
+
+| Instance | Spec | Discounted | ~Monthly |
+|---|---|---|---|
+| SA5.MEDIUM2 | 2 vCPU / 2 GB | $0.01/hr | **~$7.30** |
+| SA5.MEDIUM4 | 2 vCPU / 4 GB | $0.012/hr | ~$8.76 |
+
+S5.MEDIUM2 — the cheapest on paper — is **sold out** in Jakarta, so SA5 is the
+real floor. Monthly subscription is *worse* than discounted pay-as-you-go here
+($18.48/mo), which inverts the usual assumption that committing saves money.
+
+Jakarta is therefore roughly **2x Lighthouse Singapore**, not 5–13x. At that
+gap, in-country data residency is easily worth the difference and the region
+question is much less finely balanced than it looked.
+
+Neither figure includes the 50 GB system disk or egress, which bill separately
+and are the line items that make a cheap instance stop being cheap.
 
 So the cheap product and the in-country region are mutually exclusive, which the
 original "cheapest VPS in Indonesia" assumption did not anticipate.
