@@ -149,7 +149,12 @@ check_call() { # service action version -> sets BODY, ENDPOINT, LAST_CODE
   for host in "${service}.tencentcloudapi.com" "${service}.intl.tencentcloudapi.com"; do
     BODY=$(call "$host" "$service" "$action" "$version" '{}')
     ENDPOINT=$host
-    LAST_CODE=$(printf '%s' "$BODY" | sed -n 's/.*"Code":"\([^"]*\)".*/\1/p')
+    # The whitespace tolerance is load bearing, not defensive style: Tencent
+    # pretty-prints error bodies as `"Code": "..."` while success bodies are
+    # compact. A parser that demanded no space read every spaced error as an
+    # empty code and reported it as success — a false green, which is the one
+    # result this script must never produce.
+    LAST_CODE=$(printf '%s' "$BODY" | sed -n 's/.*"Code":[[:space:]]*"\([^"]*\)".*/\1/p')
     if [ -z "$LAST_CODE" ]; then
       return 0
     fi
@@ -162,7 +167,7 @@ check_call() { # service action version -> sets BODY, ENDPOINT, LAST_CODE
 
 # Tolerates the value being quoted or not: CAM returns account IDs as JSON
 # strings in some responses and as numbers in others.
-field() { printf '%s' "$2" | sed -n "s/.*\"$1\":\"\{0,1\}\([0-9][0-9]*\).*/\1/p"; }
+field() { printf '%s' "$2" | sed -n "s/.*\"$1\":[[:space:]]*\"\{0,1\}\([0-9][0-9]*\).*/\1/p"; }
 
 main() {
   if [ "${1:-}" = "--self-test" ]; then
@@ -218,7 +223,9 @@ EOF
     return 1
   fi
 
-  state=$(printf '%s' "$BODY" | tr '{' '\n' | grep "\"Region\":\"${REGION}\"" | sed -n 's/.*"RegionState":"\([^"]*\)".*/\1/p')
+  state=$(printf '%s' "$BODY" | tr '{' '\n' \
+    | grep -E "\"Region\":[[:space:]]*\"${REGION}\"" \
+    | sed -n 's/.*"RegionState":[[:space:]]*"\([^"]*\)".*/\1/p')
   case "$state" in
     AVAILABLE) printf '  ok    %s is AVAILABLE\n' "$REGION" ;;
     "")        printf '  FAIL  %s is not in this account'"'"'s region list\n' "$REGION"; return 1 ;;
