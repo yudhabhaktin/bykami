@@ -1,0 +1,63 @@
+name: API
+
+# Build and test only. There is no deploy step yet on purpose: no VPS exists,
+# and the infrastructure record is explicit that the binary is built in CI and
+# shipped to the host rather than compiled there. The deploy job lands in the
+# same commit that provisions the Tencent Cloud instance.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - ".github/workflows/api.yml"
+  pull_request:
+    paths:
+      - "api/**"
+      - ".github/workflows/api.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: api-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - name: Verify go.mod and go.sum are tidy
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        # -race because the ledger's guarantees are concurrency guarantees:
+        # the tests that matter most spawn goroutines to prove a retried webhook
+        # credits once and two redemptions cannot both spend the last points.
+        run: go test -race -count=1 ./...
+
+      # Proves the binary that would ship actually links. CGO_ENABLED=0 is the
+      # point: a pure-Go SQLite driver means one static file to copy onto the
+      # VPS, with no toolchain and no shared libraries on the production host.
+      - name: Build the release binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: go build -trimpath -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami
