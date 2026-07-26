@@ -1,9 +1,20 @@
 name: API
 
-# Build and test only. There is no deploy step yet on purpose: no VPS exists,
-# and the infrastructure record is explicit that the binary is built in CI and
-# shipped to the host rather than compiled there. The deploy job lands in the
-# same commit that configures the Alibaba Cloud instance.
+# Build and test only. The binary is built here and shipped to the host rather
+# than compiled there, which is the standing rule.
+#
+# The VPS now exists and ansible/roles/app deploys to it, so the original reason
+# for having no deploy job is gone. What blocks it is reachability, not
+# readiness: the box has one inbound rule, port 22 from a single admin address,
+# and GitHub's runners come from ranges too broad to allowlist without undoing
+# the reason the tunnel exists.
+#
+# The fix is Cloudflare Access in front of an ssh:// tunnel ingress, with a
+# service token for CI — short-lived, revocable, and no open port. That needs a
+# Zero Trust organization and an API token carrying Access permissions, neither
+# of which exists yet. Until then deploys run from a workstation:
+#
+#   ansible-playbook site.yml --tags app -e app_binary_src=/tmp/bykami
 on:
   push:
     branches: [main]
