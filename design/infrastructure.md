@@ -127,29 +127,36 @@ Verified 2026-07-26:
 | Cheapest | from $1.68/mo new-user, list $4.20/mo for 2 vCPU / 2 GB / 40 GB, bandwidth included | **S5.MEDIUM2**, 2 vCPU / 2 GB, $0.03/hr ≈ **$21.90/mo**, bandwidth billed separately |
 | Free tier | 2C2G, 3 months | 2C4G, 3 months |
 
-**`DescribeZoneInstanceConfigInfos` returns list prices, not the price you are
-offered.** The API quoted SA5.MEDIUM2 at $0.05/hr; the console sells the same
-instance at $0.01/hr under a standing 80% discount. Anything costed from that
-API alone is wrong by a factor of five, and this record was wrong that way until
-the purchase page contradicted it. Check the console before deciding on money.
+SA5.MEDIUM2 (2 vCPU / 2 GB) in `ap-jakarta`, observed on the purchase page
+2026-07-26. S5.MEDIUM2 is cheaper on paper and **sold out**, so SA5 is the floor.
 
-Actual Jakarta pay-as-you-go, observed 2026-07-26:
-
-| Instance | Spec | Discounted | ~Monthly |
+| Billing mode | Rate | ~Monthly | Use |
 |---|---|---|---|
-| SA5.MEDIUM2 | 2 vCPU / 2 GB | $0.01/hr | **~$7.30** |
-| SA5.MEDIUM4 | 2 vCPU / 4 GB | $0.012/hr | ~$8.76 |
+| Spot | $0.01/hr | ~$7.30 | **Disqualified.** See below. |
+| Pay-as-you-go | $0.04/hr | ~$29.20 | Short-lived rehearsals — billed per hour, so days cost days |
+| Monthly subscription | — | $18.48 | Once it runs continuously |
+| 1 year | — | $15.36 | |
+| 3 years | — | $12.00 | |
 
-S5.MEDIUM2 — the cheapest on paper — is **sold out** in Jakarta, so SA5 is the
-real floor. Monthly subscription is *worse* than discounted pay-as-you-go here
-($18.48/mo), which inverts the usual assumption that committing saves money.
+**Spot is not an option here at any discount**, and the temptation is real
+because it is a quarter the price of anything else. Tencent's own warning names
+the disqualifying case exactly: *do not use for database and single point
+services that cannot be interrupted*. SQLite sits on the instance's local disk
+and there is no second node, so a repossession is not downtime, it is the
+booking history and the loyalty ledger gone. The ledger's whole point is that a
+dispute stays resolvable months later.
 
-Jakarta is therefore roughly **2x Lighthouse Singapore**, not 5–13x. At that
-gap, in-country data residency is easily worth the difference and the region
-question is much less finely balanced than it looked.
+Note that continuous running inverts the usual advice: pay-as-you-go costs
+**more** than subscribing ($29.20 against $18.48). Pay-as-you-go earns its place
+only while the box is disposable.
 
-Neither figure includes the 50 GB system disk or egress, which bill separately
-and are the line items that make a cheap instance stop being cheap.
+Jakarta at $18.48/mo is therefore roughly **4–11x Lighthouse Singapore**,
+which is close to the original estimate. Neither figure includes the system disk
+or egress, and those are what make a cheap instance stop being cheap.
+
+The pricing API is no substitute for the purchase page. It quotes list rates for
+pay-as-you-go only ($0.05/hr against the $0.04 actually offered) and knows
+nothing of subscription or spot, so it cannot answer "what will this cost".
 
 So the cheap product and the in-country region are mutually exclusive, which the
 original "cheapest VPS in Indonesia" assumption did not anticipate.
