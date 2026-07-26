@@ -229,6 +229,19 @@ hour ahead of the business), key-only auth enforced via
 `/etc/ssh/sshd_config.d/00-hardening.conf`, and `sshd -T` confirms
 `passwordauthentication no` and `permitrootlogin without-password`.
 
+The `base` role has been applied and a second run reports `changed=0`, so the
+box's configuration is now described by `ansible/` rather than by whatever was
+typed into it. That run added the 2 GB swapfile the memory budget calls for —
+absent until then — set `vm.swappiness=10`, and created the `deploy` user. The
+sshd drop-in it wrote differs from the hand-applied one by comments only, which
+is the useful part: adopting the role changed no behaviour.
+
+`deploy` has no authorized keys yet, so it cannot log in. That is deliberate —
+it wants a key of its own rather than a copy of root's, and
+`base_deploy_user_authorized_keys` stays empty until one is minted. Until then
+root remains the only way in, which is why `base_permit_root_login` is still
+`prohibit-password` rather than `no`.
+
 **Leave `cloud-init` on hold.** The image ships Alibaba's own build, `23.2.2-8`,
 held along with `intel-microcode`, while the archive offers `26.1`. The hold is
 not staleness to tidy up: the package owns
