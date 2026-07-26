@@ -52,7 +52,12 @@ resource "cloudflare_pages_project" "site" {
   production_branch = "main"
 }
 
-# Custom domains are deliberately absent. They require the zone, and bykami.id
-# is not registered yet. Until then every site serves from <project>.pages.dev
-# under noindex, while canonical URLs already point at the hostnames above — so
-# cutover is attaching domains and flipping BYKAMI_INDEXABLE, not a migration.
+# Custom domains are attached but NOT managed here, which is drift rather than
+# a decision. bykami.id was registered on 2026-07-26 and the domains were
+# attached through the dashboard; the zone now carries CNAMEs for the apex,
+# www, studio, booth and dimsamcong, none of them in state.
+#
+# Terraform owns the four projects and, in tunnel.tf, the zone's one other
+# record. Adopting the rest means cloudflare_pages_domain resources plus
+# cloudflare_dns_record blocks for the five CNAMEs, imported rather than
+# created — creating them would collide with what is already live.

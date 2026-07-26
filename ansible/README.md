@@ -74,18 +74,41 @@ Two details in the unit are load-bearing:
   which makes the running version something no playbook chose and no commit
   records. `apt` owns the version.
 
-### It cannot run yet
+### Running it
 
-`bykami.id` is not registered, so the Terraform tunnel does not exist and there
-is no token to hand it. The role fails with that explanation rather than
-installing a daemon that reports itself active while connecting to nothing.
-Until then, `--tags base`.
-
-When there is a token:
+The tunnel exists as of 2026-07-26 — `bykami.id` is registered and the
+Terraform resources in `infra/cloudflare/tunnel.tf` are applied. The token
+comes from that stack:
 
 ```bash
-ansible-playbook site.yml -e cloudflared_token="$CLOUDFLARED_TOKEN"
+cd ../infra/cloudflare
+install -m 600 /dev/null /tmp/tv.yml
+printf 'cloudflared_token: "%s"\n' "$(terraform output -raw tunnel_token)" > /tmp/tv.yml
+cd ../../ansible && ansible-playbook site.yml -e @/tmp/tv.yml
+rm -f /tmp/tv.yml
 ```
+
+A file rather than `-e cloudflared_token=...` on the command line, because an
+argument is visible in `ps` to every local user for as long as the play runs —
+the same reason the systemd unit passes it by `EnvironmentFile`.
+
+### Verifying it, which is not what you would guess
+
+`systemctl is-active cloudflared` and the tunnel's own `healthy` status both
+report the connector's link to Cloudflare's edge. Neither says anything about
+whether your origin answers. A box with nothing listening on `127.0.0.1:8080`
+reports `healthy` and serves 502.
+
+The only check that means anything is a request that reaches the origin and
+comes back:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://app.bykami.id/healthz
+```
+
+Until the `app` role exists, that returns 502 and **that is the correct
+answer** — the tunnel was verified end to end on 2026-07-26 with a throwaway
+listener on 8080, which returned 200.
 
 ## Order of operations, once the tunnel is real
 
