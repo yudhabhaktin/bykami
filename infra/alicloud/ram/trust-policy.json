@@ -14,8 +14,8 @@
           "oidc:iss": "https://token.actions.githubusercontent.com",
           "oidc:aud": "sts.aliyuncs.com",
           "oidc:sub": [
-            "repo:bhaktiyudha/bykami:ref:refs/heads/main",
-            "repo:bhaktiyudha/bykami:pull_request"
+            "repo:bhaktiyudha@44221675/bykami@1312201709:ref:refs/heads/main",
+            "repo:bhaktiyudha@44221675/bykami@1312201709:pull_request"
           ]
         }
       }

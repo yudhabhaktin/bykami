@@ -59,6 +59,12 @@ provider "alicloud" {
 # this when the box is bought for real.
 data "alicloud_instances" "trial" {
   ids = [var.instance_id]
+
+  # Suppresses a second API call, DescribeInstanceRamRole, which populates
+  # ram_role_name and disk_device_mappings. Nothing here reads either. Left on,
+  # it fails the plan under a least-privilege role — and the honest fix is to
+  # stop making the call, not to grant a permission for data we discard.
+  enable_details = false
 }
 
 # Console-created instances have no key pair, so login is a console-reset root
