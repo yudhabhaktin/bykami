@@ -127,24 +127,6 @@ jobs:
           | jq -er '.value' > "$token_file"
           echo "TF_VAR_oidc_token_file=$token_file" >> "$GITHUB_ENV"
 
-      # Temporary. RAM answers a trust-policy mismatch with ImplicitDeny and an
-      # encoded blob, which says a condition failed but not which one. These
-      # three claims are exactly what oidc:iss, oidc:aud and oidc:sub are
-      # matched against, so printing them turns guesswork into a diff.
-      #
-      # Only these three fields, never the token: the payload also carries
-      # claims that make the JWT replayable, and this repository's logs are
-      # public. Remove this step once the trust policy matches.
-      - name: Show token claims
-        run: |
-          set -euo pipefail
-          payload=$(cut -d. -f2 "$TF_VAR_oidc_token_file")
-          case $(( ${#payload} % 4 )) in
-            2) payload="${payload}==" ;;
-            3) payload="${payload}=" ;;
-          esac
-          printf '%s' "$payload" | tr '_-' '/+' | base64 -d | jq '{iss, aud, sub}'
-
       # A clean plan means the role was assumed, the trust policy matched this
       # repo and ref, and the instance is where the config says it is. Expect
       # "No changes" until ssh_public_key is set.
