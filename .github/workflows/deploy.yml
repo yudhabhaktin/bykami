@@ -149,12 +149,18 @@ jobs:
           [ -n "$safe" ] || safe="main"
           echo "name=$safe" >> "$GITHUB_OUTPUT"
 
+      # wrangler is a workspace devDependency rather than something an action
+      # installs at run time: the version is pinned and reviewable, and
+      # cloudflare/wrangler-action shells out to `pnpm add wrangler`, which pnpm
+      # refuses at a workspace root without -w.
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: >-
-            pages deploy sites/${{ matrix.site }}/dist
-            --project-name=bykami-${{ matrix.site }}
-            --branch=${{ steps.branch.outputs.name }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SITE: ${{ matrix.site }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+        run: |
+          set -euo pipefail
+          pnpm exec wrangler pages deploy "sites/$SITE/dist" \
+            --project-name="bykami-$SITE" \
+            --branch="$BRANCH"
