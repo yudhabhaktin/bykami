@@ -18,3 +18,10 @@ terraform.tfstate.backup
 .terraform/
 .terraform.lock.hcl
 *.tfvars
+
+# Local SQLite databases and the WAL/shm sidecars. Real data lives on the VPS
+# and is backed up from there; a copy in the repo would be customer PII in a
+# public repository.
+*.db
+*.db-wal
+*.db-shm

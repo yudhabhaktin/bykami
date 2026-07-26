@@ -19,6 +19,7 @@ Read in this order:
 | `design/direction.md` | Brand and content read for the studio vertical; verified catalogue and NAP |
 | `design/booking-phase2.md` | Self-hosted booking to replace YouCanBook.me, QRIS via Xendit |
 | `design/infrastructure.md` | VPS memory budget, Cloudflare Tunnel, Terraform/Ansible split, CI/CD |
+| `api/` | Phase 2 monolith — identity, loyalty ledger, SQLite store |
 | `design/assets-needed.md` | Checklist of assets only the owner can supply |
 
 ## Phasing
@@ -50,6 +51,8 @@ full resolution — Instagram downloads are re-compressed and unusable at hero s
 - [~] Design direction — structure, type, and content done; palette blocked on
       original brand assets
 - [x] Phase 1 built and live on `bykami.id`
+- [~] Phase 2 — identity and the loyalty ledger built and tested; booking and
+      QRIS blocked on the two items below
 
 ## Blocked on the owner
 
