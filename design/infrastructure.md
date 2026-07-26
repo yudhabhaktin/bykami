@@ -124,8 +124,15 @@ Verified 2026-07-26:
 | | Lighthouse | CVM |
 |---|---|---|
 | `ap-jakarta` | **not offered** — HK, Singapore, Tokyo, Silicon Valley, Toronto, Frankfurt, Mumbai only | yes, 3 AZs (zone 3 restricted) |
-| Cheapest | from $1.68/mo new-user, list $4.20/mo for 2 vCPU / 2 GB / 40 GB | standard rates, unmeasured |
+| Cheapest | from $1.68/mo new-user, list $4.20/mo for 2 vCPU / 2 GB / 40 GB, bandwidth included | **S5.MEDIUM2**, 2 vCPU / 2 GB, $0.03/hr ≈ **$21.90/mo**, bandwidth billed separately |
 | Free tier | 2C2G, 3 months | 2C4G, 3 months |
+
+CVM prices queried from `DescribeZoneInstanceConfigInfos` for `ap-jakarta-1`,
+2026-07-26. Next cheapest are SA5.MEDIUM2 at $36.50/mo and S5.MEDIUM4 at
+$43.80/mo, so S5 is the only Jakarta option in the intended price range at all.
+
+Jakarta therefore costs roughly **5–13x Lighthouse Singapore before traffic**,
+which is a far wider gap than the original latency-versus-cost framing assumed.
 
 So the cheap product and the in-country region are mutually exclusive, which the
 original "cheapest VPS in Indonesia" assumption did not anticipate.
@@ -142,9 +149,17 @@ Indonesia's PDP law reaches that. Offshore storage by a private operator is
 generally permitted, but it carries obligations that in-country storage does
 not. Decide this deliberately, and not on latency grounds.
 
-**Do not claim the free tier yet.** Three months, once per account, and the
-first deploy is still blocked on the bookable-resource count and Xendit. Starting
-the clock now spends most of it on an idle box.
+**Decided: claim the CVM free tier, not the Lighthouse one.** Eligibility is per
+*product*, so spending the CVM trial leaves the Lighthouse trial intact — and
+the two are not interchangeable rehearsals. CVM exercises the VPC, the security
+group and the `tencentcloud_instance` resource that the design assumes;
+Lighthouse has no VPC and a different resource, so none of that work would carry
+over. Trialling the expensive product and keeping the cheap one in reserve also
+happens to be the order that preserves both options.
+
+The three-month clock is the risk: $0 to $21.90/mo plus traffic is a cliff, not
+a slope. Decide Jakarta versus Singapore before month three, with real traffic
+data rather than the estimate above.
 
 **State** — remote backend with encryption. Terraform state contains secrets in
 plaintext and must never sit in the repo, which is public.
