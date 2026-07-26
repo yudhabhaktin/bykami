@@ -25,6 +25,13 @@ name: Alibaba Cloud
 on:
   workflow_dispatch:
   push:
+    # main only. The trust policy trusts two subjects — `ref:refs/heads/main`
+    # and `pull_request` — so a push to any other branch assumes a role it is
+    # not allowed to assume and fails with an ImplicitDeny that looks like a
+    # broken setup rather than the policy working exactly as intended.
+    # Branch work is covered by the pull_request trigger below, whose subject
+    # is trusted.
+    branches: [main]
     paths:
       - "infra/alicloud/**"
       - ".github/workflows/alicloud.yml"

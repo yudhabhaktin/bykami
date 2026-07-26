@@ -56,6 +56,24 @@ opened from branches in this repository can plan. Forks are excluded by GitHub
 itself, which withholds the token there, and again by the workflow's own
 fork guard — two independent mechanisms, neither relying on the other.
 
+**The `@`-suffixed numbers are not a typo.** GitHub's subject claim now embeds
+immutable IDs by default — user `44221675`, repository `1312201709` — so the sub
+reads `repo:bhaktiyudha@44221675/bykami@1312201709:…` rather than the
+name-only form most documentation still shows. Confirm with:
+
+```bash
+gh api repos/:owner/:repo/actions/oidc/customization/sub
+```
+
+Match it rather than switching the repository back to name-only. IDs cannot be
+released and re-registered by someone else, so this form closes the attack where
+a repository is renamed or deleted and its old name claimed by a stranger who
+then inherits the trust policy.
+
+The cost is that **transferring or recreating this repository silently breaks
+OIDC**, with an `ImplicitDeny` that names no condition. Re-run the command above
+and update this file if that ever happens.
+
 Adding a ref to this list grants whoever can push that ref everything the role
 can do. That is a permission change, not configuration — and it is why the next
 section matters more than this one.
