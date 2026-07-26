@@ -165,6 +165,42 @@ Cloudflare and Tencent Cloud split cleanly, and the split is deliberate:
 The VPS keeps no public IP: Cloudflare Tunnel dials out, so nothing about this
 depends on Tencent's firewall rules staying correct.
 
+## Managed robots.txt contradicts ours
+
+Verified against the live zone on 2026-07-26. The earlier assumption — that
+Cloudflare blocks AI crawlers at the edge before they reach origin — is **wrong
+for this zone**: ClaudeBot, GPTBot, and CCBot all fetch pages successfully.
+
+What actually happens is narrower and easier to miss. Cloudflare detects the
+origin's `robots.txt` and *merges* a managed block ahead of it:
+
+```
+# BEGIN Cloudflare Managed content
+User-agent: *
+Content-Signal: search=yes,ai-train=no,use=reference
+User-agent: ClaudeBot
+Disallow: /
+...
+# END Cloudflare Managed Content
+User-agent: ClaudeBot
+Allow: /            ← ours, and it arrives second
+```
+
+Every crawler the catalogue exists to reach is told `Disallow: /` before it
+reads our `Allow: /`, and `ai-train=no` is asserted as a reservation of rights
+under EU DSM Article 4. That is the opposite of the intent.
+
+**Owner action, dashboard only** — the API rejects zone-settings writes for this
+token (`9109 Unauthorized`), the same wall that blocked zone creation:
+
+1. Security → Settings → filter *Bot traffic* → turn **off**
+   "Set your preference to block training in robots.txt"
+2. Zone Overview → Control AI Crawlers → uncheck **Display Content Signals Policy**
+
+Re-verify with `curl https://studio.bykami.id/robots.txt` and confirm no
+`Cloudflare Managed content` block. Once a token with Zone:Edit exists this
+becomes a Terraform-managed zone setting rather than a manual step.
+
 ## Open
 
 - Where does Terraform state live? (Cloudflare R2 with the S3 backend is free and
