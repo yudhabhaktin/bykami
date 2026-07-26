@@ -5,9 +5,17 @@
 // credential-stuffing surface to defend, and it matches what this market
 // already expects from every other app it uses.
 //
-// Sessions are scoped to .bykami.id so one login works across studio, booth,
-// and dimsamcong without a cross-domain OAuth dance. That property is the
-// reason the platform uses subdomains at all.
+// A session is a bearer token and nothing more. This package deliberately does
+// not decide how it travels — httpapi carries it in an Authorization header,
+// because the first consumer is the kiosk at http://localhost, an origin that
+// could not send a bykami.id cookie at all.
+//
+// Cookie-borne SSO across studio, booth, and dimsamcong is still the plan and
+// is still what the subdomain layout is for; it becomes a decision about which
+// surface sets a Domain=.bykami.id cookie over these same tokens. The jar has
+// no opt-out, so that decision is made per surface — see
+// design/platform-architecture.md — and app.bykami.id is explicitly excluded
+// from it.
 package identity
 
 import (

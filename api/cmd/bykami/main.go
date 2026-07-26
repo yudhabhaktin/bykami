@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
@@ -30,17 +32,28 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "listen address; localhost because Cloudflare Tunnel dials out to it")
 	dsn := flag.String("db", "bykami.db", "path to the SQLite database")
+	// Empty by default, and that default is a safety property rather than a
+	// placeholder. With no delivery configured the auth routes answer 503, so a
+	// box nobody explicitly switched on cannot start taking real customer
+	// logins — which is exactly the state infrastructure.md requires until data
+	// residency is settled. "log" is the development sender and says so loudly.
+	otpDelivery := flag.String("otp-delivery", "", `how one-time codes are delivered: "" (disabled) or "log" (development only)`)
 	flag.Parse()
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	if err := run(*addr, *dsn, log); err != nil {
+	if err := run(*addr, *dsn, *otpDelivery, log); err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, dsn string, log *slog.Logger) error {
+func run(addr, dsn, otpDelivery string, log *slog.Logger) error {
+	sender, authEnabled, err := newSender(otpDelivery, log)
+	if err != nil {
+		return err
+	}
+
 	db, err := store.Open(dsn)
 	if err != nil {
 		return err
@@ -49,28 +62,17 @@ func run(addr, dsn string, log *slog.Logger) error {
 
 	// Wired here and nowhere else. Modules take their dependencies as
 	// parameters, which is what keeps the boundaries real rather than aspirational.
-	_ = identity.New(db, logSender{log})
-	_ = loyalty.New(db)
-
-	mux := http.NewServeMux()
-
-	// Readiness, not liveness: it touches the database, because a process that
-	// is running but cannot reach its own storage is not ready to take traffic.
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-		if err := db.PingContext(ctx); err != nil {
-			log.Error("health check failed", "err", err)
-			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	handler := httpapi.New(
+		identity.New(db, sender),
+		loyalty.New(db),
+		db.PingContext,
+		log,
+		authEnabled,
+	)
 
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: handler,
 		// Bounded so a stalled client cannot pin a connection indefinitely. On a
 		// 1 GB box each held connection is memory that the next request needs.
 		ReadHeaderTimeout: 5 * time.Second,
@@ -86,7 +88,7 @@ func run(addr, dsn string, log *slog.Logger) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", addr, "db", dsn)
+		log.Info("listening", "addr", addr, "db", dsn, "auth_enabled", authEnabled)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -103,12 +105,38 @@ func run(addr, dsn string, log *slog.Logger) error {
 	}
 }
 
+// newSender picks the delivery channel and reports whether auth routes may
+// open at all. The two travel together on purpose: an auth surface with no way
+// to deliver a code is not a working feature, it is a 500 waiting for its first
+// caller.
+func newSender(kind string, log *slog.Logger) (identity.Sender, bool, error) {
+	switch kind {
+	case "":
+		// Non-nil rather than nil even though the transport gates every route
+		// that could reach it. A nil interface here turns a future refactor
+		// that drops the gate into a panic instead of an error.
+		return disabledSender{}, false, nil
+	case "log":
+		log.Warn("OTP codes will be written to the log: development only, never production")
+		return logSender{log}, true, nil
+	default:
+		return nil, false, fmt.Errorf(`unknown -otp-delivery %q: want "" or "log"`, kind)
+	}
+}
+
+type disabledSender struct{}
+
+func (disabledSender) Send(context.Context, string, string) error {
+	return errors.New("otp delivery is not configured")
+}
+
 // logSender is the placeholder delivery channel. WhatsApp is the intended
 // primary and needs a provider account that does not exist yet; until it does,
 // codes go to the log so the flow is exercisable end to end in development.
 //
 // It must never reach production: a one-time code in a log file is a one-time
-// code in whatever reads that log.
+// code in whatever reads that log. That is enforced rather than remembered —
+// reaching it requires -otp-delivery=log, which the systemd unit does not pass.
 type logSender struct{ log *slog.Logger }
 
 func (s logSender) Send(_ context.Context, e164, code string) error {
