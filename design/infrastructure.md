@@ -103,6 +103,24 @@ flow in a way it never did for static pages. Avoid mainland-China regions: a
 domain serving traffic from them needs ICP filing, which takes weeks and gates
 launch.
 
+**Preflight before provisioning** — `infra/tencent/preflight.sh`, run by the
+`Tencent preflight` workflow. It checks `sts:GetCallerIdentity` and
+`cvm:DescribeRegions` separately, because "the key is wrong" and "the key lacks
+CAM permission" are different problems that a half-finished `terraform apply`
+reports identically. It signs offline against Tencent's published test vector
+first, so a green self-test means a red API result is genuinely the account
+rather than the script.
+
+Two things it cannot answer without credentials, and both are worth settling
+before the first `apply`: whether Lighthouse (the cheap fixed-bundle product) is
+offered in `ap-jakarta` at all, and what the cheapest usable instance actually
+costs there. Query them rather than assume.
+
+**New-user promotional pricing is a console purchase flow.** If a promo is used,
+the instance is bought by hand and Terraform *imports* it, exactly as the
+Cloudflare zone was. Creating it from Terraform gets standard rates. That is a
+pricing constraint dictating the workflow, not a preference.
+
 **State** — remote backend with encryption. Terraform state contains secrets in
 plaintext and must never sit in the repo, which is public.
 
@@ -148,6 +166,11 @@ The repo is **public**. Nothing sensitive in the tree, ever.
 
 - Cloudflare API token, tunnel credentials, Xendit keys, SSH deploy key → GitHub
   Actions secrets, injected at runtime
+- `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` → same, named for the
+  Terraform provider's own variables so nothing is renamed later. Issue them to a
+  dedicated CAM sub-user, never the root account: root keys carry billing and
+  account closure, and this repo is public enough that the blast radius of a
+  mistake should be one VPS.
 - Ansible secrets → `ansible-vault`, or injected as env from Actions
 - Terraform state → encrypted remote backend, restricted access
 - Never bake config with credentials into any shipped artifact
