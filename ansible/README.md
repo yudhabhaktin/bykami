@@ -110,6 +110,49 @@ Until the `app` role exists, that returns 502 and **that is the correct
 answer** — the tunnel was verified end to end on 2026-07-26 with a throwaway
 listener on 8080, which returned 200.
 
+## `app`
+
+Binary drop, systemd unit with `GOMEMLIMIT`, SQLite data dir, backups.
+
+```bash
+cd ../api && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+  go build -trimpath -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami
+cd ../ansible && ansible-playbook site.yml --tags app -e app_binary_src=/tmp/bykami
+```
+
+The role ships a binary and refuses to build one — a toolchain on a production
+host is a liability regardless of how fast it compiles.
+
+**`copy` compares checksums, which is what makes a redeploy safe.** An unchanged
+binary fires no handler, so re-running the play does not restart the service and
+does not drop in-flight requests. Only a genuinely new binary causes a restart.
+
+**The health check is the deploy gate.** After the handlers are flushed — the
+`meta: flush_handlers` is load-bearing, without it the check would test the
+*previous* binary — the role polls `/healthz`, which touches the database. A 200
+proves the app reached its own storage. `systemctl is-active` proves only that a
+process started, which is the same trap as reading tunnel status.
+
+### Backups are half-finished, deliberately visibly
+
+A daily timer runs `sqlite3 .backup`, checks `PRAGMA integrity_check` and
+deletes the copy if it fails, keeps 7, and writes `0600` under a `0750`
+directory. `.backup` and not `cp`: the database is in WAL mode, so a file copy
+can catch a checkpoint mid-flight and produce a backup that restores to a torn
+state — and it usually looks fine, because the damage sits in pages the restore
+does not touch until much later.
+
+**The backups are on the same disk as the database.** They survive `rm` and a
+bad migration. They do not survive losing the instance — and this instance has
+an auto-release set for 2026-10-24, so that is a scheduled event, not a
+hypothetical. Off-box copies to R2 are the missing half and need R2 credentials
+that do not exist yet.
+
+Verified on 2026-07-26: the timer ran, the backup passed its integrity check,
+and it opened with the real schema — `users`, `sessions`, `otp_challenges`,
+`loyalty_entries`, `schema_migrations`. A backup nobody has opened is a
+hypothesis.
+
 ## Order of operations, once the tunnel is real
 
 1. `--tags base`, confirm a second run is `changed=0`

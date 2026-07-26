@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Back up the bykami SQLite database
+After={{ app_name }}.service
+
+[Service]
+Type=oneshot
+User={{ app_user }}
+Group={{ app_user }}
+ExecStart=/usr/local/bin/{{ app_name }}-backup
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+# Both paths. The data directory is not a typo and not over-permission: opening
+# a WAL database requires writing its -shm sidecar even to read, so a read-only
+# data directory makes sqlite3 fail to open the file at all.
+ReadWritePaths={{ app_backup_dir }} {{ app_data_dir }}
+ProtectHome=true

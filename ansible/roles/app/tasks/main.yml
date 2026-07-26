@@ -1,0 +1,130 @@
+---
+- name: Require a binary to deploy
+  ansible.builtin.assert:
+    that:
+      - app_binary_src | length > 0
+    fail_msg: >-
+      app_binary_src is empty. This role ships a binary, it does not build one —
+      a toolchain on a production host is a liability regardless of how fast it
+      compiles. Build it in CI, or locally with:
+      cd api && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath
+      -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami
+    quiet: true
+
+- name: Check the binary exists on the control machine
+  ansible.builtin.stat:
+    path: "{{ app_binary_src }}"
+  register: app_binary_stat
+  delegate_to: localhost
+  become: false
+
+- name: Require the binary to be present
+  ansible.builtin.assert:
+    that:
+      - app_binary_stat.stat.exists
+    fail_msg: "No file at {{ app_binary_src }} on the control machine."
+    quiet: true
+
+- name: Install sqlite3
+  # For backups only. The app embeds a pure-Go SQLite driver and needs no
+  # system library; this is the CLI, and it is what makes a consistent hot
+  # backup possible at all.
+  ansible.builtin.apt:
+    name: sqlite3
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the service user
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+
+- name: Create the data directory
+  ansible.builtin.file:
+    path: "{{ app_data_dir }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    # 0750, not 0755. This directory holds the customer database.
+    mode: "0750"
+
+- name: Create the backup directory
+  ansible.builtin.file:
+    path: "{{ app_backup_dir }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0750"
+
+- name: Install the binary
+  # copy compares checksums, so this is idempotent and only restarts the
+  # service when the binary actually changed. That is what makes a redeploy of
+  # an unchanged SHA a no-op rather than a needless drop of in-flight requests.
+  ansible.builtin.copy:
+    src: "{{ app_binary_src }}"
+    dest: "{{ app_install_path }}"
+    owner: root
+    group: root
+    # Owned by root and not writable by the service user: a compromised app
+    # process should not be able to rewrite the binary it will be restarted as.
+    mode: "0755"
+  notify: Restart app
+
+- name: Install the backup script
+  ansible.builtin.template:
+    src: bykami-backup.sh.j2
+    dest: "/usr/local/bin/{{ app_name }}-backup"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the systemd units
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: bykami.service.j2, dest: "{{ app_name }}.service" }
+    - { src: bykami-backup.service.j2, dest: "{{ app_name }}-backup.service" }
+    - { src: bykami-backup.timer.j2, dest: "{{ app_name }}-backup.timer" }
+  notify: Restart app
+
+- name: Enable and start the app
+  ansible.builtin.systemd_service:
+    name: "{{ app_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Enable the backup timer
+  ansible.builtin.systemd_service:
+    name: "{{ app_name }}-backup.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Flush handlers so the health check tests the new binary
+  # Without this, handlers run at the end of the play and the check below would
+  # be testing whatever was already running — reporting a deploy healthy on the
+  # strength of the previous version.
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the app to report ready
+  # The check that actually means something. systemd reporting active only says
+  # the process started; /healthz touches the database, so a 200 proves the app
+  # can reach its own storage. Run on the host against localhost because the
+  # app is not reachable from anywhere else by design.
+  ansible.builtin.uri:
+    url: "http://{{ app_listen_addr }}/healthz"
+    status_code: 200
+  register: app_health
+  retries: 10
+  delay: 2
+  until: app_health is succeeded
+  changed_when: false

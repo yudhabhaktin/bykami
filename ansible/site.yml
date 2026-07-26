@@ -17,3 +17,8 @@
       tags: [base]
     - role: cloudflared
       tags: [cloudflared]
+    # Last, because it is the only role with an input that changes every
+    # deploy. base and cloudflared converge to a fixed state; this one ships a
+    # new binary each time.
+    - role: app
+      tags: [app]

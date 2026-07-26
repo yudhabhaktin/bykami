@@ -378,7 +378,6 @@ non-obvious parts:
 1. `base` — swap, `vm.swappiness`, unattended upgrades, SSH hardening, deploy user
 2. `cloudflared` — install, service user, systemd unit, connector token
 3. `app` — binary drop, systemd unit with `GOMEMLIMIT`, SQLite data dir, backups
-   *(not written yet)*
 
 **`cloudflared` owns no ingress config**, which corrects this list's earlier
 claim that it did. The connector runs in remotely-managed mode: the tunnel and
