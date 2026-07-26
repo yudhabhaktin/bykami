@@ -1,29 +1,42 @@
 ---
-- name: Require a binary to deploy
-  ansible.builtin.assert:
-    that:
-      - app_binary_src | length > 0
-    fail_msg: >-
-      app_binary_src is empty. This role ships a binary, it does not build one —
-      a toolchain on a production host is a liability regardless of how fast it
-      compiles. Build it in CI, or locally with:
-      cd api && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath
-      -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami
-    quiet: true
+# Two ways a binary arrives, and the role supports both because they serve
+# different moments. Pushing one (app_binary_src) is how a workstation deploys
+# and how the box is bootstrapped before any release exists. Pulling is the
+# steady state. Neither is required if a binary is already installed.
 
-- name: Check the binary exists on the control machine
+- name: Check for an already-installed binary
+  ansible.builtin.stat:
+    path: "{{ app_install_path }}"
+  register: app_installed_stat
+
+- name: Check the pushed binary exists on the control machine
   ansible.builtin.stat:
     path: "{{ app_binary_src }}"
   register: app_binary_stat
   delegate_to: localhost
   become: false
+  when: app_binary_src | length > 0
 
-- name: Require the binary to be present
+- name: Require a binary from somewhere
+  ansible.builtin.assert:
+    that:
+      - app_binary_src | length > 0 or app_installed_stat.stat.exists or app_update_enabled
+    fail_msg: >-
+      No binary to run. Either push one with
+      -e app_binary_src=/path/to/linux-amd64-binary (build it with
+      cd api && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath
+      -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami), or set
+      app_update_enabled=true to let the box pull the latest release itself.
+      This role never builds on the host.
+    quiet: true
+
+- name: Require the pushed binary to be present
   ansible.builtin.assert:
     that:
       - app_binary_stat.stat.exists
     fail_msg: "No file at {{ app_binary_src }} on the control machine."
     quiet: true
+  when: app_binary_src | length > 0
 
 - name: Install sqlite3
   # For backups only. The app embeds a pure-Go SQLite driver and needs no
@@ -64,6 +77,10 @@
   # copy compares checksums, so this is idempotent and only restarts the
   # service when the binary actually changed. That is what makes a redeploy of
   # an unchanged SHA a no-op rather than a needless drop of in-flight requests.
+  #
+  # Skipped entirely when nothing was pushed, which is the normal case once the
+  # updater is running — otherwise every playbook run would fight the pulled
+  # version and reinstall whatever the operator last had lying in /tmp.
   ansible.builtin.copy:
     src: "{{ app_binary_src }}"
     dest: "{{ app_install_path }}"
@@ -72,6 +89,7 @@
     # Owned by root and not writable by the service user: a compromised app
     # process should not be able to rewrite the binary it will be restarted as.
     mode: "0755"
+  when: app_binary_src | length > 0
   notify: Restart app
 
 - name: Install the backup script
@@ -80,6 +98,17 @@
     dest: "/usr/local/bin/{{ app_name }}-backup"
     owner: root
     group: root
+    mode: "0755"
+
+- name: Install the update script
+  ansible.builtin.template:
+    src: bykami-update.sh.j2
+    dest: "/usr/local/bin/{{ app_name }}-update"
+    owner: root
+    group: root
+    # Not writable by the service user: this script runs as root and installs
+    # the binary, so the app being able to edit it would be a direct path from
+    # a compromised process to persistent root.
     mode: "0755"
 
 - name: Install the systemd units
@@ -93,7 +122,22 @@
     - { src: bykami.service.j2, dest: "{{ app_name }}.service" }
     - { src: bykami-backup.service.j2, dest: "{{ app_name }}-backup.service" }
     - { src: bykami-backup.timer.j2, dest: "{{ app_name }}-backup.timer" }
+    - { src: bykami-update.service.j2, dest: "{{ app_name }}-update.service" }
+    - { src: bykami-update.timer.j2, dest: "{{ app_name }}-update.timer" }
   notify: Restart app
+
+- name: Bootstrap the binary by pulling the latest release
+  # Only when the box has no binary and none was pushed. The updater installs,
+  # restarts and health-gates on its own, so the tasks below then find a
+  # running service rather than a unit that cannot start.
+  ansible.builtin.command:
+    cmd: "/usr/local/bin/{{ app_name }}-update"
+  register: app_bootstrap
+  changed_when: "'installed' in app_bootstrap.stdout"
+  when:
+    - app_binary_src | length == 0
+    - not app_installed_stat.stat.exists
+    - app_update_enabled
 
 - name: Enable and start the app
   ansible.builtin.systemd_service:
@@ -107,6 +151,16 @@
     name: "{{ app_name }}-backup.timer"
     enabled: true
     state: started
+    daemon_reload: true
+
+- name: Set the update timer to match app_update_enabled
+  # Both branches are declared rather than only the enabling one, so flipping
+  # the variable back off actually stops the timer. A task that only ever
+  # enables leaves the box running whatever it was last told to run.
+  ansible.builtin.systemd_service:
+    name: "{{ app_name }}-update.timer"
+    enabled: "{{ app_update_enabled }}"
+    state: "{{ 'started' if app_update_enabled else 'stopped' }}"
     daemon_reload: true
 
 - name: Flush handlers so the health check tests the new binary

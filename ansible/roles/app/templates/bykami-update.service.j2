@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Pull and install the latest bykami release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# Root, unavoidably: it writes {{ app_install_path }} and restarts a unit. That
+# is the cost of pull-based deploy, and the reason the script verifies a
+# checksum and health-gates the result rather than trusting what it downloads.
+User=root
+ExecStart=/usr/local/bin/{{ app_name }}-update
+
+# Deliberately narrower than the app's own unit. It needs the binary path, the
+# data dir for its version marker, and nothing else on the filesystem.
+ProtectSystem=strict
+ReadWritePaths=/usr/local/bin {{ app_data_dir }}
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true

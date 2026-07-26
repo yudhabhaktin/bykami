@@ -133,6 +133,42 @@ does not drop in-flight requests. Only a genuinely new binary causes a restart.
 proves the app reached its own storage. `systemctl is-active` proves only that a
 process started, which is the same trap as reading tunnel status.
 
+### Pull-based deploy
+
+CI publishes a GitHub Release tagged `api-<sha>`; the box polls and installs.
+Nothing reaches into the box, which is the point — the VPS has one inbound rule
+and GitHub's runner ranges are far too broad to allowlist without undoing the
+reason the tunnel exists.
+
+**Off by default.** `app_update_enabled: false`, because a box that installs
+whatever `main` published, unattended, is a path from a merged commit straight
+to production. Turning it on is a deliberate act:
+
+```bash
+ansible-playbook site.yml --tags app -e app_update_enabled=true
+```
+
+The updater verifies a SHA-256 before anything touches the running system,
+installs atomically with `mv`, restarts, then polls `/healthz` for 30 seconds.
+On failure it restores the previous binary and leaves the version marker
+pointing at the last release that passed — so the next run retries rather than
+recording the bad release as installed.
+
+All four paths were exercised against the real box on 2026-07-26: no release
+(clean exit), good release (install + health pass), tampered binary (refused,
+nothing changed), and a binary that never listens (installed, health failed,
+rolled back, app healthy again after ~32s).
+
+**The checksum proves integrity, not provenance.** Anyone who can push to
+`main` can publish a release the box will install. That is the same trust
+boundary as any CI deploy, and it is the reason the timer is opt-in. Signing
+would close it and is not done.
+
+**Do not sort releases by list order.** GitHub's list endpoint does not
+reliably return newest-first — observed returning an older release ahead of a
+newer one — so the script sorts on `published_at` explicitly. Taking the first
+match installs a stale binary or appears to sit on the current version forever.
+
 ### Backups are half-finished, deliberately visibly
 
 A daily timer runs `sqlite3 .backup`, checks `PRAGMA integrity_check` and

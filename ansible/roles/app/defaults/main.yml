@@ -26,3 +26,18 @@ app_gomemlimit: 1400MiB
 app_backup_dir: /var/backups/bykami
 app_backup_keep: 7
 app_backup_oncalendar: "*-*-* 03:30:00"
+
+# Pull-based deploy. CI publishes a release tagged api-<sha>; the box polls for
+# it. Inverted on purpose: the VPS has one inbound rule and GitHub's runner
+# ranges are too broad to allowlist without undoing the point of the tunnel.
+app_release_repo: bhaktiyudha/bykami
+
+# Every 10 minutes, offset from the hour. The cost of a poll is one API call
+# against an unauthenticated rate limit of 60/hour per IP — 6/hour leaves room
+# for a manual `systemctl start bykami-update` without tripping it.
+app_update_oncalendar: "*:03/10"
+
+# Off by default. A box that installs whatever main published, unattended, is a
+# supply-chain path from a merged commit straight to production — so turning it
+# on is a deliberate act, per host, not a side effect of running the role.
+app_update_enabled: false
