@@ -88,14 +88,20 @@ Owns resources with an API and a lifecycle. Never shells out to Ansible.
 
 **Cloudflare** (provider `cloudflare`, API token scoped to the one zone):
 - Zone settings — TLS mode, always-use-HTTPS, minimum TLS version
-- DNS records for `bykami.com` and every subdomain
+- DNS records for `bykami.id` and every subdomain
 - `cloudflare_zero_trust_tunnel_cloudflared` — the tunnel and its ingress rules
-- Cloudflare Pages projects for the three static sites
+- Cloudflare Pages projects for the four static sites
 - WAF / rate-limiting rules
 
-**VPS** — depends on the provider having a Terraform provider. Many Indonesian
-hosts do not. If none exists, the instance is provisioned manually and Terraform
-manages Cloudflare only; record that explicitly rather than pretending otherwise.
+**VPS — Tencent Cloud, Jakarta region (`ap-jakarta`).** Official Terraform
+provider `tencentcloudstack/tencentcloud`, so the instance is managed rather than
+hand-built — the fallback of "provision manually, let Terraform own Cloudflare
+only" is not needed.
+
+Jakarta puts the backend in-country, which matters for a database-backed booking
+flow in a way it never did for static pages. Avoid mainland-China regions: a
+domain serving traffic from them needs ICP filing, which takes weeks and gates
+launch.
 
 **State** — remote backend with encryption. Terraform state contains secrets in
 plaintext and must never sit in the repo, which is public.
@@ -146,10 +152,21 @@ The repo is **public**. Nothing sensitive in the tree, ever.
 - Terraform state → encrypted remote backend, restricted access
 - Never bake config with credentials into any shipped artifact
 
+## Division of labour
+
+Cloudflare and Tencent Cloud split cleanly, and the split is deliberate:
+
+- **Cloudflare** owns DNS, the edge, and everything static. It already has a
+  Jakarta PoP, so moving static hosting to Tencent would not put a single byte
+  closer to Banyuwangi — it would only add cost and a second deploy path.
+- **Tencent Cloud** owns compute. That is where in-country origin actually pays,
+  because a booking request hits SQLite rather than a cached file.
+
+The VPS keeps no public IP: Cloudflare Tunnel dials out, so nothing about this
+depends on Tencent's firewall rules staying correct.
+
 ## Open
 
-- Which VPS provider? Determines whether Terraform can manage the instance or
-  only Cloudflare.
 - Where does Terraform state live? (Cloudflare R2 with the S3 backend is free and
   avoids adding a vendor.)
 
