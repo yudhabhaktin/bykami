@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./tokens.css": "./src/tokens.css",
+    "./headers": "./src/headers.mjs",
     "./*.astro": "./src/components/*.astro"
   },
   "peerDependencies": {

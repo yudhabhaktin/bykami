@@ -113,6 +113,13 @@ describe.each(verticals.map((v) => [v.id, v] as const))("%s", (id, vertical: Ver
     expect(read(id, "robots.txt")).toContain("Disallow: /");
   });
 
+  it("serves X-Robots-Tag, which covers what a meta tag cannot", () => {
+    // robots.txt stops a fetch; it does not stop an externally-linked URL from
+    // being indexed. This header does, and unlike a meta tag it also applies to
+    // llms.txt and the sitemaps.
+    expect(read(id, "_headers")).toContain("X-Robots-Tag: noindex, nofollow");
+  });
+
   it("links to every other property", () => {
     for (const other of verticals.filter((v) => v.id !== id)) {
       expect(html, `missing link to ${other.hostname}`).toContain(`https://${other.hostname}`);

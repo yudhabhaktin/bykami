@@ -1,5 +1,6 @@
 import react from "@astrojs/react";
 import sitemap from "@astrojs/sitemap";
+import { pagesHeaders } from "@bykami/ui/headers";
 import { defineConfig } from "astro/config";
 
 // Canonical URLs and the sitemap both point at the final hostname from the very
@@ -7,7 +8,7 @@ import { defineConfig } from "astro/config";
 // domain and cutover is a DNS change rather than a content migration.
 export default defineConfig({
   site: "https://booth.bykami.com",
-  integrations: [react(), sitemap()],
+  integrations: [react(), sitemap(), pagesHeaders()],
   build: { inlineStylesheets: "always" },
   compressHTML: true,
 });
