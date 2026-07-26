@@ -132,16 +132,28 @@ explain() {
   esac
 }
 
-check_call() { # host service action version
-  local out code
-  out=$(call "$1" "$2" "$3" "$4" '{}')
-  code=$(printf '%s' "$out" | sed -n 's/.*"Code":"\([^"]*\)".*/\1/p')
-  if [ -n "$code" ]; then
-    printf '  FAIL  %s\n' "$code" >&2
-    explain "$code" >&2
-    return 1
-  fi
-  printf '%s' "$out"
+# Tencent runs two API partitions. An International account (tencentcloud.com)
+# is not guaranteed to answer on the default hosts, and asking the wrong one
+# returns AuthFailure — the same code a bad key returns. Try the other partition
+# before blaming the credentials, and report which one answered, because
+# everything downstream (Terraform, Ansible) has to point at the same place.
+check_call() { # service action version
+  local service=$1 action=$2 version=$3 out code host
+  for host in "${service}.tencentcloudapi.com" "${service}.intl.tencentcloudapi.com"; do
+    out=$(call "$host" "$service" "$action" "$version" '{}')
+    code=$(printf '%s' "$out" | sed -n 's/.*"Code":"\([^"]*\)".*/\1/p')
+    if [ -z "$code" ]; then
+      ENDPOINT=$host
+      printf '%s' "$out"
+      return 0
+    fi
+    # Anything that is not an auth failure means the endpoint was right and the
+    # problem is real. Retrying the other partition would only obscure it.
+    case "$code" in AuthFailure*) ;; *) break ;; esac
+  done
+  printf '  FAIL  %s (both API partitions tried)\n' "$code" >&2
+  explain "$code" >&2
+  return 1
 }
 
 main() {
@@ -171,12 +183,13 @@ EOF
   # answers "can they see CVM, and does this account have Jakarta?" A single
   # combined check would blame the key for what is really a CAM policy gap.
   echo "Identity (sts:GetCallerIdentity, needs no product permission):"
-  out=$(check_call sts.tencentcloudapi.com sts GetCallerIdentity 2018-08-13) || return 1
+  out=$(check_call sts GetCallerIdentity 2018-08-13) || return 1
   printf '  ok    %s\n' "$(printf '%s' "$out" | sed -n 's/.*"Arn":"\([^"]*\)".*/\1/p')"
+  printf '  ok    answered on %s\n' "$ENDPOINT"
 
   echo
   echo "Capability (cvm:DescribeRegions, is ${REGION} usable by this account?):"
-  out=$(check_call cvm.tencentcloudapi.com cvm DescribeRegions 2017-03-12) || return 1
+  out=$(check_call cvm DescribeRegions 2017-03-12) || return 1
 
   state=$(printf '%s' "$out" | tr '{' '\n' | grep "\"Region\":\"${REGION}\"" | sed -n 's/.*"RegionState":"\([^"]*\)".*/\1/p')
   case "$state" in
