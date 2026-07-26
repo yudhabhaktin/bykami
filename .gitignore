@@ -13,10 +13,10 @@ dist/
 .claude/
 .playwright-mcp/
 .env.*
-# SSH private keys. The VPS deploy key is downloaded once from the Tencent
-# console and cannot be re-fetched, so it tends to get parked wherever it landed
-# — including here. This repo is public; one `git add -A` without this line
-# publishes root access to the box.
+# SSH private keys. A key generated in a cloud console downloads once and cannot
+# be re-fetched, so it tends to get parked wherever it landed — including here.
+# This repo is public; one `git add -A` without this line publishes root access
+# to the box.
 *.pem
 *.key
 id_rsa*

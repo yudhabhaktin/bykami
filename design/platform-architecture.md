@@ -25,6 +25,14 @@ to build a catalogue from, so a page for it would be an empty shell.
 
 Platform root `bykami.id` — brand, vertical directory, account and loyalty portal.
 
+Non-vertical surfaces, which serve every vertical rather than belonging to one:
+
+| Surface | Domain | Notes |
+|---|---|---|
+| Operator admin | `app.bykami.id` | Host-only cookie — deliberately *not* in the `.bykami.id` jar |
+| Customer gallery | `gallery.bykami.id` | Static HTML, no JS, no cookies. See `kiosk.md` |
+| Kiosk UI | `http://localhost` on the booth PC | Served by the agent binary; a different origin from everything above |
+
 **Design for extensibility, not for specific unknowns.** A new vertical should
 need only its own catalog and fulfilment logic; identity, loyalty, payments, and
 notifications come from the platform.
@@ -40,6 +48,23 @@ forced a redirect dance for every property.
 
 **To manage — link authority does not flow between subdomains.** Each builds its
 own from zero. Mitigations below.
+
+**To manage — the jar has no opt-out.** A `Domain=.bykami.id` cookie is sent to
+*every* subdomain; there is no way to scope it to "all except one". So any
+surface placed under `bykami.id` must be one where stealing that cookie is
+impossible, or must not receive it. Two consequences already taken:
+
+- `app.bykami.id` (operator admin) sets a **host-only** cookie — no `Domain`
+  attribute — so the admin session never enters the jar and never leaks to a
+  vertical.
+- `gallery.bykami.id` is the highest-risk surface on the platform: public URLs,
+  shared into WhatsApp groups, containing customers' faces. It is held to static
+  HTML with no JavaScript and a strict CSP, guarded by a contract test, so that
+  there is no script context in which the platform cookie could be read.
+
+A separate registrable domain would have given this for free via origin
+isolation. The subdomain was chosen for brand and for free DNS in the existing
+Terraform-managed zone; the mitigations above are the price.
 
 ## SEO strategy
 
@@ -73,8 +98,15 @@ Phone-first, matching Indonesian norms — **not** email-first.
 - **No passwords.** OTP only. Fewer support requests, no credential-stuffing
   surface, and it matches what this market already expects.
 - Optional: name, email
-- Session cookie scoped to `.bykami.id` for cross-vertical SSO
+- Session cookie scoped to `.bykami.id` for cross-vertical SSO — but see the
+  jar caveat above; not every surface gets it
 - Minimal PII by default — collect only what a booking or order actually needs
+
+**The kiosk cannot use the session cookie at all.** It runs at `localhost`, a
+different origin, so it is token-based or nothing. It captures a phone number to
+unlock digital files, stores it *unverified*, and credits loyalty only once that
+number is verified through the OTP flow. Unverified numbers never earn, which is
+what keeps the ledger clean given the number *is* the account.
 
 ### Loyalty — `#SobatKAMi`
 
@@ -85,9 +117,19 @@ brand. Local competitors run "royalti card" schemes, so the market expects this.
 
 ```
 loyalty_entry
-  id, user_id, vertical, kind ('earn'|'burn'|'adjust'),
+  id, user_id, vertical, outlet_id, kind ('earn'|'burn'|'adjust'),
   points (signed), reference_id, idempotency_key, created_at
 ```
+
+`outlet_id` exists because step two is a **franchise**, not software sold to
+other operators. Franchise outlets run `booth by KAMI` under this brand and this
+loyalty program, so the ledger stays **pooled** — a guest earns in Jember and
+redeems at Dimsamcong in Banyuwangi, and every outlet added makes membership
+worth more. `outlet_id` is for attribution and settlement, not isolation.
+
+Add it now, before there is data to migrate. Deliberately *not* added:
+`tenant_id` and per-tenant isolation, which would be required only if the
+customer were a competing operator — see `kiosk.md`.
 
 Balance is `SUM(points)` for a user. Never store and mutate a running total.
 
@@ -137,7 +179,10 @@ even though both ship together.
    YouCanBook.me. Ships independently, unblocked by anything below.
 2. **Phase 2 — identity + loyalty + booking + QRIS.** Built together against the
    shared model. Gated on Xendit merchant onboarding.
-3. **Phase 3 — F&B vertical.** Reuses identity, loyalty, payments, notifications.
+3. **Phase 3 — kiosk.** Self-service capture, print and delivery at the studio.
+   Runs in parallel with phase 2: it consumes identity and loyalty but is the
+   only workstream blocked on nothing external. See `kiosk.md`.
+4. **Phase 4 — F&B vertical.** Reuses identity, loyalty, payments, notifications.
    Adds menu and ordering only.
 
 ## Open
@@ -148,5 +193,7 @@ even though both ship together.
 - Loyalty earn and redemption rules
 - Whether verticals share one legal entity — affects the Xendit merchant setup
   and whether one account can settle for all of them
+- Franchise terms — fee, revenue share, and whether a franchisee's sessions earn
+  into the pooled ledger at the same rate as an owned outlet
 - Bookable resource count at the studio (blocks booking design — see
   `booking-phase2.md`)

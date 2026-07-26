@@ -26,6 +26,42 @@ either impossible or unreliable to recover from Instagram screenshots.
 - [ ] Backdrop options — list plus one clean photo of each
       (the `Background ...` highlight suggests this is a selling point)
 
+## Blocking — the kiosk
+
+**Hardware, from the studio PC itself**
+- [x] Printer — **DNP DS-RX1HS**. 700 × 4×6 per roll, 12.4 s a print, native
+      2-inch cut giving two 2×6 strips per sheet. Status and media-remaining are
+      queryable on both Windows and Linux
+- [ ] Which media is loaded right now, and how many spare rolls are on hand
+- [ ] Printer firmware version — media-remaining reporting on the Linux backend
+      needs ≥ 2.00
+- [x] Booth PC — **Windows 11 Pro**. Chosen for Assigned Access lockdown; DNP's
+      driver and SDK are Windows-first
+- [x] Camera — **Canon EOS 200D**, 24.2 MP. EOS Utility tethers it, has a
+      destination-folder setting, and transfers on the physical shutter release
+- [x] Input device — **touchscreen**, and the on-screen tap fires the shutter.
+      The handheld remote goes away, which also removes the WiFi/USB conflict
+      that would otherwise have broken tethering
+- [ ] Touchscreen make/model and how it connects (USB touch + HDMI, or an
+      all-in-one), and whether it is reachable from the posing position
+- [ ] CPU, RAM and free disk on that PC
+- [ ] Whether that PC does anything else today
+
+**Frame artwork**
+- [ ] The existing "free desain frame" layouts as **print-resolution files**,
+      not exports from a preview — these already ship with booth packages, so
+      they exist somewhere
+- [ ] Confirmation of bleed, safe area and cut marks, or permission to redraw
+      them to a spec
+- [ ] **Resolve "2R" against the printer.** The booth price list sells "cetak
+      strip 2R" and "frame 4R/strip", but 2R in Indonesian print sizing is
+      6×9 cm while the RX1HS strip is 2×6 in (5×15 cm) — a different shape, not
+      a different name. Frame artwork cannot be specified until this is settled,
+      and the price list may need rewording
+
+Importing these beats building an authoring tool, and it sidesteps the logo
+vector being blocked.
+
 ## Needed for build quality
 
 - [ ] 15–25 original customer photos at full resolution, with model release

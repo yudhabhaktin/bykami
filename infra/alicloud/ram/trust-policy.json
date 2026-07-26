@@ -1,0 +1,24 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "Federated": [
+          "acs:ram::ACCOUNT_ID:oidc-provider/github-actions"
+        ]
+      },
+      "Condition": {
+        "StringEquals": {
+          "oidc:iss": "https://token.actions.githubusercontent.com",
+          "oidc:aud": "sts.aliyuncs.com",
+          "oidc:sub": [
+            "repo:bhaktiyudha/bykami:ref:refs/heads/main",
+            "repo:bhaktiyudha/bykami:pull_request"
+          ]
+        }
+      }
+    }
+  ]
+}

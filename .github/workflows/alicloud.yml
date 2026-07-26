@@ -1,0 +1,137 @@
+name: Alibaba Cloud
+
+# Answers two questions that a half-finished `terraform apply` answers far too
+# late: is the configuration valid, and can Actions actually reach the account?
+#
+# There is deliberately no separate credential-checking script. An earlier one
+# existed because nothing else exercised the API before provisioning. `terraform
+# plan` exercises it directly, against the real account, through the same
+# provider the deploy uses — so a purpose-built checker would only be a second
+# thing to keep correct.
+#
+# Security posture, because this repository is public:
+#   - No Alibaba credentials are stored anywhere. Auth is OIDC, so the token is
+#     minted per run and the STS credentials it buys expire in 15 minutes.
+#   - Every third-party action is pinned to a commit SHA. A tag like @v6 is a
+#     moving pointer the action's owner can repoint at any time, and that is
+#     precisely how the tj-actions/changed-files compromise reached thousands of
+#     repositories at once.
+#   - The two jobs are split so that `id-token: write` is granted only to the one
+#     that needs it, and never on a pull request from a fork.
+#   - The RAM role this assumes is read-only, because this workflow only plans.
+#     Adding an apply job therefore means editing infra/alicloud/ram/ci-policy.json
+#     in the same commit — see that directory's README for what to add and why the
+#     two changes must not be separated.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "infra/alicloud/**"
+      - ".github/workflows/alicloud.yml"
+  pull_request:
+    paths:
+      - "infra/alicloud/**"
+      - ".github/workflows/alicloud.yml"
+
+concurrency:
+  group: alicloud-${{ github.ref }}
+  cancel-in-progress: true
+
+# Nothing here writes to the repository. Declared at the top so that any job
+# needing more has to say so, visibly, in its own block.
+permissions: {}
+
+env:
+  TERRAFORM_VERSION: "1.15.8"
+
+jobs:
+  # Credential-free, so it runs on every trigger including fork pull requests.
+  # This is the job that will one day execute a malicious PR's Terraform, and it
+  # holds no token worth stealing.
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: infra/alicloud
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          # The wrapper republishes stdout as a step output. Harmless today,
+          # but it is the mechanism by which plan output ends up somewhere it
+          # was not meant to go.
+          terraform_wrapper: false
+
+      - name: Format
+        run: terraform fmt -check -diff
+
+      - name: Validate
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+  # Reaching the real account. Skipped on fork pull requests: GitHub withholds
+  # the OIDC token there by design, so this could only fail confusingly.
+  plan:
+    needs: validate
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # mint the OIDC token; nothing else
+    defaults:
+      run:
+        working-directory: infra/alicloud
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      # Done with curl rather than a credentials action on purpose. This is the
+      # step that handles the token; adding a third-party action here would mean
+      # trusting someone else's code with exactly the thing being protected,
+      # to save four lines.
+      #
+      # The audience must equal the ClientId on the RAM OIDC provider. RAM checks
+      # it, so a mismatch fails closed.
+      - name: Mint OIDC token
+        env:
+          AUDIENCE: sts.aliyuncs.com
+        run: |
+          set -euo pipefail
+          token_file="$RUNNER_TEMP/alibaba-oidc-token"
+          install -m 600 /dev/null "$token_file"
+          curl -sS --fail-with-body \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" \
+          | jq -er '.value' > "$token_file"
+          echo "TF_VAR_oidc_token_file=$token_file" >> "$GITHUB_ENV"
+
+      # A clean plan means the role was assumed, the trust policy matched this
+      # repo and ref, and the instance is where the config says it is. Expect
+      # "No changes" until ssh_public_key is set.
+      - name: Plan
+        env:
+          TF_VAR_oidc_provider_arn: ${{ secrets.ALIBABA_OIDC_PROVIDER_ARN }}
+          TF_VAR_oidc_role_arn: ${{ secrets.ALIBABA_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TF_VAR_oidc_role_arn" ]; then
+            echo "::notice::ALIBABA_ROLE_ARN is not set, so the live plan was skipped. Create the RAM OIDC provider and role, then add the secrets."
+            exit 0
+          fi
+          terraform init -input=false
+          terraform plan -input=false -no-color -lock-timeout=60s

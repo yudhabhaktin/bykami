@@ -1,0 +1,30 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeInstances",
+        "ecs:DescribeInstanceAttribute",
+        "ecs:DescribeKeyPairs",
+        "ecs:DescribeSecurityGroups",
+        "ecs:DescribeSecurityGroupAttribute",
+        "ecs:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Deny",
+      "Action": [
+        "ecs:DeleteInstance",
+        "ecs:DeleteInstances",
+        "ecs:ReplaceSystemDisk",
+        "ecs:ModifyInstanceChargeType",
+        "ecs:ModifyPrepayInstanceSpec",
+        "ecs:RenewInstance",
+        "ecs:ModifyInstanceAutoReleaseTime"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

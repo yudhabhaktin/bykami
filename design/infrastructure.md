@@ -1,32 +1,55 @@
 # Infrastructure
 
-Target: **1 vCPU / 1 GB VPS** in Indonesia, Cloudflare in front, Terraform for
+Target: **Alibaba Cloud ECS, 2 vCPU / 2 GiB**, Cloudflare in front, Terraform for
 resources, Ansible for configuration, GitHub Actions for CI/CD.
+
+Provisioned 2026-07-26 on the free trial: instance `i-t4n7sxn0wwzevsimxwnr`,
+`ecs.e-c1m1.large`, Singapore zone A (`ap-southeast-1`), pay-as-you-go, trial
+credit through 2026-10-26.
+
+Two things about it are not yet fit for the design and must be fixed before
+anything is configured:
+
+- **It runs CentOS 7.9**, which went end-of-life on 2024-06-30 — no security
+  updates, repositories moved to vault, and every Ansible role below written
+  against `apt`. Replace the system disk with Ubuntu 24.04.
+- **It has no key pair and no public IP.** Login is a console password reset,
+  which Ansible cannot use; and with no public IP the box has no outbound path
+  to install anything. Both are start-time settings, so fix them together.
+
+Its public IP is auto-assigned and pay-by-traffic, which means it is **released
+whenever the instance stops**. Nothing may be pinned to it — it is a bootstrap
+address, not an endpoint.
 
 Static sites live on Cloudflare Pages. Only dynamic services run on the VPS.
 
-## The memory budget decides the architecture
+## The memory budget no longer decides the architecture
 
-1 GB is the binding constraint. Everything below follows from it.
+**This section was written against a 1 vCPU / 1 GB target and derived everything
+from it. That premise is gone** — the box is 2 GiB. The conclusions below all
+survive, but several now rest on different grounds, and the difference matters:
+an argument that has quietly stopped applying will be reopened by the first
+person who checks the arithmetic.
 
-| Component | Resident | Verdict |
-|---|---|---|
-| OS (Debian minimal) | ~180 MB | Fixed |
-| Docker daemon | ~100 MB | **Avoid** |
-| Traefik | ~70 MB | **Probably unnecessary — see below** |
-| cloudflared | ~30 MB | Required |
-| Go service (per process) | ~30–50 MB | Consolidate |
-| SQLite | in-process | Free |
+| Component | Resident | Verdict | Still because |
+|---|---|---|---|
+| OS (Debian minimal) | ~180 MB | Fixed | — |
+| Docker daemon | ~100 MB | **Avoid** | One static binary needs no image versioning. The RAM argument is halved, not gone — 5% of 2 GiB against 10% of 1 GB |
+| Traefik | ~70 MB | **Dropped** | Still one destination |
+| cloudflared | ~30 MB | Required | — |
+| Go service (per process) | ~30–50 MB | Consolidate | No independent scaling to win on 2 vCPU |
+| SQLite | in-process | Free | Operational simplicity, no longer memory contention |
 
-Naive stack — Docker + Traefik + cloudflared + three Go services — lands around
-**520 MB before serving a single request**, leaving no headroom for traffic
-spikes or a deploy. Two decisions reclaim most of it.
+Doubling the budget loosened it; it did not remove it. 2 GiB is still small
+enough that the decisions below would be made the same way — which is the useful
+result, because it means none of them were only ever about the RAM.
 
 ### 1. No Docker
 
-Docker's daemon costs ~100 MB, roughly 10% of the box, and its main value here
-would be Traefik's label-based discovery. Static Go binaries under systemd cost
-nothing and deploy just as easily from CI.
+Docker's daemon costs ~100 MB — once 10% of the box, now 5% — and its main
+value here would be Traefik's label-based discovery. Static Go binaries under
+systemd cost nothing and deploy just as easily from CI. The cost argument has
+weakened; the "nothing to gain" argument has not.
 
 Per infra conventions: reach for Docker when there are several services *and* the
 deploy story needs image versioning. Tagging binaries by commit SHA gives the same
@@ -69,18 +92,23 @@ VPS at all.
 | Go binary (modular monolith) | ~60 MB |
 | **Total** | **~270 MB** |
 
-Leaves ~700 MB of headroom on a 1 GB box. Comfortable.
+Against 2 GiB that is ~13% utilised, leaving ~1.7 GiB. Comfortable, not
+lavish — enough that a deploy or a traffic spike is uneventful, not so much that
+the budget can be ignored.
 
-## Mandatory on 1 GB
+## Mandatory
 
-- **Swap before anything else** — 2 GB swapfile, `vm.swappiness=10`. Without it a
-  deploy or a traffic spike OOM-kills the box.
-- **`GOMEMLIMIT`** ≈ 750 MiB. Go's GC assumes it can grow into memory that does
-  not exist and will be OOM-killed rather than collecting.
-- **Never build on the VPS.** `go build` on 1 vCPU is slow and memory-hungry, and
-  puts a toolchain on a production host for no reason. Build in Actions, ship the
-  binary.
-- **SQLite, not Postgres.** On 1 GB the database and the app would fight.
+- **Swap** — 2 GB swapfile, `vm.swappiness=10`. Cheap insurance during a deploy;
+  no longer the difference between running and OOM.
+- **`GOMEMLIMIT`** ≈ **1.4 GiB**, revised from 750 MiB. Sized to leave the OS and
+  cloudflared their ~210 MB with room to spare, rather than to the box total: a
+  limit set at capacity is not a limit, because the OOM killer arrives before the
+  GC does.
+- **Never build on the VPS.** Still true — a toolchain on a production host is a
+  liability regardless of how fast it compiles. Build in Actions, ship the binary.
+- **SQLite, not Postgres.** The memory argument is gone; the operational one
+  stands. One file, one backup, no second daemon, no connection pool to tune, and
+  the ledger's guarantees are already enforced in SQLite schema.
 
 ## Terraform — things that exist
 
@@ -93,97 +121,163 @@ Owns resources with an API and a lifecycle. Never shells out to Ansible.
 - Cloudflare Pages projects for the four static sites
 - WAF / rate-limiting rules
 
-**VPS — Tencent Cloud, Jakarta region (`ap-jakarta`).** Official Terraform
-provider `tencentcloudstack/tencentcloud`, so the instance is managed rather than
-hand-built — the fallback of "provision manually, let Terraform own Cloudflare
-only" is not needed.
+**VPS — Alibaba Cloud ECS, Singapore (`ap-southeast-1`).** Provider
+`aliyun/alicloud`, config in `infra/alicloud/`.
 
-Jakarta puts the backend in-country, which matters for a database-backed booking
-flow in a way it never did for static pages. Avoid mainland-China regions: a
-domain serving traffic from them needs ICP filing, which takes weeks and gates
-launch.
+**The trial instance is deliberately *not* a Terraform resource**, which reverses
+the earlier plan to import it. The trial is attached to this specific instance ID
+through a savings plan, and `image_id` and `instance_type` are both ForceNew — so
+a managed `alicloud_instance` gives Terraform standing permission to replace the
+one thing whose identity the discount depends on. The failure is silent: the
+apply succeeds, the box comes back, and billing has quietly become full-rate
+pay-as-you-go.
 
-**Preflight before provisioning** — `infra/tencent/preflight.sh`, run by the
-`Tencent preflight` workflow. It checks `sts:GetCallerIdentity` and
-`cvm:DescribeRegions` separately, because "the key is wrong" and "the key lacks
-CAM permission" are different problems that a half-finished `terraform apply`
-reports identically. It signs offline against Tencent's published test vector
-first, so a green self-test means a red API result is genuinely the account
-rather than the script.
+So Terraform owns only what is additive — the SSH key pair and the security group
+rules — and the instance, VPC, vSwitch, and security group stay console-owned
+until the trial ends. A commented `alicloud_instance` in `main.tf` is what
+replaces this arrangement when the box is bought for real.
 
-**New-user promotional pricing is a console purchase flow.** If a promo is used,
-the instance is bought by hand and Terraform *imports* it, exactly as the
-Cloudflare zone was. Creating it from Terraform gets standard rates. That is a
-pricing constraint dictating the workflow, not a preference.
+This does not weaken the rule it appears to break. **Promotional pricing is a
+console purchase flow**: creating the instance from Terraform gets standard
+rates, so it is bought by hand either way. The only change is that a
+console-bought instance under a *discount tied to its ID* should be referenced,
+not imported.
 
-## Jakarta costs more than the latency is worth — open
+Avoid mainland-China regions: a domain serving traffic from them needs ICP
+filing, which takes weeks and gates launch.
 
-Account is Tencent Cloud **International** (`console.tencentcloud.com`).
-Verified 2026-07-26:
+**Credentials — CI holds none.** Not a RAM user with an AccessKey, which was the
+earlier plan: **OIDC**. GitHub mints a token per run, RAM trades it for STS
+credentials that expire in 15 minutes, and the role's trust policy pins who may
+make that trade to this repository on named refs. The policies are in
+`infra/alicloud/ram/`, applied by hand because Terraform cannot authenticate
+until they exist.
 
-| | Lighthouse | CVM |
-|---|---|---|
-| `ap-jakarta` | **not offered** — HK, Singapore, Tokyo, Silicon Valley, Toronto, Frankfurt, Mumbai only | yes, 3 AZs (zone 3 restricted) |
-| Cheapest | from $1.68/mo new-user, list $4.20/mo for 2 vCPU / 2 GB / 40 GB, bandwidth included | **S5.MEDIUM2**, 2 vCPU / 2 GB, $0.03/hr ≈ **$21.90/mo**, bandwidth billed separately |
-| Free tier | 2C2G, 3 months | 2C4G, 3 months |
+This is worth the extra setup specifically *because* the repo is public. A
+long-lived AccessKey is a standing secret that has to be rotated, guarded in
+logs, and revoked if a workflow is ever tricked into printing it. A 15-minute
+STS credential scoped to one key pair and one security group is close to
+worthless to anyone who captures it — and there is nothing left to rotate.
 
-SA5.MEDIUM2 (2 vCPU / 2 GB) in `ap-jakarta`, observed on the purchase page
-2026-07-26. S5.MEDIUM2 is cheaper on paper and **sold out**, so SA5 is the floor.
+The root account's own AccessKey should not exist at all; MFA on it, and
+everything else through RAM.
 
-| Billing mode | Rate | ~Monthly | Use |
+**Preflight is now just `terraform plan`.** The previous provider had a
+purpose-built credential checker because nothing else exercised the API before
+provisioning. That is no longer true: both stack inputs default to empty, so the
+`Alibaba Cloud` workflow plans with no secret beyond the API credentials, and a
+clean plan means the key works and the instance is where the config says it is.
+A second checker would only be another thing to keep correct.
+
+The lesson that checker taught still holds, now carried by error codes rather
+than by a script: "the key is wrong" and "the key lacks permission" are different
+problems that a half-finished `apply` reports identically. Alibaba distinguishes
+them — `InvalidAccessKeyId.NotFound` and `SignatureDoesNotMatch` against
+`Forbidden.RAM` — so read the code before re-issuing a key that is already fine.
+
+## The trial box
+
+| | |
+|---|---|
+| Instance | `i-t4n7sxn0wwzevsimxwnr` (`ecs.e-c1m1.large`) |
+| Region | Singapore zone A, `ap-southeast-1` |
+| Size | 2 vCPU / 2 GiB, 20 GB system disk |
+| Network | `vpc-t4nhh131nrk5jf0zbb90y` / `vsw-t4nwwj3yx0q786ie56g1y`, sg `sg-t4n7sxn0wwzevsiowbta` |
+| Public IP | none while stopped — auto-assigned at start, released at stop |
+| Image | CentOS 7.9 — **EOL, must be replaced** |
+| Billing | Pay-as-you-go, $90 trial credit through 2026-10-26 |
+| State | Stopped, Economical Mode |
+
+Both of the questions this table originally raised are now answered, and the
+answers went the way that needs action rather than the way that needed none:
+
+- **The trial does not stop at expiry.** Pay-as-you-go plus exhausted credit
+  keeps running and starts charging. See "The trial ends 2026-10-26" below.
+- **The public IP is transient, not permanent.** It was released when the
+  instance stopped, so the tunnel model is not violated — but it also means the
+  box currently has no outbound path, and bootstrapping needs one. Assign a
+  public IP at start, restrict port 22 to an admin address via
+  `ssh_admin_cidr`, enforce key-only auth (`PasswordAuthentication no`), get
+  `cloudflared` dialling out, then clear the rule.
+
+## Residency is an object-storage problem, not a region problem
+
+**Gate: no live customer session until residency is settled.** Singapore is
+where the trial box happened to be created. That is a placement, not a decision.
+
+The reasoning that pointed at Jakarta was face photos and minors' data under
+UU 27/2022. But the photos do not live on the VPS — `kiosk.md` puts them in R2,
+and **R2 cannot be pinned to Indonesia**: its jurisdictional restrictions are EU
+and FedRAMP only, and `apac` is a location *hint*, not a guarantee. A Jakarta VPS
+serving photos out of R2 buys the feeling of having decided and very little else.
+
+So the fork is about where the *objects* sit, and it should be taken once, with
+legal input:
+
+| | Metadata | Photos | Trade |
 |---|---|---|---|
-| Spot | $0.01/hr | ~$7.30 | **Disqualified.** See below. |
-| Pay-as-you-go | $0.04/hr | ~$29.20 | Short-lived rehearsals — billed per hour, so days cost days |
-| Monthly subscription | — | $18.48 | Once it runs continuously |
-| 1 year | — | $15.36 | |
-| 3 years | — | $12.00 | |
+| Offshore | Singapore ECS | R2 | Cheapest — R2 egress is free |
+| In-country | Jakarta ECS (`ap-southeast-5`) | Alibaba OSS Jakarta | Real residency; loses free egress on the product's dominant byte-flow |
+
+Alibaba offers Jakarta (`ap-southeast-5`) at ordinary ECS pricing, so in-country
+does not carry the price penalty that killed it under the previous provider.
+Price it before deciding.
+
+Until this is settled the trial box carries **synthetic sessions only**.
+
+## The trial ends 2026-10-26, and nothing stops on its own
+
+The trial is **USD 90 of credit against a pay-as-you-go instance**, not a free
+plan that expires closed. Credit runs out or the window shuts, the instance keeps
+running, and the charges land on the payment method. Latency to notice is the
+danger: at ~$30/month of headroom this is a small bill that arrives quietly.
+
+Three controls, worth understanding as a set because they do different jobs:
+
+| Control | Where | What it actually does |
+|---|---|---|
+| **Auto-release time** | ECS instance page, next to Billing Method | The only one that *stops* spending. Set it and the instance is deleted at that timestamp. Pay-as-you-go only. |
+| **Budget alert** | Billing → Budgets | Emails at a threshold. Never stops anything. |
+| **Stop in Economical Mode** | Instance page | Already on. vCPU and memory stop billing; **disks, EIP, and bandwidth do not.** |
+
+Auto-release **destroys the instance and its disk**. That is the price of it
+being the only real stop, and it is the right trade while the box holds nothing —
+it stops being right the moment there is a booking in the database. Snapshot
+first, then re-evaluate; a control that quietly deletes production is worse than
+the bill it prevents.
+
+Auto-release and **Release Protection** pull in opposite directions — one exists
+to delete the instance on a schedule, the other to prevent deletion. Pick one
+deliberately rather than discovering the interaction at the deadline.
+
+Two traps specific to how this trial was sold:
+
+- **"Switch to Subscription"** sits next to the billing method on the instance
+  page. Subscription is cheaper for a box that runs continuously and is the right
+  end state — but subscriptions renew, and auto-renew is the default. Switch when
+  the decision is made, not to make the trial cheaper.
+- It is a **savings-plan-backed trial**, so check Billing → Savings Plans for a
+  plan with its own auto-renew setting. That is a second renewal switch in a
+  different part of the console from the first.
+
+### Two rules that outlived the previous provider
 
 **Spot is not an option here at any discount**, and the temptation is real
-because it is a quarter the price of anything else. Tencent's own warning names
-the disqualifying case exactly: *do not use for database and single point
-services that cannot be interrupted*. SQLite sits on the instance's local disk
-and there is no second node, so a repossession is not downtime, it is the
-booking history and the loyalty ledger gone. The ledger's whole point is that a
-dispute stays resolvable months later.
+because it is a fraction the price of anything else. The vendor warnings name the
+disqualifying case exactly: *do not use for database and single point services
+that cannot be interrupted*. SQLite sits on the instance's local disk and there
+is no second node, so a repossession is not downtime — it is the booking history
+and the loyalty ledger gone. The ledger's whole point is that a dispute stays
+resolvable months later.
 
-Note that continuous running inverts the usual advice: pay-as-you-go costs
-**more** than subscribing ($29.20 against $18.48). Pay-as-you-go earns its place
-only while the box is disposable.
+**The pricing API is no substitute for the purchase page.** It quotes list rates
+for pay-as-you-go only and knows nothing of subscription, spot, or promotion, so
+it cannot answer "what will this cost". This was learned the expensive way once
+already; it is not an Alibaba-specific caveat.
 
-Jakarta at $18.48/mo is therefore roughly **4–11x Lighthouse Singapore**,
-which is close to the original estimate. Neither figure includes the system disk
-or egress, and those are what make a cheap instance stop being cheap.
-
-The pricing API is no substitute for the purchase page. It quotes list rates for
-pay-as-you-go only ($0.05/hr against the $0.04 actually offered) and knows
-nothing of subscription or spot, so it cannot answer "what will this cost".
-
-So the cheap product and the in-country region are mutually exclusive, which the
-original "cheapest VPS in Indonesia" assumption did not anticipate.
-
-Singapore instead of Jakarta costs roughly 30 ms of extra round trip from
-Banyuwangi. That was the whole stated case for Jakarta, and it is weaker than it
-looks: the pages users actually wait on are static and already served from
-Cloudflare's Jakarta PoP, so the delta applies only to booking and OTP calls —
-a handful of requests, none of them perceptibly slower.
-
-The reason that might still favour Jakarta is **data residency, not speed**.
-The database holds Indonesian customers' phone numbers and booking history, and
-Indonesia's PDP law reaches that. Offshore storage by a private operator is
-generally permitted, but it carries obligations that in-country storage does
-not. Decide this deliberately, and not on latency grounds.
-
-**Decided: claim the CVM free tier, not the Lighthouse one.** Eligibility is per
-*product*, so spending the CVM trial leaves the Lighthouse trial intact — and
-the two are not interchangeable rehearsals. CVM exercises the VPC, the security
-group and the `tencentcloud_instance` resource that the design assumes;
-Lighthouse has no VPC and a different resource, so none of that work would carry
-over. Trialling the expensive product and keeping the cheap one in reserve also
-happens to be the order that preserves both options.
-
-The three-month clock is the risk: $0 to $21.90/mo plus traffic is a cliff, not
-a slope. Decide Jakarta versus Singapore before month three, with real traffic
-data rather than the estimate above.
+Also note that continuous running inverts the usual advice: pay-as-you-go costs
+*more* than subscribing. Pay-as-you-go earns its place only while the box is
+disposable, which for the next three months it is.
 
 **State** — remote backend with encryption. Terraform state contains secrets in
 plaintext and must never sit in the repo, which is public.
@@ -219,6 +313,9 @@ ansible-playbook -i inventory site.yml        # re-run: expect ok=N changed=0
 - Path-filtered workflows:
   - `sites/**` → build Astro, deploy to Cloudflare Pages via `wrangler`
   - `api/**` → `go build`, ship binary over SSH, `systemctl restart`
+  - `agent/**` **or** `apps/kiosk/**` → build the kiosk bundle *first*, then
+    cross-compile the agent that embeds it. A UI change is an agent change; a
+    binary built before the bundle ships yesterday's UI
   - `infra/**` → `terraform plan` on PR; apply gated on manual approval
 - Deploy over SSH with a dedicated key, command-restricted where possible
 - Dependabot grouped by ecosystem (npm, gomod, github-actions) or PR volume
@@ -230,27 +327,63 @@ The repo is **public**. Nothing sensitive in the tree, ever.
 
 - Cloudflare API token, tunnel credentials, Xendit keys, SSH deploy key → GitHub
   Actions secrets, injected at runtime
-- `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` → same, named for the
-  Terraform provider's own variables so nothing is renamed later. Issue them to a
-  dedicated CAM sub-user, never the root account: root keys carry billing and
-  account closure, and this repo is public enough that the blast radius of a
-  mistake should be one VPS.
+- Alibaba Cloud → **no stored credential.** OIDC, per above. The only Actions
+  secrets are `ALIBABA_OIDC_PROVIDER_ARN` and `ALIBABA_ROLE_ARN`, which name a
+  role rather than granting it; they are secrets only to keep the account ID out
+  of a public repo's logs. Note that `ALICLOUD_ACCESS_KEY` / `ALICLOUD_SECRET_KEY`
+  are deprecated provider env vars as of v1.228.0 and are **silently ignored** —
+  the current names are `ALIBABA_CLOUD_ACCESS_KEY_ID` and
+  `ALIBABA_CLOUD_ACCESS_KEY_SECRET`. A stale name presents as "no credentials
+  found", not as a warning, so it reads like a permissions problem.
+- R2 S3 credentials for the photo bucket → Actions secret. The agent never holds
+  them; it uploads through `api/`, which mints signed URLs.
 - Ansible secrets → `ansible-vault`, or injected as env from Actions
 - Terraform state → encrypted remote backend, restricted access
 - Never bake config with credentials into any shipped artifact
 
+### Workflow rules, because the repo is public
+
+Anyone can open a pull request here, and a pull request is a proposal to run code
+on a runner that may hold secrets. Five rules follow, and they are rules rather
+than preferences:
+
+- **Pin every third-party action to a commit SHA**, with the version in a
+  trailing comment. A tag is a pointer its owner can repoint; that is exactly how
+  the `tj-actions/changed-files` compromise reached thousands of repositories in
+  a single afternoon. Enforced at the repository level — an unpinned action now
+  fails rather than running.
+- **Grant permissions per job, not per workflow.** `permissions: {}` at the top,
+  and a job that needs `id-token: write` says so alone. The job that builds
+  pull-request code should never be the job that can mint a cloud token.
+- **The cloud role grants what the workflow does today, not what it might do
+  later.** `alicloud.yml` only plans, so the RAM role is read-only; write
+  permissions arrive in the same commit as the apply job that needs them, scoped
+  to `environment:production`. Granting ahead of use is how a permission ends up
+  outliving its reason — and an authority nothing exercises is the one whose
+  misuse nobody notices.
+- **Never `pull_request_target`.** It runs the base branch's workflow with full
+  secrets against the fork's code, and that combination is the standard way
+  public repositories leak credentials.
+- **Untrusted input reaches a shell only through `env:`, never through `${{ }}`
+  interpolation.** Branch names, PR titles, and commit messages are all attacker
+  controlled. `deploy.yml` additionally strips the head ref to a character class
+  before it reaches `wrangler`.
+
 ## Division of labour
 
-Cloudflare and Tencent Cloud split cleanly, and the split is deliberate:
+Cloudflare and the compute provider split cleanly, and the split is deliberate:
 
 - **Cloudflare** owns DNS, the edge, and everything static. It already has a
-  Jakarta PoP, so moving static hosting to Tencent would not put a single byte
+  Jakarta PoP, so moving static hosting to the VPS would not put a single byte
   closer to Banyuwangi — it would only add cost and a second deploy path.
-- **Tencent Cloud** owns compute. That is where in-country origin actually pays,
-  because a booking request hits SQLite rather than a cached file.
+- **Alibaba Cloud** owns compute. Cloudflare additionally owns **R2**, where the
+  photo objects live — never the VPS disk, because serving galleries is the
+  product's dominant egress and R2 has no egress fee.
 
-The VPS keeps no public IP: Cloudflare Tunnel dials out, so nothing about this
-depends on Tencent's firewall rules staying correct.
+The VPS should keep **no public IP**: Cloudflare Tunnel dials out, so nothing
+depends on the provider's firewall rules staying correct. The trial box needs one
+temporarily to bootstrap `cloudflared`, which is what `ssh_admin_cidr` in
+`infra/alicloud/` exists to scope — and to be cleared afterwards.
 
 ## Managed robots.txt contradicts ours
 

@@ -3,7 +3,7 @@ name: API
 # Build and test only. There is no deploy step yet on purpose: no VPS exists,
 # and the infrastructure record is explicit that the binary is built in CI and
 # shipped to the host rather than compiled there. The deploy job lands in the
-# same commit that provisions the Tencent Cloud instance.
+# same commit that configures the Alibaba Cloud instance.
 on:
   push:
     branches: [main]
@@ -30,9 +30,13 @@ jobs:
       run:
         working-directory: api
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # Nothing here talks to the GitHub API, so leaving a token in
+          # .git/config only widens what a compromised dependency can reach.
+          persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: api/go.mod
           cache-dependency-path: api/go.sum
