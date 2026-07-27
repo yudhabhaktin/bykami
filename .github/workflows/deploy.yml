@@ -107,9 +107,17 @@ jobs:
             || printf '%s\n' "$changed" | grep -qE '^(packages/|package\.json|pnpm-lock\.yaml|\.github/)'; then
             sites='["root","studio","booth","dimsamcong"]'
           else
+            # The `if` is load-bearing, not style. Written as
+            # `grep -q ... && printf ...`, the last iteration's exit status
+            # becomes the loop's, so a change touching no site at all left the
+            # pipeline non-zero and `set -euo pipefail` killed the step — the
+            # empty set, which is a perfectly ordinary answer, was fatal. An
+            # `if` with a false condition exits 0.
             sites="$(
               for s in root studio booth dimsamcong; do
-                printf '%s\n' "$changed" | grep -q "^sites/$s/" && printf '%s\n' "$s"
+                if printf '%s\n' "$changed" | grep -q "^sites/$s/"; then
+                  printf '%s\n' "$s"
+                fi
               done | jq -R . | jq -sc .
             )"
           fi
