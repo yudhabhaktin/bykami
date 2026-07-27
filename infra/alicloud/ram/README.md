@@ -87,10 +87,15 @@ is the one nobody notices being used.
 
 This is also what settles the `pull_request` sub above. A pull request from a
 branch in this repository can assume the role and read six `Describe` calls.
-Today that is uninteresting even though `main` is unprotected and anyone with
-push access could reach the role by pushing to `main` anyway. The read-only
-policy is what keeps it uninteresting after `main` *is* protected — at which
-point the PR path would otherwise be a way around the protection.
+That stays uninteresting only because the policy is read-only — otherwise the
+PR path is a way around whatever `main` requires.
+
+`main` was protected on 2026-07-27, but only against force-pushes and deletion:
+direct pushes are still allowed and admins are not bound. So the PR path is not
+yet a bypass of anything, because there is nothing to bypass. The moment
+protection grows to require pull requests or status checks, this section stops
+being background and becomes the reason the role must stay read-only — a PR can
+assume it without satisfying any of those requirements.
 
 **When an apply job is added, writes come back in the same commit** — scoped to
 the one key pair and the one security group this stack owns, and granted to a
