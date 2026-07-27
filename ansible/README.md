@@ -178,11 +178,54 @@ can catch a checkpoint mid-flight and produce a backup that restores to a torn
 state — and it usually looks fine, because the damage sits in pages the restore
 does not touch until much later.
 
-**The backups are on the same disk as the database.** They survive `rm` and a
-bad migration. They do not survive losing the instance — and this instance has
-an auto-release set for 2026-10-24, so that is a scheduled event, not a
-hypothetical. Off-box copies to R2 are the missing half and need R2 credentials
-that do not exist yet.
+### Off-box copies to R2, and the storage cap
+
+Enabled with a vars file — never `-e key=value`, which puts the secret in `ps`
+for every local user:
+
+```yaml
+# r2vars.yml, mode 0600, gitignored
+app_r2_enabled: true
+app_r2_endpoint: "https://<account>.r2.cloudflarestorage.com"
+app_r2_access_key_id: "..."
+app_r2_secret_access_key: "..."
+```
+
+```bash
+ansible-playbook site.yml --tags app -e @r2vars.yml
+```
+
+**Two independent limits, because retention by count is not a bound.** Thirty
+copies of a 72 KB database is 2 MB; thirty copies of a database that has grown
+to 500 MB is 15 GB, and the first sign would be a bill. So there is also
+`app_r2_budget_bytes`, default 2 GB against a 10 GB free tier, checked against
+the bucket's actual contents before every upload.
+
+Room is made **before** uploading, not after. Uploading first and pruning second
+means the bucket transiently exceeds the cap, which is exactly the moment a free
+tier stops being free.
+
+Pruning targets `budget - size`, not `budget`. Targeting the cap itself leaves
+no room for the upload, so the newest backup gets refused while older ones are
+kept — backwards, since the newest is the one worth having. This was a real bug,
+found by testing with a deliberately tiny cap; it looks correct until the bucket
+is actually full, and then it silently keeps the wrong copies.
+
+A backup larger than the entire cap is refused outright rather than pruned
+around: deleting every previous copy still would not make it fit, so the old
+ones stay.
+
+**`no_head = true` in the rclone config is required, not tuning.** R2 returns
+501 Not Implemented for the HEAD rclone issues to verify an object after upload.
+The data lands anyway — rclone reports a failed copy, retries, and the second
+attempt succeeds — so every backup logged two ERROR lines while working
+perfectly. A nightly error that self-heals is worse than either outcome: it
+trains you to ignore the log, and the first genuine failure looks identical.
+Since that flag removes rclone's own verification, the script compares the
+uploaded size against the local file itself.
+
+**A failed upload never fails the backup.** Losing the off-box copy is bad;
+losing the local one because the network blipped is worse.
 
 Verified on 2026-07-26: the timer ran, the backup passed its integrity check,
 and it opened with the real schema — `users`, `sessions`, `otp_challenges`,

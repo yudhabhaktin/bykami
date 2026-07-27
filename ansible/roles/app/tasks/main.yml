@@ -92,6 +92,51 @@
   when: app_binary_src | length > 0
   notify: Restart app
 
+- name: Require R2 credentials when off-box backups are enabled
+  ansible.builtin.assert:
+    that:
+      - app_r2_endpoint | length > 0
+      - app_r2_access_key_id | length > 0
+      - app_r2_secret_access_key | length > 0
+    fail_msg: >-
+      app_r2_enabled is true but the R2 credentials are empty. Pass them from a
+      vars file rather than on the command line, where they would be visible in
+      ps to every local user.
+    quiet: true
+  when: app_r2_enabled
+
+- name: Install rclone
+  ansible.builtin.apt:
+    name: rclone
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: app_r2_enabled
+
+- name: Create the rclone config directory
+  ansible.builtin.file:
+    path: /etc/rclone
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: app_r2_enabled
+
+- name: Write the rclone config
+  ansible.builtin.template:
+    src: rclone.conf.j2
+    dest: /etc/rclone/r2.conf
+    owner: root
+    group: "{{ app_user }}"
+    # Readable by the backup job and root, nobody else. These are write
+    # credentials for the only copy of the database that survives losing the
+    # instance.
+    mode: "0640"
+  # The rendered file contains the secret key; without this the whole thing is
+  # printed to the play output on any change, and from there into a CI log.
+  no_log: true
+  when: app_r2_enabled
+
 - name: Install the backup script
   ansible.builtin.template:
     src: bykami-backup.sh.j2

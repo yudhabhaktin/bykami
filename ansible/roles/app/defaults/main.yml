@@ -40,6 +40,34 @@ app_backup_dir: /var/backups/bykami
 app_backup_keep: 7
 app_backup_oncalendar: "*-*-* 03:30:00"
 
+# Off-box copies. Local backups survive rm and a bad migration; they do not
+# survive losing the instance, and this instance has an auto-release scheduled
+# for 2026-10-24 — a scheduled event, not a hypothetical.
+#
+# Off by default because it needs credentials. Enable with a vars file:
+#   app_r2_enabled: true
+#   app_r2_access_key_id: "..."
+#   app_r2_secret_access_key: "..."
+app_r2_enabled: false
+app_r2_bucket: bykami-backups
+app_r2_endpoint: ""
+app_r2_access_key_id: ""
+app_r2_secret_access_key: ""
+
+# 30 daily copies. At the current ~72 KB per backup that is ~2 MB; the count
+# matters only once the database has real customers in it.
+app_r2_keep: 30
+
+# Hard ceiling, checked against the bucket's actual contents before every
+# upload. The free tier is 10 GB; this is a fifth of it, so overrunning takes a
+# sustained mistake rather than one bad day.
+#
+# The guard exists because retention-by-count alone is not a bound: 30 copies of
+# a database that has grown to 500 MB is 15 GB, and the first sign would be a
+# bill. When the cap is hit the script deletes oldest-first to fit, and refuses
+# rather than silently exceeding it.
+app_r2_budget_bytes: 2147483648
+
 # Pull-based deploy. CI publishes a release tagged api-<sha>; the box polls for
 # it. Inverted on purpose: the VPS has one inbound rule and GitHub's runner
 # ranges are too broad to allowlist without undoing the point of the tunnel.
