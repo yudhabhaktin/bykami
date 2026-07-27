@@ -368,6 +368,28 @@ disposable, which for the next three months it is.
 **State** — remote backend with encryption. Terraform state contains secrets in
 plaintext and must never sit in the repo, which is public.
 
+Done for `infra/cloudflare` on 2026-07-27: R2 bucket `bykami-tfstate`, key
+`cloudflare.tfstate`, via the S3-compatible backend. The trigger was the tunnel
+landing — before it, state held four Pages projects and losing it meant
+re-importing them; after it, state holds the connector token, a bearer
+credential for every hostname routed through the tunnel.
+
+Two things about that migration are easy to get wrong later:
+
+- **The backend reads `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`**, not the
+  `R2_*` names the Ansible backup role uses. A mismatch reports "no valid
+  credential sources", which sends you to check the token rather than the
+  variable name.
+- **`terraform init` needs `-backend-config` for the endpoint.** It cannot be
+  hardcoded because it contains the account ID and this repo is public, and
+  backend blocks cannot interpolate variables. See `infra/cloudflare/README.md`.
+
+`infra/alicloud` deliberately did **not** migrate. Its resources are all behind
+a `count` of 0 and the instance is a data source, so there is no state to
+protect — and a backend would break the CI plan job, which runs a plain
+`terraform init` with no R2 credentials. It gains one at the same moment it
+gains its first real resource.
+
 ## Ansible — what is inside the box
 
 Owns packages, users, systemd units, config files, the deployed app. Never

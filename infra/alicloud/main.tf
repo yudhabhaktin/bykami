@@ -8,10 +8,22 @@ terraform {
     }
   }
 
-  # Same rule as the Cloudflare stack: state holds secrets in plaintext and this
-  # repository is public, so it must never be committed. Local file for now,
-  # gitignored. Migrate to the shared R2 backend at the same time Cloudflare's
-  # does — see infra/cloudflare/main.tf for the block.
+  # No backend, deliberately — this stack did NOT migrate to R2 when Cloudflare's
+  # did on 2026-07-27, and the asymmetry is the point.
+  #
+  # There is nothing here to protect. Every resource is behind a count that
+  # evaluates to 0 and the instance is a data source, so `terraform state list`
+  # returns nothing at all. A backend would be protecting an empty file.
+  #
+  # It would also break CI. The plan job in .github/workflows/alicloud.yml runs
+  # a plain `terraform init`, which with a backend would need R2 credentials in
+  # GitHub secrets — trading a working stateless plan for a credential to
+  # manage, in exchange for nothing.
+  #
+  # Add the same backend block as infra/cloudflare/main.tf at the moment this
+  # stack gains its first real resource — which is the same moment the instance
+  # could become managed, since a remote backend is the prerequisite for that.
+  # Adding the R2 secrets to Actions is part of that change, not a follow-up.
 }
 
 provider "alicloud" {
