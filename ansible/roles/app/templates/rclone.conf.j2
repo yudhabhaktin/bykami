@@ -1,0 +1,31 @@
+# {{ ansible_managed }}
+# Local edits are overwritten. Change roles/app/templates/ instead.
+#
+# Contains R2 credentials. Mode 0640, root:{{ app_user }} — readable by the
+# backup job, not by anything else on the box.
+
+[r2]
+type = s3
+provider = Cloudflare
+access_key_id = {{ app_r2_access_key_id }}
+secret_access_key = {{ app_r2_secret_access_key }}
+endpoint = {{ app_r2_endpoint }}
+region = auto
+
+# R2 rejects the bucket-existence probe rclone makes by default when the token
+# is scoped to specific buckets rather than the account — it has no permission
+# to ask whether the bucket exists, only to use it. Without this, every upload
+# fails on a check that has nothing to do with the upload.
+no_check_bucket = true
+
+# R2 returns 501 Not Implemented for the HEAD rclone issues to verify an object
+# after uploading it. The upload itself succeeds — rclone reports the 501 as a
+# failed copy, retries, and the second attempt "succeeds" — so the data lands
+# either way, but every single backup logs two ERROR lines. A nightly error
+# that self-heals is worse than either a clean run or a real failure: it trains
+# you to ignore the log, and the first genuine failure looks identical.
+#
+# Diagnosed on 2026-07-27 against rclone 1.60.1 by dumping headers; not an ACL
+# problem, which was the first guess. Turning off the HEAD removes rclone's own
+# post-upload check, so the backup script verifies the uploaded size itself.
+no_head = true

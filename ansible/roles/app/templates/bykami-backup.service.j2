@@ -9,6 +9,12 @@ User={{ app_user }}
 Group={{ app_user }}
 ExecStart=/usr/local/bin/{{ app_name }}-backup
 
+# The service user has no home and ProtectHome hides one anyway, so rclone
+# would fail trying to create a cache directory. PrivateTmp gives this unit its
+# own /tmp, discarded when it exits.
+Environment=XDG_CACHE_HOME=/tmp
+Environment=HOME=/tmp
+
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

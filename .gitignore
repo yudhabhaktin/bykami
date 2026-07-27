@@ -28,6 +28,8 @@ id_ed25519*
 # file, never written into the roles.
 ansible/vault_pass
 ansible/*.vault.yml
+ansible/r2vars.yml
+ansible/*vars.local.yml
 ansible/group_vars/*/vault.yml
 ansible/inventory.local.yml
 ansible/*.retry
