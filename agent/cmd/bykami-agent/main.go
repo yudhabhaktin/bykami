@@ -27,6 +27,7 @@ import (
 
 	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
 	"github.com/bhaktiyudha/bykami/agent/internal/compose"
+	"github.com/bhaktiyudha/bykami/agent/internal/derive"
 	"github.com/bhaktiyudha/bykami/agent/internal/httpd"
 	"github.com/bhaktiyudha/bykami/agent/internal/ingest"
 	"github.com/bhaktiyudha/bykami/agent/internal/payment"
@@ -49,6 +50,9 @@ type config struct {
 	retention  time.Duration
 	autoSettle time.Duration
 	speed      float64
+
+	publicHost  string
+	accessToken string
 }
 
 func main() {
@@ -74,6 +78,13 @@ func main() {
 	flag.DurationVar(&c.retention, "retention", purge.DefaultAge, "how long originals stay on this PC")
 	flag.DurationVar(&c.autoSettle, "sim-auto-settle", 0, "with -payments=sim, settle a charge after this long with nobody pressing anything")
 	flag.Float64Var(&c.speed, "sim-print-speed", 1, "with -printer=sim, divide the manufacturer's print time by this")
+
+	// A real booth sets neither. The kiosk is a screen wired to the PC beside
+	// it; a public address is a test-deployment concession, taken because
+	// getUserMedia will not run on an insecure origin and a phone cannot reach
+	// localhost.
+	flag.StringVar(&c.publicHost, "public-host", "", "extra hostname to answer to, for a tunnelled test deployment; needs -access-token")
+	flag.StringVar(&c.accessToken, "access-token", "", "shared secret admitting requests to -public-host; read from BYKAMI_ACCESS_TOKEN when unset")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -162,14 +173,28 @@ func run(c config, log *slog.Logger) error {
 		return err
 	}
 
+	// Preferred over the flag, and the flag is kept only for a quick local run.
+	// A token in argv is visible to every process on the box via ps, and a
+	// token in a systemd unit is world-readable in /etc/systemd; an
+	// EnvironmentFile can be mode 0600.
+	token := c.accessToken
+	if token == "" {
+		token = os.Getenv("BYKAMI_ACCESS_TOKEN")
+	}
+
 	srv, err := httpd.New(httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
 		Ingest: watcher, Templates: templates, Packages: packages,
 		Root: root, Source: source, OutletID: c.outlet,
-		Simulated: simulated, Log: log,
+		Simulated: simulated, PublicHost: c.publicHost, AccessToken: token,
+		Log: log,
 	})
 	if err != nil {
 		return err
+	}
+	if c.publicHost != "" {
+		log.Warn("PUBLIC HOSTNAME ENABLED: this booth is reachable from the internet behind a shared token — test deployments only",
+			"host", c.publicHost)
 	}
 
 	// SIGTERM on Linux, and Ctrl-C anywhere. A booth PC is more likely to lose
@@ -204,6 +229,12 @@ func run(c config, log *slog.Logger) error {
 		})
 	})
 	background("purge", purge.New(photos, root, c.retention, log).Run)
+
+	// The review screen is the one the customer taps through, and without this
+	// it paints full-resolution originals into thumbnails — 24 MP each on the
+	// tethered path. Background rather than inline in the capture handler: the
+	// shutter path is where latency is the product.
+	background("derive", derive.NewWorker(photos, root, log).Run)
 
 	httpSrv := &http.Server{
 		Addr:    c.addr,

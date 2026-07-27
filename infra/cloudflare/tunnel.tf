@@ -27,23 +27,37 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "app" {
   source     = "cloudflare"
 
   config = {
-    ingress = [
-      {
-        # The operator admin surface, per platform-architecture.md. 127.0.0.1
-        # and not 0.0.0.0: the Go binary binds localhost precisely so that the
-        # tunnel is the only path to it, and pointing this at a public
-        # interface would quietly undo that.
-        hostname = "app.bykami.id"
-        service  = "http://127.0.0.1:8080"
-      },
-      {
-        # Required, and required to be last. cloudflared demands a catch-all
-        # with no hostname; without it the whole config is rejected. 404 rather
-        # than a proxy target so an unrouted hostname fails obviously instead
-        # of silently landing on the admin app.
-        service = "http_status:404"
-      },
-    ]
+    ingress = concat(
+      [
+        {
+          # The operator admin surface, per platform-architecture.md. 127.0.0.1
+          # and not 0.0.0.0: the Go binary binds localhost precisely so that the
+          # tunnel is the only path to it, and pointing this at a public
+          # interface would quietly undo that.
+          hostname = "app.bykami.id"
+          service  = "http://127.0.0.1:8080"
+        },
+      ],
+      # The booth agent, when a test deployment is up. A separate hostname
+      # rather than a path under app.bykami.id: the two are different programs
+      # with different lifetimes, and path routing would put the kiosk one
+      # cloudflared config error away from shadowing the operator console.
+      var.booth_test_enabled ? [
+        {
+          hostname = var.booth_test_hostname
+          service  = "http://127.0.0.1:8899"
+        },
+      ] : [],
+      [
+        {
+          # Required, and required to be last. cloudflared demands a catch-all
+          # with no hostname; without it the whole config is rejected. 404 rather
+          # than a proxy target so an unrouted hostname fails obviously instead
+          # of silently landing on the admin app.
+          service = "http_status:404"
+        },
+      ],
+    )
   }
 }
 
@@ -61,6 +75,20 @@ resource "cloudflare_dns_record" "app" {
   ttl     = 1
 
   comment = "Cloudflare Tunnel to the VPS. Managed by Terraform."
+}
+
+resource "cloudflare_dns_record" "booth_test" {
+  count = var.booth_test_enabled ? 1 : 0
+
+  zone_id = var.cloudflare_zone_id
+  name    = var.booth_test_hostname
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.app.id}.cfargotunnel.com"
+
+  proxied = true
+  ttl     = 1
+
+  comment = "Booth agent test deployment. Temporary. Managed by Terraform."
 }
 
 # The connector token, which is what Ansible feeds to cloudflared. It is a

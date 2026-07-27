@@ -17,7 +17,7 @@ normalisation rather than sharing it.
 | `internal/ingest` | Hot-folder watcher, debounce, crash recovery |
 | `internal/compose` | Frames → a printable sheet at 300 dpi |
 | `internal/printer` | The print queue and the media ledger |
-| `internal/derive` | The delivered file: long edge 2048, EXIF stripped |
+| `internal/derive` | The delivered file: long edge 2048, EXIF stripped. A background worker builds one per frame |
 | `internal/purge` | The 7-day deletion of originals and sheets |
 | `internal/catalog` | What the customer can buy |
 | `internal/httpd` | The local API, and the embedded kiosk UI |
@@ -35,6 +35,22 @@ go run ./cmd/bykami-agent -root /tmp/booth media load 700 "roll 1"
 
 Then open `http://127.0.0.1:8899`. Pick a package, press **Simulasikan
 pembayaran** on the QR screen, and the shutter unlocks.
+
+Add `-sim-auto-settle 1s` and the charge settles itself, which skips the QR
+screen entirely — useful when the thing being tested is the capture flow rather
+than the payment one.
+
+### Measuring it
+
+`?perf=1` puts the client-side timings on the screen and keeps them for the tab:
+camera cold start, JPEG encode, upload, the state refresh, total shutter time,
+and how long the filmstrip took to paint. On the screen rather than in a console
+because a booth is tested standing in front of one, and a phone has no devtools
+window.
+
+Almost all of the booth's smoothness is decided in the browser. The agent is on
+loopback, and the two things a customer actually waits for — the camera opening
+and `canvas.toBlob` encoding the frame — never reach it. `?perf=0` turns it off.
 
 ## The three simulations, and why each needs a flag
 
@@ -116,6 +132,28 @@ POST there, and DNS rebinding turns an attacker's hostname into `127.0.0.1` so
 even same-origin checks pass. Two cheap checks a real kiosk browser satisfies
 and a hostile page does not — the `Host` header must name localhost, and a
 cross-site `Origin` is refused.
+
+### The one exception: a tunnelled test deployment
+
+`-public-host <hostname>` makes the agent answer to one hostname besides
+localhost, and `-access-token` (or `BYKAMI_ACCESS_TOKEN`) gates it. **Setting the
+first without the second is refused at startup** — every route here is
+unauthenticated by design, which is correct for a screen wired to the PC beside
+it and indefensible on a public hostname where `/api/capture` accepts 16 MB
+uploads and writes them to disk.
+
+It exists for one reason: `getUserMedia` refuses to run on an insecure origin, so
+the capture flow cannot be tried on a phone or a tablet without real HTTPS and a
+real hostname. A booth in a shop sets neither flag.
+
+The token is accepted once from `?t=`, then moved into an `HttpOnly; Secure`
+cookie so it stops appearing in the address bar. Requests arriving over
+localhost still need no token — demanding one there would be theatre, since
+anything on that machine can read it.
+
+`ansible/roles/booth` deploys this behind the tunnel; it is off unless
+`booth_enabled` is true, and the token comes from a mode-0600 `EnvironmentFile`
+rather than the unit file, which is world-readable.
 
 Loading media is **not** an HTTP route for this reason. It is the one operation
 where a hostile page could do real damage without touching the booth: inflating

@@ -33,7 +33,11 @@ type fixture struct {
 	root      string
 }
 
-func setup(t *testing.T) *fixture {
+func setup(t *testing.T) *fixture { return setupWith(t, nil) }
+
+// setupWith builds the booth with tweak applied to its dependencies, for the
+// tests that need a configuration a real booth never has.
+func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 	t.Helper()
 
 	db, err := store.Open(":memory:")
@@ -61,12 +65,17 @@ func setup(t *testing.T) *fixture {
 		t.Fatalf("catalog: %v", err)
 	}
 
-	srv, err := httpd.New(httpd.Deps{
+	deps := httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
 		Ingest: watcher, Templates: templates, Packages: packages,
 		Root: root, Source: httpd.SourceWebcam, OutletID: "jajag",
 		Simulated: sim, Log: log,
-	})
+	}
+	if tweak != nil {
+		tweak(&deps)
+	}
+
+	srv, err := httpd.New(deps)
 	if err != nil {
 		t.Fatalf("httpd: %v", err)
 	}
@@ -423,6 +432,134 @@ func TestRebindingHostIsRefused(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("answered a request for someone else's hostname: %d", w.Code)
+	}
+}
+
+// The test-deployment hostname. Everything below is about the one configuration
+// where this server is reachable from somewhere other than the machine it runs
+// on, which is also the only configuration where its lack of authentication
+// would matter.
+const testHost = "booth-test.bykami.id"
+
+const testToken = "s3cr3t-token-value"
+
+func publicBooth(t *testing.T) *fixture {
+	t.Helper()
+	return setupWith(t, func(d *httpd.Deps) {
+		d.PublicHost = testHost
+		d.AccessToken = testToken
+	})
+}
+
+func publicGet(t *testing.T, f *fixture, target string, cookie string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest("GET", target, nil)
+	r.Host = testHost
+	if cookie != "" {
+		r.AddCookie(&http.Cookie{Name: "bykami_booth_access", Value: cookie})
+	}
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	return w
+}
+
+// The interlock. /api/capture takes a 16 MB upload and writes it to disk, so a
+// public hostname with nothing in front of it is an open file drop.
+func TestPublicHostWithoutATokenIsRefusedAtStartup(t *testing.T) {
+	_, err := httpd.New(httpd.Deps{PublicHost: testHost, Log: slog.New(slog.DiscardHandler)})
+	if err == nil {
+		t.Fatal("built a server that answers the internet with no token at all")
+	}
+}
+
+func TestPublicHostNeedsTheToken(t *testing.T) {
+	f := publicBooth(t)
+
+	if w := publicGet(t, f, "/api/state", ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("answered an untokened request from the internet: %d %s", w.Code, w.Body)
+	}
+	if w := publicGet(t, f, "/api/state?t=wrong", ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("accepted the wrong token: %d", w.Code)
+	}
+	if w := publicGet(t, f, "/api/state", "wrong"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("accepted a forged cookie: %d", w.Code)
+	}
+}
+
+func TestPublicHostAcceptsTheTokenAndThenTheCookie(t *testing.T) {
+	f := publicBooth(t)
+
+	w := publicGet(t, f, "/api/state?t="+testToken, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("refused the right token: %d %s", w.Code, w.Body)
+	}
+
+	var handed string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "bykami_booth_access" {
+			handed = c.Value
+			if !c.HttpOnly || !c.Secure {
+				t.Errorf("access cookie is not HttpOnly+Secure: %+v", c)
+			}
+		}
+	}
+	if handed == "" {
+		t.Fatal("no cookie was set, so every following tap would need the token in the URL")
+	}
+
+	// The point of the cookie: the fifteen requests after the first carry no
+	// token in the URL.
+	if w := publicGet(t, f, "/api/state", handed); w.Code != http.StatusOK {
+		t.Fatalf("refused the cookie it had just issued: %d", w.Code)
+	}
+}
+
+// The booth's own browser is unaffected. A token demanded on loopback would be
+// security theatre — anything on that machine can read it — and would break the
+// production configuration, which sets no public host at all.
+func TestLoopbackStillNeedsNoToken(t *testing.T) {
+	f := publicBooth(t)
+
+	if w := f.do(t, "GET", "/api/state", nil); w.Code != http.StatusOK {
+		t.Fatalf("made the booth's own screen log in: %d %s", w.Code, w.Body)
+	}
+}
+
+// The tunnel serves TLS, so the page's own requests carry an https Origin. It
+// has to be allowed without opening the door to every other https site.
+func TestPublicHostAcceptsItsOwnHTTPSOriginOnly(t *testing.T) {
+	f := publicBooth(t)
+
+	for origin, want := range map[string]int{
+		"https://" + testHost:  http.StatusOK,
+		"https://attacker.bad": http.StatusForbidden,
+		"http://" + testHost:   http.StatusForbidden,
+	} {
+		r := httptest.NewRequest("GET", "/api/state", nil)
+		r.Host = testHost
+		r.AddCookie(&http.Cookie{Name: "bykami_booth_access", Value: testToken})
+		r.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		f.srv.ServeHTTP(w, r)
+
+		if w.Code != want {
+			t.Errorf("Origin %s: got %d, want %d", origin, w.Code, want)
+		}
+	}
+}
+
+// A booth with no public host configured must behave exactly as before: one
+// hostname, no token anywhere.
+func TestUnconfiguredPublicHostChangesNothing(t *testing.T) {
+	f := setup(t)
+
+	r := httptest.NewRequest("GET", "/api/state", nil)
+	r.Host = testHost
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a default booth answered to %s: %d", testHost, w.Code)
 	}
 }
 

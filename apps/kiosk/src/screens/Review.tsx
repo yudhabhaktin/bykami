@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ScreenProps } from "../App";
 import { api, ApiError, type Photo, type Template } from "../api";
+import { record, type Timings } from "../perf";
 
 /** How often the printer's progress is checked while the customer watches. */
 const POLL_MS = 1500;
@@ -18,6 +19,7 @@ export function Review({
   refresh,
   setStep,
   setError,
+  onTimings,
   onPrinted,
 }: ScreenProps & { onPrinted: (photos: Photo[]) => void }) {
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -26,14 +28,33 @@ export function Review({
   const [job, setJob] = useState<{ id: string; state: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // How long the whole filmstrip takes to decode and paint. The measurement the
+  // derived-image worker exists to move: without a derivative the browser
+  // decodes one full-resolution original per thumbnail.
+  const paintedAt = useRef(0);
+  const decoded = useRef(0);
+
   const load = useCallback(async () => {
     try {
       const { photos } = await api.photos();
+      paintedAt.current = performance.now();
+      decoded.current = 0;
       setPhotos(photos);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal memuat foto.");
     }
   }, [setError]);
+
+  const onThumbLoaded = useCallback(
+    (total: number) => {
+      decoded.current++;
+      if (decoded.current < total) return;
+      const t: Timings = {};
+      record(t, "filmstrip", performance.now() - paintedAt.current);
+      onTimings(t);
+    },
+    [onTimings],
+  );
 
   useEffect(() => {
     void load();
@@ -136,7 +157,7 @@ export function Review({
               aria-pressed={index >= 0}
               onClick={() => toggle(p.id)}
             >
-              <img src={api.photoURL(p.id)} alt="" />
+              <img src={api.photoURL(p.id)} alt="" onLoad={() => onThumbLoaded(photos.length)} />
               {index >= 0 && <span className="order">{index + 1}</span>}
               {/*
                 The resolution argument made visible. A frame that would print

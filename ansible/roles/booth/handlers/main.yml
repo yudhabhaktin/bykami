@@ -1,0 +1,6 @@
+---
+- name: Restart booth agent
+  ansible.builtin.systemd_service:
+    name: "{{ booth_name }}"
+    state: restarted
+    daemon_reload: true

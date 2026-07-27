@@ -162,7 +162,10 @@ func (p *Purger) sweepSheets() int {
 // record that a session happened at a time — and leaving thousands of them is
 // the sort of thing that makes a "we deleted it" claim look untrue.
 func (p *Purger) pruneEmptyDirs() {
-	for _, dir := range []string{"sessions", "sheets"} {
+	// "derived" is one level deep like the other two — see derive.DerivedPath,
+	// which files derivatives flat under a session directory precisely so this
+	// prune reaches them without a recursive walk.
+	for _, dir := range []string{"sessions", "sheets", "derived"} {
 		root := filepath.Join(p.root, dir)
 		entries, err := os.ReadDir(root)
 		if err != nil {

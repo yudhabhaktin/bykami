@@ -364,6 +364,31 @@ p {
   image-rendering: pixelated;
 }
 
+/* Measurements — only present with ?perf=1 */
+
+.perf {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(10, 10, 10, 0.82);
+  color: #fff;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  /* Must never intercept a tap meant for the screen underneath it. */
+  pointer-events: none;
+}
+
+.perf div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
 /* Forms */
 
 label {

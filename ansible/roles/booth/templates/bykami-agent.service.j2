@@ -1,0 +1,57 @@
+# {{ ansible_managed }}
+# Local edits are overwritten. Change roles/booth/templates/ instead.
+
+[Unit]
+Description=bykami booth agent (test deployment)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User={{ booth_user }}
+Group={{ booth_user }}
+
+# Deliberately below the app's. This process decodes and rescales full-size
+# frames, and the box is 2 GiB with the operator API already holding a 1400MiB
+# target. Without a limit of its own, one 24 MP frame arriving at a bad moment
+# takes the API down with it — and the API is the thing that actually matters.
+Environment=GOMEMLIMIT={{ booth_gomemlimit }}
+
+# The access token, out of the unit file and out of ps. Anything in ExecStart is
+# readable by every local user; this file is 0600 and owned by root.
+EnvironmentFile=/etc/bykami-agent.env
+
+WorkingDirectory={{ booth_data_dir }}
+ExecStart={{ booth_install_path }} \
+  -addr {{ booth_listen_addr }} \
+  -root {{ booth_data_dir }} \
+  -source {{ booth_source }} \
+  -payments sim \
+  -printer sim \
+  -sim-auto-settle {{ booth_auto_settle }} \
+  -sim-print-speed {{ booth_print_speed }} \
+  -retention {{ booth_retention }} \
+  -public-host {{ booth_public_host }}
+
+Restart=on-failure
+RestartSec=5s
+
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ReadWritePaths={{ booth_data_dir }}
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
