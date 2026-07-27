@@ -72,6 +72,19 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
+      - name: Check formatting
+        # gofmt drift is invisible until someone's editor reformats a file they
+        # were not otherwise touching, and the diff then buries the real change.
+        # `gofmt -l` prints offenders and exits 0, so the count is the assertion.
+        run: |
+          set -euo pipefail
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
       - name: Vet
         run: go vet ./...
 

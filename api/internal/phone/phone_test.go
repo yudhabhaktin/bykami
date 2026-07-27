@@ -56,13 +56,13 @@ func TestNormalizeRejectsWhatIsNotAnIndonesianMobile(t *testing.T) {
 	}{
 		{"empty", ""},
 		{"separators only", "-- () --"},
-		{"landline, not mobile", "0318765432"},   // Surabaya area code, starts 3
-		{"jakarta landline", "0211234567"},       // starts 2
-		{"too short", "08123456"},                // 7-digit NSN
-		{"too long", "0812345678901234"},         // 15-digit NSN
-		{"foreign number", "+14155552671"},       // US
-		{"letters only", "not a phone"},          //
-		{"malaysian mobile", "+60123456789"},     // +60, not +62
+		{"landline, not mobile", "0318765432"}, // Surabaya area code, starts 3
+		{"jakarta landline", "0211234567"},     // starts 2
+		{"too short", "08123456"},              // 7-digit NSN
+		{"too long", "0812345678901234"},       // 15-digit NSN
+		{"foreign number", "+14155552671"},     // US
+		{"letters only", "not a phone"},        //
+		{"malaysian mobile", "+60123456789"},   // +60, not +62
 		{"country code but landline", "62211234567"},
 	}
 

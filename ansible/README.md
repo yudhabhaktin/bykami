@@ -106,9 +106,9 @@ comes back:
 curl -s -o /dev/null -w '%{http_code}\n' https://app.bykami.id/healthz
 ```
 
-Until the `app` role exists, that returns 502 and **that is the correct
-answer** — the tunnel was verified end to end on 2026-07-26 with a throwaway
-listener on 8080, which returned 200.
+The `app` role now exists and the box serves the API, so this returns **200**.
+A 502 today means the service is down, not that nothing is deployed — check
+`systemctl status bykami` before suspecting the tunnel.
 
 ## `app`
 
