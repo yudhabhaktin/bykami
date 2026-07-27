@@ -42,7 +42,7 @@ jobs:
           # .git/config only widens what a compromised dependency can reach.
           persist-credentials: false
 
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
@@ -74,6 +74,20 @@ jobs:
           set -euo pipefail
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+
+      - name: Check formatting
+        working-directory: agent
+        # gofmt drift is invisible until someone's editor reformats a file they
+        # were not otherwise touching, and the diff then buries the real change.
+        # `gofmt -l` prints offenders and exits 0, so the count is the assertion.
+        run: |
+          set -euo pipefail
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
 
       - name: Vet
         working-directory: agent
@@ -110,7 +124,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
