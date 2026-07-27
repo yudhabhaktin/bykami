@@ -1,0 +1,16 @@
+// Two Go modules, deliberately not one.
+//
+// api/ is the cloud monolith and agent/ is the booth binary. They share no
+// code: the agent talks to the API over the versioned /v1 path, which is the
+// only coupling the kiosk record allows, and a shared module would quietly turn
+// that into a compile-time one. Outlet #1 will be running a six-month-old
+// binary by the time outlet #3 exists, so the two must be able to move apart.
+//
+// This file exists for editors and for `go test ./...` from the repo root. CI
+// builds each module from its own directory.
+go 1.26.5
+
+use (
+	./agent
+	./api
+)

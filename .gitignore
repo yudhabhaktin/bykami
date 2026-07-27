@@ -8,6 +8,12 @@ refs/*.pdf
 .DS_Store
 node_modules/
 dist/
+# ...except this one. The agent embeds it, so the directory must exist on a
+# clean checkout or `go build` fails on a missing embed pattern. The built
+# bundle stays ignored; only the marker is committed.
+!agent/internal/httpd/dist/
+agent/internal/httpd/dist/*
+!agent/internal/httpd/dist/.gitkeep
 .astro/
 .env
 .claude/

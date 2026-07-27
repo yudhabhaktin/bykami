@@ -1,0 +1,38 @@
+[
+  {
+    "id": "mini",
+    "name": "MINI",
+    "price_idr": 45000,
+    "duration_minutes": 15,
+    "take_limit": 15,
+    "template_id": "strip-3",
+    "print_copies": 1
+  },
+  {
+    "id": "midi",
+    "name": "MIDI",
+    "price_idr": 70000,
+    "duration_minutes": 20,
+    "take_limit": 15,
+    "template_id": "strip-3",
+    "print_copies": 2
+  },
+  {
+    "id": "maxi",
+    "name": "MAXI",
+    "price_idr": 95000,
+    "duration_minutes": 20,
+    "take_limit": 15,
+    "template_id": "strip-4",
+    "print_copies": 2
+  },
+  {
+    "id": "big-maxi",
+    "name": "BIG MAXI",
+    "price_idr": 165000,
+    "duration_minutes": 25,
+    "take_limit": 15,
+    "template_id": "strip-4",
+    "print_copies": 3
+  }
+]

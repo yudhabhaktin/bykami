@@ -1,0 +1,413 @@
+/*
+ * Booth screen styling.
+ *
+ * Tokens mirrored from packages/ui/src/tokens.css rather than imported: this
+ * bundle is embedded in a Go binary and must not depend on the Astro build.
+ * Warm neutrals, ink-only accent, no webfont — the booth PC is offline-first
+ * and a font request that hangs is a screen that hangs.
+ *
+ * Everything is sized for touch and for arm's length. The input device is
+ * still undecided in design/kiosk.md, so nothing here depends on hover and
+ * every target clears 44px by a wide margin.
+ */
+
+:root {
+  --ground: #fafaf9;
+  --surface: #ffffff;
+  --line: rgba(10, 10, 10, 0.1);
+  --text: rgba(10, 10, 10, 0.92);
+  --muted: rgba(10, 10, 10, 0.6);
+  --bad: #9f1239;
+  --good: #14532d;
+  --radius: 14px;
+  --tap: 64px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 18px;
+  line-height: 1.5;
+  /* A customer must not be able to select the interface text by holding it. */
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.screen {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  gap: 1.5rem;
+}
+
+.screen > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+h1 {
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1.15;
+  letter-spacing: -1px;
+  margin: 0;
+}
+
+h2 {
+  font-size: clamp(20px, 2.5vw, 28px);
+  letter-spacing: -0.5px;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+  max-width: 60ch;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 15px;
+}
+
+.grow {
+  flex: 1;
+  min-height: 0;
+}
+
+.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  text-align: center;
+}
+
+/* Actions */
+
+.btn {
+  min-height: var(--tap);
+  padding: 0.75rem 1.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--text);
+  background: var(--text);
+  color: var(--surface);
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.btn.secondary {
+  background: transparent;
+  color: var(--text);
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: transparent;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn.big {
+  font-size: 22px;
+  min-height: 76px;
+  width: 100%;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.actions > .btn {
+  flex: 1 1 12rem;
+}
+
+/* Cards and grids */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+
+.packages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+.package {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  cursor: pointer;
+  min-height: 12rem;
+}
+
+.package[aria-pressed="true"] {
+  border-color: var(--text);
+  border-width: 2px;
+}
+
+.price {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Capture */
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a0a;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.stage video,
+.stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Mirrored, because a preview that is not mirrored makes people lean the wrong
+   way. The captured frame is not mirrored — that would print back to front. */
+.stage video {
+  transform: scaleX(-1);
+}
+
+.countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(120px, 30vw, 320px);
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 4px 40px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  animation: flash 320ms ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.counter {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* Review */
+
+.filmstrip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.75rem;
+  overflow-y: auto;
+  padding-bottom: 0.5rem;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 3px solid transparent;
+  background: #eee;
+  padding: 0;
+  cursor: pointer;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.thumb[aria-pressed="true"] {
+  border-color: var(--text);
+}
+
+.thumb .order {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--surface);
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.thumb .dpi {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(10, 10, 10, 0.65);
+  color: #fff;
+  font-size: 12px;
+  padding: 2px 6px;
+  text-align: right;
+}
+
+/* Messages */
+
+.notice,
+.error,
+.warn {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.875rem 1.25rem;
+  font-size: 16px;
+}
+
+.notice {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.error {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.warn {
+  border-color: var(--bad);
+  color: var(--bad);
+  font-weight: 600;
+}
+
+/* Payment */
+
+.qr {
+  background: #fff;
+  padding: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+}
+
+.qr canvas {
+  display: block;
+  width: min(60vh, 22rem);
+  height: auto;
+  image-rendering: pixelated;
+}
+
+/* Forms */
+
+label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.375rem;
+}
+
+input[type="tel"] {
+  width: 100%;
+  font: inherit;
+  font-size: 24px;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+}
+
+.consent {
+  display: flex;
+  gap: 0.875rem;
+  align-items: flex-start;
+  padding: 0.875rem 0;
+  cursor: pointer;
+  font-weight: 400;
+}
+
+.consent input {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  margin-top: 2px;
+}
+
+.terms {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.375rem;
+}
+
+.terms li::before {
+  content: "• ";
+  color: var(--muted);
+}

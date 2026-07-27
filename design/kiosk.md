@@ -472,18 +472,53 @@ The public repo stays fine under this model — the product is the brand and the
 operations, not the code. (Note there is no `LICENSE` file, so the default is
 all rights reserved.)
 
-## No payment at the kiosk
+## Payment at the kiosk — reversed
 
-The QRIS → webhook → unlock-camera flow is **dropped**. Nobody pays per session
-at this studio: `BOOKING TANPA DP`, the customer pays a human at the counter.
-Per-session payment by a stranger is Sukhakala's unattended mall-kiosk model,
-which is a business bykami does not run.
+**This section previously said payment at the kiosk was dropped. It is not.**
+The reasoning below is kept because the objection it raised is still real and
+the design has to answer it.
 
-It is also exactly the state machine `booking-phase2.md` deliberately
-eliminated — a slot held while a QRIS code races a webhook against a timeout,
-"where most self-built booking systems carry their worst bugs".
+The original argument: nobody pays per session at this studio — `BOOKING TANPA
+DP`, the customer pays a human at the counter — so per-session payment is
+Sukhakala's unattended mall-kiosk model, a business bykami does not run. It was
+also exactly the state machine `booking-phase2.md` eliminated: a slot held while
+a QRIS code races a webhook against a timeout, *"where most self-built booking
+systems carry their worst bugs"*.
 
-QRIS still arrives via booking, per that document. Not here.
+**What changed: this is a self-service booth.** That argument holds only for an
+attended studio, where a human at the counter is what stands between a stranger
+and the camera. Remove the human and nothing does — anyone who walks up gets a
+free session and a free print. **The payment is the attendant.** So a session
+starts at `awaiting_payment` with the shutter locked, and a settled QRIS charge
+is what opens it.
+
+The old objection is answered by three properties, not by ignoring it:
+
+- **Nothing is reserved.** There is no slot, no inventory and no hold that can
+  expire wrongly — only this booth, and one customer at a time is already a
+  database constraint. That removes the race the booking document warned about;
+  what is left is a charge that either settles or does not.
+- **Settlement is pulled, never pushed.** The booth is at `http://localhost`
+  with no inbound path, so a gateway webhook cannot reach it. It polls. A lost
+  callback is therefore a slow answer rather than a stuck screen.
+- **Expiry is decided locally as well as remotely.** A provider that is slow or
+  unreachable must not leave a customer staring at a dead QR code, so the booth
+  times the code out itself and shows the countdown — an unexplained expiry
+  looks like a broken machine.
+
+Two consequences worth stating:
+
+- **An abandoned session is a state, not a deleted row.** A customer who walks
+  away from the QR code has a charge behind them that can still settle at the
+  gateway a minute later, so the row it points at has to survive. Only unpaid
+  sessions can be abandoned; a paid one is closed.
+- **QRIS still means Xendit, which is still blocked** on a business entity, NPWP
+  and a bank account. Until that exists the only provider is a simulated one
+  that takes no money, selected by an explicit flag and announced at startup and
+  on screen. A booth with no provider configured refuses to start a session and
+  says *"bayar di kasir dulu"*, which is the pre-booth studio working normally.
+
+Booking-time QRIS is unaffected; `booking-phase2.md` still owns it.
 
 ## Templates over AI
 
@@ -519,21 +554,35 @@ Monorepo, extending what exists:
 
 ```
 api/          Go — cloud monolith (exists)
-agent/        Go — booth binary, embeds the kiosk build
-apps/kiosk/   Vite + React → builds into agent/internal/web/dist
+agent/        Go — booth binary, embeds the kiosk build (exists)
+apps/kiosk/   Vite + React → builds into agent/internal/httpd/dist (exists)
 sites/*       Astro marketing (exists)
 packages/*    shared TS (exists)
 infra/        Terraform + Ansible (exists)
 ```
 
-Add `apps/*` to `pnpm-workspace.yaml`. **React + Vite, not Astro** — Astro's
+`apps/*` is in `pnpm-workspace.yaml`. **React + Vite, not Astro** — Astro's
 zero-JS-by-default is exactly wrong for a surface that is nothing but
 interaction.
 
+`agent/` is a **separate Go module** from `api/`, not a package inside it. They
+share no code: the coupling is the versioned `/v1` path, and one module would
+quietly make it a compile-time one — while outlet #1 is running a six-month-old
+binary by the time outlet #3 exists. `go.work` at the repo root is for editors
+and `go test ./...`; CI builds each module from its own directory.
+
+The one thing they do duplicate is phone normalisation, copied into
+`agent/internal/httpd/phone.go`. It cannot be imported across modules, and the
+rules must not drift — the number *is* the account, so two spellings are two
+balances.
+
 **CI ordering matters:** the kiosk bundle must build *before* `go build` embeds
-it, or the binary ships yesterday's UI. Path-filtered workflows gain
-`agent/**` → cross-compile for the booth PC's OS, and `apps/kiosk/**` → rebuild
-the agent, because a UI change is an agent change.
+it, or the binary ships yesterday's UI. `.github/workflows/agent.yml` runs both
+in one job for that reason, triggers on `apps/kiosk/**` as well as `agent/**`
+because a UI change *is* an agent change, and asserts the bundle exists before
+compiling. `agent/internal/httpd/dist/` holds a committed `.gitkeep` so the
+embed pattern resolves on a clean checkout without a Node toolchain; a binary
+built without the UI serves an error page saying so rather than a 404.
 
 ## Sequencing
 
@@ -553,12 +602,46 @@ QR), API (signed URLs, gallery records, admin), gallery renderer. The original
 plan said 1–2 months for less than this. Solo, alongside three operating
 businesses, expect roughly double.
 
+## What is built
+
+`agent/` and `apps/kiosk/` exist and run end to end on a laptop with a webcam
+and simulated payment and printer backends. See `agent/README.md`.
+
+| | |
+|---|---|
+| Session lifecycle | `awaiting_payment` → `open` → `closed`, plus `abandoned`. One live session at a time, enforced by a partial unique index |
+| Payment gate | QRIS charge, polled to settlement, shutter locked until it settles |
+| Hot-folder ingest | Size-stable **and** JPEG EOI checked before reading; atomic move; crash-recovery rescan keyed on content hash |
+| Session attribution | Filesystem mtime, 20-second grace window for stragglers, orphans kept |
+| Take limit | Enforced at capture, because the app owns the shutter |
+| Compose | 300 dpi sheets from the originals, fill-and-crop cells, PNG overlay |
+| Print queue | DNP DS-RX1HS timings, media as an append-only ledger, interrupted jobs failed on restart with a reason |
+| Delivery | Phone captured unverified with two separate unticked consents and a stored consent version |
+| Retention | 7-day purge of originals, derivatives **and composed sheets** |
+
+Three things are simulated and each needs an explicit flag that warns at
+startup: payment (`-payments=sim`), printing (`-printer=sim`) and capture
+(`-source=webcam`). None is a product tier; each is a stand-in for hardware or
+an account that does not exist yet.
+
 ## Open
 
 - **Input device.** Touchscreen, or mouse and keyboard? Undecided, and it
-  changes every screen in the UI.
+  changes every screen in the UI. The countdown is five seconds, which is the
+  answer that survives either choice.
 - **Staff auth at the kiosk** — does a session start self-serve, or does staff
-  unlock it?
+  unlock it? Payment now answers most of this: the shutter is locked until a
+  charge settles, so an unattended booth is no longer a free booth. What remains
+  is whether staff need a way in for reprints and refunds.
+- **Upload to R2 and the gallery renderer are not built.** The agent captures,
+  composes, prints and purges; nothing leaves the booth PC yet, so the QR
+  download in the flow above has nothing behind it. This is the largest
+  remaining gap and it is gated on the residency fork.
+- **Media is loaded from a subcommand**, `bykami-agent media load 700`, not from
+  the touchscreen. Deliberate: everything else at `http://localhost` is defended
+  only by the machine being the boundary, and inflating the media counter is the
+  one operation where a hostile page could cause real damage — it disables the
+  "not enough paper" refusal, and the next customer's strip stops halfway.
 - **What the remote shutter physically is.** Wired, IR or RF is fine; the
   Camera Connect phone app over WiFi is mutually exclusive with USB tethering
   and would need replacing with an RS-60E3. Last unverified assumption in the
@@ -576,6 +659,15 @@ businesses, expect roughly double.
   refunded.
 - Frame spec: bleed, safe area, DPI, cut marks for strips.
 - Privacy policy page must exist before the first number is collected.
-- `identity.go:8` still claims `.bykami.id` scoping in a comment while no code
-  sets a cookie. Make the `Domain` attribute a deliberate decision before the
-  first handler, not an inherited one — it now bounds the gallery too.
+- ~~`identity.go:8` still claims `.bykami.id` scoping in a comment~~ — settled.
+  The JSON API is bearer-only and the operator console's cookie is `__Host-`
+  prefixed and host-only. See `design/platform-architecture.md`.
+- **The catalogue is duplicated.** `agent/internal/catalog/packages.json` copies
+  prices from `packages/content/src/verticals/studio.ts` because a Go binary on
+  an offline Windows PC cannot read TypeScript. A test fails when the two
+  disagree, but the prices themselves are still marked *unverified* upstream —
+  read off a PDF and never confirmed with the owner. Confirm them once, in
+  `studio.ts`.
+- **Which template belongs to which package** is currently a guess in that same
+  file. MINI and MIDI open on a 3-frame strip, MAXI and BIG MAXI on a 4-frame
+  one; nothing in the price list says so.

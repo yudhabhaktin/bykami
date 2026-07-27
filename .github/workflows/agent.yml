@@ -1,0 +1,160 @@
+name: Agent
+
+# The booth binary and the kiosk UI it embeds.
+#
+# `apps/kiosk/**` is a trigger path because a UI change *is* an agent change:
+# the bundle ships inside the binary, so a screen change with no rebuild is a
+# binary that serves yesterday's UI. Filtering on `agent/**` alone would let
+# exactly that through.
+#
+# No deploy job, and not for the reason api/ has none. The booth PC is a Windows
+# machine in a shop with no inbound anything — it is not addressable from CI at
+# all. Releases are published here and installed by whoever is standing at the
+# booth, until the OTA mechanism in design/kiosk.md exists.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent/**"
+      - "apps/kiosk/**"
+      - ".github/workflows/agent.yml"
+  pull_request:
+    paths:
+      - "agent/**"
+      - "apps/kiosk/**"
+      - ".github/workflows/agent.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: agent-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # Nothing here talks to the GitHub API, so leaving a token in
+          # .git/config only widens what a compromised dependency can reach.
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      # BEFORE the Go build, and this ordering is the whole reason the two live
+      # in one job. `go build` embeds whatever is in agent/internal/httpd/dist at
+      # compile time; running it first would ship the placeholder.
+      - name: Build the kiosk bundle
+        run: pnpm --filter @bykami/kiosk build
+
+      - name: Fail if the kiosk bundle is missing
+        # The failure mode this workflow exists to prevent, asserted rather than
+        # assumed: a binary that embeds only the marker file serves an error page
+        # instead of a booth.
+        run: test -f agent/internal/httpd/dist/index.html
+
+      - name: Verify go.mod and go.sum are tidy
+        working-directory: agent
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Vet
+        working-directory: agent
+        run: go vet ./...
+
+      - name: Test
+        working-directory: agent
+        # -race because the print queue and the ingest watcher are concurrent by
+        # construction: a worker draining jobs while the HTTP handler submits
+        # them is the normal case, not an edge one.
+        run: go test -race -count=1 ./...
+
+      # The booth PC runs Windows 11 Pro — chosen for Assigned Access, since
+      # macOS has no equivalent and this machine sits alone in a room with
+      # customers. Cross-compiling is the daily path, so it is the one CI proves.
+      - name: Build the booth binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: windows
+          GOARCH: amd64
+        working-directory: agent
+        run: go build -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/bykami-agent.exe" ./cmd/bykami-agent
+
+  # Publishing, not deploying: nothing here can reach a PC in a shop.
+  release:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      # The one write in this file, and the narrowest that can publish a release.
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the kiosk bundle
+        run: pnpm --filter @bykami/kiosk build
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: windows
+          GOARCH: amd64
+        working-directory: agent
+        run: |
+          set -euo pipefail
+          go build -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/bykami-agent.exe" ./cmd/bykami-agent
+
+      - name: Checksum
+        # Whoever installs this is standing at the booth with a USB stick. The
+        # checksum is what makes "is this the build I meant?" answerable there.
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          sha256sum bykami-agent.exe > bykami-agent.exe.sha256
+          cat bykami-agent.exe.sha256
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: agent-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "booth agent built from ${GITHUB_SHA}" \
+            "$RUNNER_TEMP/bykami-agent.exe" \
+            "$RUNNER_TEMP/bykami-agent.exe.sha256"
