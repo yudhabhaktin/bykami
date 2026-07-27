@@ -108,12 +108,26 @@ unlock digital files, stores it *unverified*, and credits loyalty only once that
 number is verified through the OTP flow. Unverified numbers never earn, which is
 what keeps the ledger clean given the number *is* the account.
 
-**Settled: the API issues bearer tokens and sets no cookie.** `api/internal/httpapi`
+**Settled: the JSON API issues bearer tokens and sets no cookie.** `api/internal/httpapi`
 is live at `app.bykami.id` and authenticates with `Authorization: Bearer`. The
 kiosk constraint above decides it on its own, and the jar caveat decides it
 again independently — `app.bykami.id` is the operator-admin surface and is
 explicitly outside the jar, so an API served there setting a `.bykami.id` cookie
 would contradict the rule two paragraphs down.
+
+**The operator console at `/` does set a cookie, and it is host-only.** A
+browser can carry one where the kiosk cannot, and an HTML form has nowhere to
+keep a bearer token without JavaScript. The cookie is `__Host-` prefixed, which
+browsers refuse unless it is `Secure`, `Path=/`, and carries no `Domain` — so
+the rule below is enforced by the browser rather than by remembering it.
+
+**Operator status is configuration, not a column.** An allow-list of phone
+numbers supplied at startup, re-checked against the verified session on every
+request. A role in the database would need a first operator promoted by an
+operator, and that bootstrap is normally solved with a seed script that quietly
+becomes a way to grant admin. This also closes the more important case: a stolen
+*customer* session cannot become an operator session, because privilege is
+derived per request and never stored in the session.
 
 Cookie SSO is not dropped by this; it is deferred to the surface that needs it.
 A vertical site can exchange these same tokens for a `Domain=.bykami.id` cookie

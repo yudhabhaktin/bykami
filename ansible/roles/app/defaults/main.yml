@@ -23,6 +23,19 @@ app_listen_addr: 127.0.0.1:8080
 # because the OOM killer arrives before the GC does.
 app_gomemlimit: 1400MiB
 
+# How one-time codes are delivered. Empty means the auth routes and the operator
+# console's login both answer 503 — which is the correct deployed state until
+# data residency is settled and a WhatsApp provider exists. "log" writes codes to
+# the journal and is for development only; setting it here would put one-time
+# codes in whatever reads the box's logs.
+app_otp_delivery: ""
+
+# Who may enter the operator console, comma-separated. Empty means nobody, and
+# nobody is the safe default: this is a public hostname. Adding a number here is
+# a configuration change with a diff and a playbook run behind it, which is the
+# audit trail a role column in the database would not have given.
+app_admin_phones: ""
+
 app_backup_dir: /var/backups/bykami
 app_backup_keep: 7
 app_backup_oncalendar: "*-*-* 03:30:00"

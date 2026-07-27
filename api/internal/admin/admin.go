@@ -1,0 +1,497 @@
+// Package admin is the operator console at app.bykami.id.
+//
+// Server-rendered HTML with no JavaScript and no build step. That is not
+// minimalism for its own sake: the alternative is a second toolchain, a bundle
+// to ship, and a client-side session — three things to keep correct so that a
+// staff member can look up a phone number.
+//
+// # Who is an operator
+//
+// Staff are a configured list of phone numbers, checked on every request
+// against the *currently verified* session. There is no role column, and that
+// is deliberate. A role in the database has a bootstrap problem — the first
+// operator has to be promoted by an operator — which is normally solved by a
+// seed script that quietly becomes a way to grant admin. A list supplied at
+// startup has no such path: changing who is staff means changing the service
+// configuration, which is an act with an audit trail.
+//
+// It also means a stolen customer session cannot become an operator session.
+// Privilege is derived from the phone on every request, never stored in the
+// session, so there is nothing in the cookie to tamper with.
+//
+// # Why this one gets a cookie when the API does not
+//
+// internal/httpapi is bearer-only, because the kiosk at http://localhost cannot
+// send a bykami.id cookie. A browser can, and an HTML form has nowhere to keep
+// a bearer token without the JavaScript this package exists to avoid.
+//
+// The cookie is host-only — no Domain attribute — which is the rule
+// design/platform-architecture.md sets for this hostname. A Domain=.bykami.id
+// cookie reaches every subdomain including gallery.bykami.id, the surface most
+// exposed to shared links, and the jar has no opt-out.
+package admin
+
+import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"embed"
+	"encoding/base64"
+	"errors"
+	"html/template"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/bhaktiyudha/bykami/api/internal/identity"
+	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
+	"github.com/bhaktiyudha/bykami/api/internal/phone"
+)
+
+//go:embed templates/*.html
+var templateFS embed.FS
+
+// sessionCookie is host-only and therefore prefixed __Host-, which browsers
+// enforce: the prefix is rejected unless the cookie is Secure, has no Domain,
+// and has Path=/. That turns the scoping rule above from a convention this code
+// must remember into one the browser refuses to let it break.
+const sessionCookie = "__Host-bykami-admin"
+
+// verticals a compensating entry can be attributed to. A fixed list rather than
+// a free-text field: the ledger is queried by vertical for settlement, and a
+// typo there is a row that silently never appears in a report.
+var verticals = []string{"studio", "booth", "dimsamcong"}
+
+type Console struct {
+	identity *identity.Service
+	loyalty  *loyalty.Ledger
+	log      *slog.Logger
+	tmpl     *template.Template
+
+	// staff is a set of E.164 numbers. Normalised at construction so that a
+	// mistyped configuration fails at startup rather than silently matching
+	// nobody — an allow-list that matches nobody looks exactly like a working
+	// one until someone tries to log in.
+	staff map[string]bool
+
+	// authEnabled mirrors the API's gate. False means no code can be sent, so
+	// the login form says so instead of failing at the submit.
+	authEnabled bool
+
+	// secure omits the Secure attribute in tests, which speak plain HTTP. It is
+	// never false in production — main.go does not expose it.
+	secure bool
+}
+
+// New returns the console. staffPhones are raw numbers in any Indonesian form;
+// they are normalised here and an unparseable one is an error rather than a
+// silently ignored entry.
+func New(ident *identity.Service, ledger *loyalty.Ledger, log *slog.Logger, staffPhones []string, authEnabled bool) (*Console, error) {
+	tmpl, err := template.New("").Funcs(template.FuncMap{
+		"points": formatPoints,
+		"time":   func(t time.Time) string { return t.Format("2006-01-02 15:04") },
+	}).ParseFS(templateFS, "templates/*.html")
+	if err != nil {
+		return nil, err
+	}
+
+	staff := make(map[string]bool, len(staffPhones))
+	for _, raw := range staffPhones {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		e164, err := phone.Normalize(raw)
+		if err != nil {
+			return nil, err
+		}
+		staff[e164] = true
+	}
+
+	return &Console{
+		identity:    ident,
+		loyalty:     ledger,
+		log:         log,
+		tmpl:        tmpl,
+		staff:       staff,
+		authEnabled: authEnabled,
+		secure:      true,
+	}, nil
+}
+
+// Handler routes the console. Registered by the caller at "/", so it is also
+// what answers for any path the API does not claim.
+func (c *Console) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", c.index)
+	mux.HandleFunc("POST /login", c.login)
+	mux.HandleFunc("POST /verify", c.verify)
+	mux.HandleFunc("POST /logout", c.logout)
+	mux.HandleFunc("GET /customers", c.staffOnly(c.customers))
+	mux.HandleFunc("POST /customers/{id}/adjust", c.staffOnly(c.adjust))
+	return mux
+}
+
+// page is what every template renders against. One struct rather than one per
+// view: the shared chrome needs the same three fields on every page, and
+// keeping them in separate types means remembering to populate them separately.
+type page struct {
+	Title       string
+	Operator    string
+	AuthEnabled bool
+	CSRF        string
+	Notice      string
+	Error       string
+
+	// Login flow
+	Phone     string
+	CodeSent  bool
+	Verticals []string
+
+	// Customer views
+	Query    string
+	Customer *identity.User
+	Balance  int64
+	Entries  []loyalty.Entry
+	Searched bool
+}
+
+func (c *Console) index(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := c.operator(r); ok {
+		// Already an operator, so the login form would be a dead end.
+		c.redirect(w, r, "/customers")
+		return
+	}
+	c.render(w, r, http.StatusOK, "login.html", page{
+		Title:       "Masuk",
+		AuthEnabled: c.authEnabled,
+	})
+}
+
+func (c *Console) login(w http.ResponseWriter, r *http.Request) {
+	if !c.authEnabled {
+		c.render(w, r, http.StatusServiceUnavailable, "login.html", page{
+			Title:       "Masuk",
+			AuthEnabled: false,
+		})
+		return
+	}
+
+	raw := strings.TrimSpace(r.FormValue("phone"))
+
+	// The allow-list is checked before a code is sent, not after it is
+	// redeemed. Sending to a non-operator would spend money on an SMS whose
+	// only possible outcome is a refusal, and would confirm to a stranger that
+	// this endpoint talks to a real delivery channel.
+	//
+	// The response is identical either way, so it does not reveal who is staff.
+	e164, err := phone.Normalize(raw)
+	switch {
+	case err != nil:
+		c.render(w, r, http.StatusBadRequest, "login.html", page{
+			Title:       "Masuk",
+			AuthEnabled: true,
+			Phone:       raw,
+			Error:       "Nomor tidak valid. Gunakan nomor ponsel Indonesia.",
+		})
+		return
+	case !c.staff[e164]:
+		c.render(w, r, http.StatusOK, "login.html", page{
+			Title:       "Masuk",
+			AuthEnabled: true,
+			Phone:       raw,
+			CodeSent:    true,
+			Notice:      "Jika nomor ini terdaftar sebagai operator, kode sudah dikirim.",
+		})
+		return
+	}
+
+	switch err := c.identity.RequestCode(r.Context(), raw); {
+	case err == nil, errors.Is(err, identity.ErrTooManyRequests):
+		// A rate-limited operator sees the same page as a successful one: they
+		// already have a code, and the useful next step is to enter it.
+		c.render(w, r, http.StatusOK, "login.html", page{
+			Title:       "Masuk",
+			AuthEnabled: true,
+			Phone:       raw,
+			CodeSent:    true,
+			Notice:      "Jika nomor ini terdaftar sebagai operator, kode sudah dikirim.",
+		})
+	default:
+		c.log.Error("admin: request code", "err", err)
+		c.render(w, r, http.StatusInternalServerError, "login.html", page{
+			Title:       "Masuk",
+			AuthEnabled: true,
+			Phone:       raw,
+			Error:       "Gagal mengirim kode. Coba lagi.",
+		})
+	}
+}
+
+func (c *Console) verify(w http.ResponseWriter, r *http.Request) {
+	if !c.authEnabled {
+		c.redirect(w, r, "/")
+		return
+	}
+
+	raw := strings.TrimSpace(r.FormValue("phone"))
+	code := strings.TrimSpace(r.FormValue("code"))
+
+	user, token, err := c.identity.VerifyCode(r.Context(), raw, code)
+	if err != nil {
+		c.render(w, r, http.StatusUnauthorized, "login.html", page{
+			Title:       "Masuk",
+			AuthEnabled: true,
+			Phone:       raw,
+			CodeSent:    true,
+			Error:       "Kode salah atau sudah kedaluwarsa.",
+		})
+		return
+	}
+
+	// Verified, but that only proves who they are. A customer who guessed this
+	// URL and completed a perfectly valid login is still not an operator, so
+	// the session is discarded rather than handed back.
+	if !c.staff[user.Phone] {
+		if err := c.identity.EndSession(r.Context(), token); err != nil {
+			c.log.Error("admin: discard non-operator session", "err", err)
+		}
+		c.render(w, r, http.StatusForbidden, "login.html", page{
+			Title:       "Masuk",
+			AuthEnabled: true,
+			Error:       "Akun ini bukan operator.",
+		})
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:  sessionCookie,
+		Value: token,
+		Path:  "/",
+		// No Domain: host-only, so this never enters the .bykami.id jar.
+		HttpOnly: true,
+		Secure:   c.secure,
+		// Strict, not Lax. There is no cross-site entry point that needs to
+		// carry this session — the console is reached by typing the address.
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int((30 * 24 * time.Hour).Seconds()),
+	})
+	c.redirect(w, r, "/customers")
+}
+
+func (c *Console) logout(w http.ResponseWriter, r *http.Request) {
+	if ck, err := r.Cookie(sessionCookie); err == nil {
+		if err := c.identity.EndSession(r.Context(), ck.Value); err != nil {
+			c.log.Error("admin: end session", "err", err)
+		}
+	}
+	// Cleared server-side above; this only tidies the browser. MaxAge -1 rather
+	// than an empty value, so a browser that ignores the deletion is left with
+	// a token that is already dead rather than a live one.
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Value: "", Path: "/",
+		HttpOnly: true, Secure: c.secure, SameSite: http.SameSiteStrictMode, MaxAge: -1,
+	})
+	c.redirect(w, r, "/")
+}
+
+func (c *Console) customers(w http.ResponseWriter, r *http.Request, op identity.User) {
+	q := strings.TrimSpace(r.URL.Query().Get("phone"))
+	p := page{
+		Title:       "Cari pelanggan",
+		Operator:    op.Phone,
+		AuthEnabled: c.authEnabled,
+		CSRF:        csrfToken(r),
+		Query:       q,
+		Verticals:   verticals,
+	}
+
+	// Outcomes of the adjust POST, which redirects rather than rendering so
+	// that a refresh cannot resubmit it.
+	if r.URL.Query().Get("ok") != "" {
+		p.Notice = "Penyesuaian tersimpan."
+	}
+	if msg := r.URL.Query().Get("err"); msg != "" {
+		p.Error = msg
+	}
+	if q == "" {
+		c.render(w, r, http.StatusOK, "customers.html", p)
+		return
+	}
+	p.Searched = true
+
+	user, err := c.identity.UserByPhone(r.Context(), q)
+	switch {
+	case err == nil:
+		p.Customer = &user
+	case errors.Is(err, identity.ErrNoUser):
+		p.Error = "Tidak ada akun dengan nomor itu."
+		c.render(w, r, http.StatusOK, "customers.html", p)
+		return
+	case errors.Is(err, phone.ErrInvalid):
+		p.Error = "Nomor tidak valid."
+		c.render(w, r, http.StatusOK, "customers.html", p)
+		return
+	default:
+		c.serverError(w, r, "lookup customer", err, p)
+		return
+	}
+
+	if p.Balance, err = c.loyalty.Balance(r.Context(), user.ID); err != nil {
+		c.serverError(w, r, "balance", err, p)
+		return
+	}
+	if p.Entries, err = c.loyalty.History(r.Context(), user.ID, 100); err != nil {
+		c.serverError(w, r, "history", err, p)
+		return
+	}
+	c.render(w, r, http.StatusOK, "customers.html", p)
+}
+
+// adjust writes a compensating entry — the only way the ledger permits history
+// to be corrected, and the reason nothing in it is mutable.
+func (c *Console) adjust(w http.ResponseWriter, r *http.Request, op identity.User) {
+	if !validCSRF(r) {
+		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
+		return
+	}
+
+	id := r.PathValue("id")
+	points, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("points")), 10, 64)
+	vertical := r.FormValue("vertical")
+	reason := strings.TrimSpace(r.FormValue("reason"))
+
+	switch {
+	case err != nil || points == 0:
+		c.back(w, r, "Jumlah poin harus berupa angka selain nol.")
+		return
+	case !slices.Contains(verticals, vertical):
+		c.back(w, r, "Vertical tidak dikenal.")
+		return
+	case reason == "":
+		// The ledger's audit value is the reason, not the number. An
+		// unexplained adjustment is the row that cannot be defended later.
+		c.back(w, r, "Alasan wajib diisi.")
+		return
+	}
+
+	// The operator is recorded in the reason because the ledger has no actor
+	// column. Adding one is a migration; this keeps the attribution in the row
+	// today so that no adjustment is anonymous in the meantime.
+	note := reason + " (oleh " + op.Phone + ")"
+	if _, err := c.loyalty.Adjust(r.Context(), id, vertical, points, note); err != nil {
+		c.log.Error("admin: adjust", "err", err, "user", id)
+		c.back(w, r, "Gagal menyimpan penyesuaian.")
+		return
+	}
+
+	c.log.Info("admin: loyalty adjusted", "operator", op.Phone, "user", id, "points", points, "vertical", vertical)
+	c.redirect(w, r, "/customers?phone="+urlQueryEscape(r.FormValue("phone"))+"&ok=1")
+}
+
+// operator resolves the session cookie and reports whether it belongs to staff.
+func (c *Console) operator(r *http.Request) (identity.User, string, bool) {
+	ck, err := r.Cookie(sessionCookie)
+	if err != nil || ck.Value == "" {
+		return identity.User{}, "", false
+	}
+	u, err := c.identity.UserForSession(r.Context(), ck.Value)
+	if err != nil {
+		return identity.User{}, "", false
+	}
+	// Checked here, on every request, rather than trusted from the session.
+	// Removing a number from the allow-list therefore ends that operator's
+	// access at the next request instead of whenever their session expires.
+	if !c.staff[u.Phone] {
+		return identity.User{}, "", false
+	}
+	return u, ck.Value, true
+}
+
+type staffHandler func(w http.ResponseWriter, r *http.Request, op identity.User)
+
+func (c *Console) staffOnly(h staffHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		op, _, ok := c.operator(r)
+		if !ok {
+			c.redirect(w, r, "/")
+			return
+		}
+		h(w, r, op)
+	}
+}
+
+// csrfToken derives a per-session value from the session token itself, so
+// nothing has to be stored or expired alongside it.
+//
+// Safe because the derivation input is the session token, which an attacker
+// cannot read: the cookie is HttpOnly, host-only, and SameSite=Strict. A
+// cross-site form therefore cannot compute this value, which is the entire job.
+func csrfToken(r *http.Request) string {
+	ck, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(ck.Value + "|csrf"))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+func validCSRF(r *http.Request) bool {
+	want := csrfToken(r)
+	got := r.FormValue("csrf")
+	if want == "" || got == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(want), []byte(got)) == 1
+}
+
+// redirect carries the no-store header that http.Redirect alone would not set.
+// A cached 303 from "/" is a cached statement about whether someone is signed
+// in, which is exactly the thing an operator console should not leave lying in
+// a shared browser or an intermediary.
+func (c *Console) redirect(w http.ResponseWriter, r *http.Request, to string) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.Redirect(w, r, to, http.StatusSeeOther)
+}
+
+func (c *Console) render(w http.ResponseWriter, _ *http.Request, status int, name string, p page) {
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	// Operator pages list customers' phone numbers and point balances.
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	// No inline script, no external anything. Declared rather than assumed, so
+	// that adding a script tag later fails visibly instead of silently widening
+	// what a template injection could do.
+	h.Set("Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	h.Set("Referrer-Policy", "same-origin")
+
+	w.WriteHeader(status)
+	if err := c.tmpl.ExecuteTemplate(w, name, p); err != nil {
+		c.log.Error("admin: render", "template", name, "err", err)
+	}
+}
+
+func (c *Console) serverError(w http.ResponseWriter, r *http.Request, op string, err error, p page) {
+	c.log.Error("admin: "+op, "err", err)
+	p.Error = "Terjadi kesalahan. Coba lagi."
+	c.render(w, r, http.StatusInternalServerError, "customers.html", p)
+}
+
+func (c *Console) back(w http.ResponseWriter, r *http.Request, msg string) {
+	c.redirect(w, r, "/customers?phone="+urlQueryEscape(r.FormValue("phone"))+"&err="+urlQueryEscape(msg))
+}
+
+func formatPoints(n int64) string {
+	if n > 0 {
+		return "+" + strconv.FormatInt(n, 10)
+	}
+	return strconv.FormatInt(n, 10)
+}
+
+func urlQueryEscape(s string) string { return url.QueryEscape(s) }

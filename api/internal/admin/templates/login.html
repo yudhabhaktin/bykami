@@ -1,0 +1,53 @@
+{{define "login.html"}}
+{{template "head" .}}
+
+<h1>Masuk</h1>
+
+{{if not .AuthEnabled}}
+  <p class="error">
+    <strong>Pengiriman kode OTP belum aktif.</strong><br>
+    Login belum bisa diselesaikan di deployment ini. Ini disengaja: kotak ini
+    masih dibatasi ke data sintetis sampai soal residensi data diputuskan, dan
+    satu-satunya pengirim yang ada menulis kode ke log.
+  </p>
+{{end}}
+
+<div class="card">
+  {{template "messages" .}}
+
+  {{if .CodeSent}}
+    <form method="post" action="/verify">
+      <input type="hidden" name="phone" value="{{.Phone}}">
+      <div class="field">
+        <label for="code">Kode 6 digit</label>
+        <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
+               pattern="[0-9]{6}" maxlength="6" required autofocus class="tabular">
+      </div>
+      <button type="submit">Masuk</button>
+    </form>
+    <p class="small muted" style="margin-top:1rem">
+      Kode berlaku 5 menit. Salah memasukkan 5 kali membatalkan kode.
+    </p>
+    <form method="post" action="/login" style="margin-top:0.5rem">
+      <input type="hidden" name="phone" value="{{.Phone}}">
+      <button class="secondary" type="submit">Kirim ulang kode</button>
+    </form>
+  {{else}}
+    <form method="post" action="/login">
+      <div class="field">
+        <label for="phone">Nomor WhatsApp operator</label>
+        <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel"
+               placeholder="0812…" value="{{.Phone}}" required
+               {{if not .AuthEnabled}}disabled{{end}} autofocus>
+      </div>
+      <button type="submit" {{if not .AuthEnabled}}disabled{{end}}>Kirim kode</button>
+    </form>
+  {{end}}
+</div>
+
+<p class="small muted" style="margin-top:1.5rem">
+  Konsol operator. Bukan halaman pelanggan.
+</p>
+
+{{template "foot" .}}
+{{end}}

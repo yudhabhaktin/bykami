@@ -10,7 +10,14 @@ records why splitting them on 2 vCPU would buy three GC heaps and no scaling.
 | `internal/phone` | Indonesian mobile numbers → E.164 |
 | `internal/identity` | Phone-first accounts, OTP challenges, sessions |
 | `internal/loyalty` | The append-only `#SobatKAMi` ledger |
-| `internal/httpapi` | Transport. Parse, authenticate, delegate, encode |
+| `internal/httpapi` | JSON transport. Parse, authenticate, delegate, encode |
+| `internal/admin` | The operator console — server-rendered HTML, no JavaScript |
+
+`cmd/bykami` splits the URL space, because it is the only place that knows both
+handlers exist: the console takes `/`, the API takes `/healthz` and `/v1/`. Go's
+ServeMux prefers the more specific pattern, so the console's catch-all does not
+shadow the API — and an unknown path lands on the console rather than a bare
+404, which is what a browser is most likely to hit.
 
 `internal/httpapi` holds no business rule on purpose. A rule enforced in a
 handler is a rule the next caller reaches around the moment it talks to the
@@ -110,13 +117,54 @@ cd ../ansible && ansible-playbook site.yml --tags app -e app_binary_src=/tmp/byk
 and does not restart the service. A second identical run reports `changed=0`,
 which is what makes it safe to run whenever you are unsure.
 
+## The operator console
+
+`/` is the console, not an API route. Server-rendered HTML, no JavaScript, no
+build step — the alternative is a second toolchain and a client-side session to
+keep correct so that staff can look up a phone number.
+
+| | |
+|---|---|
+| `GET /` | Login, or a redirect to the console when already signed in |
+| `POST /login` `POST /verify` | The same OTP flow customers use |
+| `GET /customers?phone=` | Balance and ledger history for one customer |
+| `POST /customers/{id}/adjust` | Writes a compensating entry |
+
+**Who is an operator is configuration, not data.** `-admin-phones` is a
+comma-separated allow-list, checked against the *currently verified* session on
+every request. There is no role column, deliberately: a role in the database has
+a bootstrap problem — the first operator must be promoted by an operator — whose
+usual answer is a seed script that quietly becomes a way to grant admin. It also
+means revoking someone takes effect on their next request rather than whenever
+their session happens to expire, and that a stolen customer session cannot
+become an operator session, because privilege is never stored in the session.
+
+Empty means nobody, which is the deployed default. This is a public hostname.
+
+**This surface gets a cookie although the API does not.** A browser can send one
+and an HTML form has nowhere to keep a bearer token without the JavaScript this
+package exists to avoid. It is `__Host-` prefixed — a name browsers refuse
+unless the cookie is `Secure`, has `Path=/`, and carries **no `Domain`** — which
+turns the host-only rule from something this code must remember into something
+the browser will not let it break.
+
+State-changing forms carry a CSRF token derived from the session token itself,
+so nothing has to be stored or expired beside it. A cross-site form cannot
+compute it, because the cookie it derives from is `HttpOnly`, host-only and
+`SameSite=Strict`.
+
+Adjust is the only mutation, and it is the only one the ledger permits: history
+is corrected by writing a compensating entry, never by editing a row. The
+operator's number is recorded in the entry's reason, because the ledger has no
+actor column and an anonymous adjustment cannot be defended later.
+
 ## Not here yet
 
-- **Earn, burn and adjust have no HTTP route.** The ledger supports all three.
-  Earning is a machine action from the kiosk and adjusting is an operator
-  action, and both need a credential that is not a customer's session token.
-  Staff auth is an open question in `design/kiosk.md`; inventing one to fill
-  this table would be the throwaway admin auth `direction.md` already refused.
-- **No operator admin UI**, for the same reason.
+- **Earn and burn have no HTTP route.** Earning is a machine action from the
+  kiosk and needs a credential that is neither a customer's session token nor an
+  operator's — that is the open staff/device auth question in `design/kiosk.md`.
+- **Nobody can actually sign in to the console** on the deployed box, because
+  login uses the OTP flow and delivery is off. That is the gate above, working.
 - **Booking**, blocked on the bookable-resource count.
-- **A real OTP sender.** WhatsApp is intended and needs a provider account.
+- **A real OTP sender.** WhatsApp is intended and needs a provider account. It
+  is the single thing blocking the console from being usable.

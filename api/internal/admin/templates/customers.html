@@ -1,0 +1,88 @@
+{{define "customers.html"}}
+{{template "head" .}}
+
+<h1>Cari pelanggan</h1>
+
+{{template "messages" .}}
+
+<div class="card">
+  <form method="get" action="/customers">
+    <div class="field">
+      <label for="phone">Nomor pelanggan</label>
+      <input id="phone" name="phone" type="tel" inputmode="tel" placeholder="0812…"
+             value="{{.Query}}" required autofocus>
+    </div>
+    <button type="submit">Cari</button>
+  </form>
+</div>
+
+{{if .Customer}}
+  <h2>{{.Customer.Phone}}</h2>
+  <div class="card">
+    <p class="small muted" style="margin:0">Saldo poin</p>
+    <p class="balance tabular">{{.Balance}}</p>
+    <p class="small muted" style="margin:0">
+      Terdaftar {{time .Customer.CreatedAt}}
+      {{if .Customer.Name}} · {{.Customer.Name}}{{end}}
+    </p>
+  </div>
+
+  <h2>Penyesuaian</h2>
+  <div class="card">
+    <p class="small muted">
+      Ledger bersifat append-only. Koreksi ditulis sebagai entri baru, bukan
+      dengan mengubah riwayat — itulah sebabnya tidak ada yang bisa disunting.
+    </p>
+    <form method="post" action="/customers/{{.Customer.ID}}/adjust">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="phone" value="{{.Query}}">
+      <div class="row">
+        <div class="field">
+          <label for="points">Poin (boleh negatif)</label>
+          <input id="points" name="points" type="number" step="1" required class="tabular">
+        </div>
+        <div class="field">
+          <label for="vertical">Vertical</label>
+          <select id="vertical" name="vertical" required>
+            {{range .Verticals}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="reason">Alasan</label>
+        <input id="reason" name="reason" required
+               placeholder="mis. kompensasi cetak gagal 2026-07-27">
+      </div>
+      <button type="submit">Simpan penyesuaian</button>
+    </form>
+  </div>
+
+  <h2>Riwayat</h2>
+  {{if .Entries}}
+    <div class="card scroll-x">
+      <table>
+        <thead>
+          <tr><th>Waktu</th><th>Jenis</th><th>Poin</th><th>Vertical</th><th>Referensi</th></tr>
+        </thead>
+        <tbody>
+          {{range .Entries}}
+            <tr>
+              <td class="tabular">{{time .CreatedAt}}</td>
+              <td>{{.Kind}}</td>
+              <td class="tabular">{{points .Points}}</td>
+              <td>{{.Vertical}}</td>
+              <td class="reason muted">{{.ReferenceID}}</td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  {{else}}
+    <p class="muted">Belum ada entri.</p>
+  {{end}}
+{{else if .Searched}}
+  {{if not .Error}}<p class="muted">Tidak ditemukan.</p>{{end}}
+{{end}}
+
+{{template "foot" .}}
+{{end}}
