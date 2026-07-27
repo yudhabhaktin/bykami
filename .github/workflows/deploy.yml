@@ -9,10 +9,11 @@ on:
       - ".github/workflows/deploy.yml"
       - "package.json"
       - "pnpm-lock.yaml"
+  # Unfiltered on purpose — see the note in api.yml. A required check that
+  # never triggers stays pending rather than skipped, and blocks the merge with
+  # nothing to fix. The filter here was also already wrong: it omitted this
+  # file, so a pull request editing this workflow never exercised it.
   pull_request:
-    paths:
-      - "sites/**"
-      - "packages/**"
   workflow_dispatch:
 
 concurrency:
@@ -27,6 +28,9 @@ jobs:
   # The contract spans all four properties (cross-property links, distinct
   # copy), so it runs once here rather than redundantly inside each deploy.
   verify:
+    # See the matching note in api.yml: both files had a job id of `verify`,
+    # which collided into one indistinguishable check context.
+    name: Verify sites
     runs-on: ubuntu-latest
     # Build with the environment gate open so the configuration under test is
     # the one that ships. Nothing from this job is deployed — the deploy job

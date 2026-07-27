@@ -20,10 +20,10 @@ on:
     paths:
       - "ansible/**"
       - ".github/workflows/ansible.yml"
+  # Unfiltered on purpose — see the note in api.yml. A required check whose
+  # workflow never triggers stays pending, not skipped, and the pull request
+  # becomes unmergeable with no failure to point at.
   pull_request:
-    paths:
-      - "ansible/**"
-      - ".github/workflows/ansible.yml"
   workflow_dispatch:
 
 concurrency:
