@@ -227,6 +227,39 @@ func (s *Service) UserForSession(ctx context.Context, token string) (User, error
 	return u, nil
 }
 
+// ErrNoUser means no account exists for that number.
+var ErrNoUser = errors.New("identity: no such user")
+
+// UserByPhone finds an account by number, normalising first so that an operator
+// can paste whatever form the customer gave them — 0812…, +62812…, or with
+// spaces and dashes — and still land on the same record.
+//
+// Unlike the login path, this one distinguishes "no account" from "bad number".
+// The reasoning that collapses them there does not apply: the caller is a
+// logged-in operator looking someone up, not an anonymous guesser probing which
+// numbers are registered.
+func (s *Service) UserByPhone(ctx context.Context, rawPhone string) (User, error) {
+	e164, err := phone.Normalize(rawPhone)
+	if err != nil {
+		return User{}, err
+	}
+
+	var u User
+	var created int64
+	err = s.db.QueryRowContext(ctx,
+		`SELECT id, phone, COALESCE(name, ''), COALESCE(email, ''), created_at
+		 FROM users WHERE phone = ?`, e164,
+	).Scan(&u.ID, &u.Phone, &u.Name, &u.Email, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrNoUser
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("identity: load user by phone: %w", err)
+	}
+	u.CreatedAt = time.Unix(created, 0).UTC()
+	return u, nil
+}
+
 // EndSession logs one device out. Idempotent.
 func (s *Service) EndSession(ctx context.Context, token string) error {
 	sum := sha256.Sum256([]byte(token))

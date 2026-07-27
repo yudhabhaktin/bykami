@@ -20,9 +20,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/api/internal/admin"
 	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
@@ -38,17 +40,23 @@ func main() {
 	// logins — which is exactly the state infrastructure.md requires until data
 	// residency is settled. "log" is the development sender and says so loudly.
 	otpDelivery := flag.String("otp-delivery", "", `how one-time codes are delivered: "" (disabled) or "log" (development only)`)
+	// Who may use the operator console, as a comma-separated list of phone
+	// numbers. Configuration rather than a database column on purpose — see
+	// internal/admin: a role in a table has a bootstrap problem whose usual
+	// answer is a seed script that becomes a way to grant admin. Empty means
+	// nobody, which is the safe default and the deployed one.
+	adminPhones := flag.String("admin-phones", "", "comma-separated operator phone numbers allowed into the admin console")
 	flag.Parse()
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	if err := run(*addr, *dsn, *otpDelivery, log); err != nil {
+	if err := run(*addr, *dsn, *otpDelivery, *adminPhones, log); err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, dsn, otpDelivery string, log *slog.Logger) error {
+func run(addr, dsn, otpDelivery, adminPhones string, log *slog.Logger) error {
 	sender, authEnabled, err := newSender(otpDelivery, log)
 	if err != nil {
 		return err
@@ -62,17 +70,30 @@ func run(addr, dsn, otpDelivery string, log *slog.Logger) error {
 
 	// Wired here and nowhere else. Modules take their dependencies as
 	// parameters, which is what keeps the boundaries real rather than aspirational.
-	handler := httpapi.New(
-		identity.New(db, sender),
-		loyalty.New(db),
-		db.PingContext,
-		log,
-		authEnabled,
-	)
+	ident := identity.New(db, sender)
+	ledger := loyalty.New(db)
+
+	api := httpapi.New(ident, ledger, db.PingContext, log, authEnabled)
+
+	console, err := admin.New(ident, ledger, log, splitPhones(adminPhones), authEnabled)
+	if err != nil {
+		return fmt.Errorf("admin console: %w", err)
+	}
+	log.Info("admin console configured", "operators", len(splitPhones(adminPhones)))
+
+	// The URL space is split here rather than inside either package, because
+	// this is the only place that knows both exist. Go's ServeMux prefers the
+	// more specific pattern, so the console's "/" catch-all does not shadow the
+	// API — and an unknown path lands on the console's 404 rather than a bare
+	// one, which is what a browser is most likely to hit.
+	root := http.NewServeMux()
+	root.Handle("/", console.Handler())
+	root.Handle("/healthz", api)
+	root.Handle("/v1/", api)
 
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: handler,
+		Handler: root,
 		// Bounded so a stalled client cannot pin a connection indefinitely. On a
 		// 1 GB box each held connection is memory that the next request needs.
 		ReadHeaderTimeout: 5 * time.Second,
@@ -103,6 +124,20 @@ func run(addr, dsn, otpDelivery string, log *slog.Logger) error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// splitPhones turns the flag's comma-separated list into entries. Blank entries
+// are dropped so that a trailing comma is not an error, but nothing else is
+// tidied — admin.New normalises and rejects, because a number that cannot be
+// parsed should stop startup rather than silently match nobody.
+func splitPhones(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // newSender picks the delivery channel and reports whether auth routes may

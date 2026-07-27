@@ -1,0 +1,120 @@
+{{define "head"}}<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · bykami admin</title>
+<!--
+  No robots. This is an operator console on a public hostname; it should never
+  appear in an index, and the header is honoured by crawlers that ignore
+  robots.txt on non-root paths.
+-->
+<meta name="robots" content="noindex, nofollow">
+<style>
+/*
+ * Tokens mirrored from packages/ui/src/tokens.css rather than imported: this is
+ * served by Go, not built by Astro, and a shared file would mean a build step
+ * for one stylesheet. Warm neutrals, ink-only accent, one hairline weight.
+ *
+ * Plus Jakarta Sans is not self-hosted here. The console is staff-facing on a
+ * known device, and a webfont would be a network round trip and a CSP exception
+ * bought for nothing.
+ */
+:root {
+  --ground: #fafaf9;
+  --surface: #ffffff;
+  --line: rgba(10, 10, 10, 0.1);
+  --text: rgba(10, 10, 10, 0.92);
+  --muted: rgba(10, 10, 10, 0.6);
+  --radius: 10px;
+  --bad: #9f1239;
+  --good: #14532d;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+}
+.wrap { width: 100%; max-width: 48rem; margin-inline: auto; padding: 1.5rem 1rem 4rem; }
+.bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  border-bottom: 1px solid var(--line); background: var(--surface);
+  padding: 0.75rem 1rem;
+}
+.bar .wrap { padding: 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.brand { font-weight: 700; letter-spacing: -0.4px; }
+h1 { font-size: 28px; line-height: 34px; letter-spacing: -0.7px; margin: 0 0 1.5rem; }
+h2 { font-size: 20px; line-height: 28px; letter-spacing: -0.4px; margin: 2rem 0 0.75rem; }
+p { margin: 0 0 1rem; max-width: 68ch; }
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.5rem;
+}
+label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 0.25rem; }
+input, select, textarea {
+  width: 100%; font: inherit; color: inherit; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0.625rem 0.75rem; min-height: 44px;
+}
+button {
+  font: inherit; font-weight: 600; min-height: 44px; width: 100%;
+  padding: 0.625rem 1rem; border-radius: var(--radius);
+  border: 1px solid var(--text); background: var(--text); color: var(--surface);
+  cursor: pointer;
+}
+button.secondary { background: transparent; color: var(--text); }
+button[disabled] { opacity: 0.45; cursor: not-allowed; }
+.field { margin-bottom: 1rem; }
+.row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.row > * { flex: 1 1 8rem; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+.tabular { font-variant-numeric: tabular-nums; }
+.notice, .error, .warn {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0.75rem 1rem; margin-bottom: 1.5rem; font-size: 14px;
+}
+.notice { border-color: var(--good); color: var(--good); }
+.error { border-color: var(--bad); color: var(--bad); }
+.balance { font-size: 40px; font-weight: 700; letter-spacing: -1px; margin: 0; }
+/* Wide content scrolls in its own box; the page never scrolls sideways. */
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 0.5rem 0.75rem 0.5rem 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 600; color: var(--muted); }
+td.reason { white-space: normal; min-width: 14rem; }
+form.inline { display: inline; }
+form.inline button { width: auto; min-height: 0; padding: 0.25rem 0.75rem; font-size: 14px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <span class="brand">bykami · admin</span>
+    {{if .Operator}}
+      <span class="small muted tabular">{{.Operator}}
+        <form class="inline" method="post" action="/logout">
+          <button class="secondary" type="submit">Keluar</button>
+        </form>
+      </span>
+    {{end}}
+  </div>
+</header>
+<main class="wrap">
+{{end}}
+
+{{define "foot"}}
+</main>
+</body>
+</html>
+{{end}}
+
+{{define "messages"}}
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
+{{end}}

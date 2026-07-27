@@ -20,7 +20,12 @@ Group={{ app_user }}
 Environment=GOMEMLIMIT={{ app_gomemlimit }}
 
 WorkingDirectory={{ app_data_dir }}
-ExecStart={{ app_install_path }} -addr {{ app_listen_addr }} -db {{ app_data_dir }}/{{ app_name }}.db
+{#
+  Flags are appended only when set, so the unit of a default deployment carries
+  neither — and the binary's own safe defaults apply rather than an empty string
+  that looks configured.
+#}
+ExecStart={{ app_install_path }} -addr {{ app_listen_addr }} -db {{ app_data_dir }}/{{ app_name }}.db{% if app_otp_delivery %} -otp-delivery {{ app_otp_delivery }}{% endif %}{% if app_admin_phones %} -admin-phones {{ app_admin_phones }}{% endif %}
 
 Restart=on-failure
 RestartSec=5s
