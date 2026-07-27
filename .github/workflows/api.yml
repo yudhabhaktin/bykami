@@ -21,10 +21,17 @@ on:
     paths:
       - "api/**"
       - ".github/workflows/api.yml"
+  # Deliberately unfiltered, unlike the push trigger above.
+  #
+  # A path-filtered workflow that does not trigger does not report a skipped
+  # check — it reports nothing, and a required check with no result stays
+  # pending forever. The pull request is then unmergeable with no failure to
+  # fix. Filtering here would make `verify` requirable only by PRs that happen
+  # to touch api/, which is the opposite of a gate.
+  #
+  # Running it always costs a couple of runner-minutes on a public repository,
+  # where Actions is free. That is the entire price.
   pull_request:
-    paths:
-      - "api/**"
-      - ".github/workflows/api.yml"
   workflow_dispatch:
 
 concurrency:
@@ -36,6 +43,13 @@ permissions:
 
 jobs:
   verify:
+    # Named because the check context is the job name, and deploy.yml also has
+    # a job whose id is `verify`. Two checks called "verify" cannot be told
+    # apart in branch protection: requiring the name would let whichever
+    # workflow happened to run satisfy the requirement for both, so a PR could
+    # merge with the Go tests never having run. `needs:` refers to the job id,
+    # not this, so nothing downstream changes.
+    name: Verify API
     runs-on: ubuntu-latest
     defaults:
       run:

@@ -35,10 +35,10 @@ on:
     paths:
       - "infra/alicloud/**"
       - ".github/workflows/alicloud.yml"
+  # Unfiltered on purpose — see the note in api.yml. Only `validate` is a
+  # required check; `plan` assumes a role against Alibaba, and an outage there
+  # must not be able to block a pull request that never touched this stack.
   pull_request:
-    paths:
-      - "infra/alicloud/**"
-      - ".github/workflows/alicloud.yml"
 
 concurrency:
   group: alicloud-${{ github.ref }}
