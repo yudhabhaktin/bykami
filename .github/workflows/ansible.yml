@@ -1,0 +1,85 @@
+name: Ansible
+
+# The roles in ansible/ configure the production box — swap, SSH hardening, the
+# tunnel connector, the app and its backups — and until now nothing checked them
+# on the way in. The R2 backup work merged with zero status checks, verified only
+# because it happened to be linted by hand.
+#
+# This job holds no credentials and never reaches the box. `ansible-lint` and
+# `--syntax-check` are both static: they parse the playbook and the roles and
+# never open a connection, which is why the inventory resolving to a placeholder
+# host is harmless here.
+#
+# What this does NOT catch is behaviour. A task can lint clean at the production
+# profile and still be wrong about the machine. `--check --diff` against the real
+# host is the test that would catch that, and it needs an SSH key this workflow
+# deliberately does not have.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ansible/**"
+      - ".github/workflows/ansible.yml"
+  pull_request:
+    paths:
+      - "ansible/**"
+      - ".github/workflows/ansible.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ansible-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  # Pinned rather than floating. ansible-lint enables new rules in minor
+  # releases, so an unpinned version turns an unrelated PR red on a day nobody
+  # changed anything — and the fix gets rushed because it is blocking something
+  # else. Bump deliberately.
+  ANSIBLE_CORE_VERSION: "2.21.2"
+  ANSIBLE_LINT_VERSION: "26.6.0"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ansible
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install ansible-core and ansible-lint
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check \
+            "ansible-core==${ANSIBLE_CORE_VERSION}" \
+            "ansible-lint==${ANSIBLE_LINT_VERSION}"
+
+      - name: Install collections
+        # From requirements.yml, so CI resolves the same pinned versions the
+        # roles were written against. Without this, ansible-lint cannot resolve
+        # ansible.posix modules and reports them as unknown — which reads like a
+        # typo in the playbook rather than a missing dependency.
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Lint
+        # No --profile flag: .ansible-lint is absent, so this runs the default
+        # progressive profile and reports the highest one the roles satisfy.
+        # They currently reach "production"; a regression shows up as that line
+        # dropping rather than as a pass/fail flip.
+        run: ansible-lint
+
+      - name: Syntax check
+        # Parses every play, role and template reference without connecting.
+        # BYKAMI_VPS_HOST is deliberately unset: the inventory falls back to an
+        # unresolvable placeholder, which this step never tries to reach.
+        run: ansible-playbook site.yml --syntax-check
