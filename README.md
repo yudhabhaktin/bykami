@@ -21,6 +21,7 @@ Read in this order:
 | `design/kiosk.md` | Self-service capture, print and delivery in the studio; the franchise path |
 | `design/infrastructure.md` | VPS memory budget, Cloudflare Tunnel, Terraform/Ansible split, CI/CD |
 | `api/README.md` | Phase 2 monolith — the HTTP surface at `app.bykami.id` and why auth is closed |
+| `agent/README.md` | The booth binary — capture, print, payment gate, retention, and the three simulations |
 | `design/assets-needed.md` | Checklist of assets only the owner can supply |
 
 ## Phasing
@@ -63,7 +64,10 @@ full resolution — Instagram downloads are re-compressed and unusable at hero s
 - [~] Phase 2 — identity, loyalty ledger and SQLite store built in `api/` and
       served over HTTP at `app.bykami.id`; auth routes closed until OTP
       delivery and residency are settled, booking blocked
-- [x] Kiosk architecture decided — not yet built
+- [~] Kiosk — `agent/` and `apps/kiosk/` built and running end to end on a
+      laptop: QRIS payment gate, capture, compose, print queue, media ledger,
+      consent capture, 7-day purge. Payment, printing and capture all run
+      against simulated backends; nothing leaves the booth PC yet
 - [~] VPS — Alibaba ECS trial box running in Singapore; not hardened, not
       Terraform-managed, **synthetic data only until residency is settled**
 - [~] Phase 2 — identity and the loyalty ledger built and tested; booking and
