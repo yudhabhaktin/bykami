@@ -1,0 +1,30 @@
+---
+# 2 GB per the memory budget in design/infrastructure.md. The box reports
+# ~1.6 GiB usable against a nominal 2 GiB, which makes the swapfile insurance
+# during a deploy rather than the decoration it would be on a larger host.
+base_swapfile_path: /swapfile
+base_swapfile_size_mb: 2048
+
+# Swap exists to survive a spike, not to be used routinely. 10 means the kernel
+# reaches for it only under real pressure; the default of 60 would have a box
+# with 1.1 GiB available paging anyway, which is slower than not swapping.
+base_swappiness: 10
+
+# cloud-init is Alibaba's own build and owns the conffile pinning
+# datasource_list to AliYun. Upgrading it to the Ubuntu archive build removes
+# that file as an obsolete conffile, and a box that cannot identify its
+# datasource can come back from a reboot with no network configuration —
+# recoverable only through the VNC console. The hold ships with the image; this
+# asserts it rather than assuming it survived.
+base_held_packages:
+  - cloud-init
+  - intel-microcode
+
+# prohibit-password, not no. Root's key is currently the only way in. Setting
+# this to "no" before the deploy user's key is proven locks the box.
+base_permit_root_login: prohibit-password
+
+base_deploy_user: deploy
+
+# Public keys, one per list entry. Managed exclusively — see the task.
+base_deploy_user_authorized_keys: []

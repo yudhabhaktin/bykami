@@ -108,6 +108,24 @@ unlock digital files, stores it *unverified*, and credits loyalty only once that
 number is verified through the OTP flow. Unverified numbers never earn, which is
 what keeps the ledger clean given the number *is* the account.
 
+**Settled: the API issues bearer tokens and sets no cookie.** `api/internal/httpapi`
+is live at `app.bykami.id` and authenticates with `Authorization: Bearer`. The
+kiosk constraint above decides it on its own, and the jar caveat decides it
+again independently — `app.bykami.id` is the operator-admin surface and is
+explicitly outside the jar, so an API served there setting a `.bykami.id` cookie
+would contradict the rule two paragraphs down.
+
+Cookie SSO is not dropped by this; it is deferred to the surface that needs it.
+A vertical site can exchange these same tokens for a `Domain=.bykami.id` cookie
+when one exists to log into. Deciding that per surface is the whole point of the
+jar caveat, and nothing above forecloses it.
+
+**The auth routes are closed on the deployed box** — 503 until `-otp-delivery`
+is configured. That enforces two gates in code rather than in memory: the
+residency gate in `infrastructure.md`, and the fact that the only sender that
+exists writes one-time codes to the log. `/healthz` is ungated, so the deploy
+health check and the tunnel check still work. See `api/README.md`.
+
 ### Loyalty — `#SobatKAMi`
 
 The Instagram community framing (`#SobatKAMi`, `Story Kamu`) is already a loyalty

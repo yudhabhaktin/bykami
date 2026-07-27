@@ -1,0 +1,27 @@
+---
+# The host address is deliberately not written down here.
+#
+# Two reasons, and either alone would be enough. This repository is public. And
+# the trial box's public IP is auto-assigned pay-by-traffic, so Alibaba releases
+# it whenever the instance stops and hands back a different one on start — an
+# address committed today is wrong after the next stop, and wrong in the way
+# that has you debugging Ansible when the problem is a stale inventory.
+#
+#   export BYKAMI_VPS_HOST=<current public IP from the ECS console>
+#   ansible-playbook site.yml --check --diff
+#
+# Once cloudflared is up this should move to a Cloudflare Access short-lived
+# SSH target and stop depending on the public address at all.
+all:
+  children:
+    vps:
+      hosts:
+        bykami-app:
+          # The fallback is a deliberately unresolvable name rather than an
+          # empty string. Unset, the connection fails with "Could not resolve
+          # hostname BYKAMI_VPS_HOST-is-not-set", which names the problem;
+          # empty fails with a bare connection error that looks like the box is
+          # down.
+          ansible_host: >-
+            {{ lookup('ansible.builtin.env', 'BYKAMI_VPS_HOST')
+               | default('BYKAMI_VPS_HOST-is-not-set', true) }}

@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Daily bykami database backup
+
+[Timer]
+OnCalendar={{ app_backup_oncalendar }}
+
+# The box is not on 24/7 and pay-as-you-go means it may be stopped overnight.
+# Persistent runs a missed backup at next boot instead of silently skipping the
+# day, which is the difference between a gap you can see and one you cannot.
+Persistent=true
+
+# Without this every box with this timer would back up at exactly the same
+# second. Harmless with one host; free insurance if there is ever a second.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

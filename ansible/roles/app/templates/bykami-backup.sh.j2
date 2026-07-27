@@ -1,0 +1,42 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# Local edits are overwritten. Change roles/app/templates/ instead.
+set -eu
+
+# 0600 on everything created below. sqlite3 honours the umask, and without this
+# the backup lands 0644 — a world-readable copy of the customer database. The
+# 0750 directory hides it today, which is exactly the kind of protection that
+# quietly disappears when someone widens the directory for an unrelated reason.
+umask 077
+
+DB="{{ app_data_dir }}/{{ app_name }}.db"
+DIR="{{ app_backup_dir }}"
+KEEP={{ app_backup_keep }}
+
+[ -f "$DB" ] || { echo "no database at $DB yet, nothing to back up"; exit 0; }
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+out="$DIR/{{ app_name }}-$stamp.db"
+
+# sqlite3 .backup, not cp. The database runs in WAL mode, so a file copy can
+# catch a checkpoint mid-flight and produce a backup that restores to a torn
+# state — and it will usually look fine, because the damage is in pages the
+# restore does not touch until later. .backup uses SQLite's online backup API,
+# which is consistent against a live writer.
+sqlite3 "$DB" ".backup '$out'"
+
+# Prove it before trusting it. A backup nobody has opened is a hypothesis.
+if ! sqlite3 "$out" 'PRAGMA integrity_check;' | grep -qx ok; then
+    echo "integrity check FAILED for $out" >&2
+    rm -f "$out"
+    exit 1
+fi
+
+# Keep the newest $KEEP, drop the rest. Filenames sort chronologically because
+# the stamp is ISO-8601 UTC, so lexical order is time order.
+ls -1 "$DIR"/{{ app_name }}-*.db 2>/dev/null \
+    | sort -r \
+    | tail -n +$((KEEP + 1)) \
+    | while read -r old; do rm -f "$old"; done
+
+echo "backup ok: $out"

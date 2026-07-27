@@ -1,0 +1,52 @@
+# {{ ansible_managed }}
+# Local edits are overwritten. Change roles/app/templates/ instead.
+
+[Unit]
+Description=bykami API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# exec, not notify: the Go binary does not implement sd_notify, and declaring
+# notify would leave systemd waiting for a readiness signal that never arrives
+# until it times out and calls the start a failure.
+Type=exec
+User={{ app_user }}
+Group={{ app_user }}
+
+# The GC's target, not a hard cap. Go works harder to stay under it rather than
+# being killed at it, which is the whole point — a hard limit would trade an
+# OOM kill for a different OOM kill.
+Environment=GOMEMLIMIT={{ app_gomemlimit }}
+
+WorkingDirectory={{ app_data_dir }}
+ExecStart={{ app_install_path }} -addr {{ app_listen_addr }} -db {{ app_data_dir }}/{{ app_name }}.db
+
+Restart=on-failure
+RestartSec=5s
+
+# SIGTERM is what main.go drains on. The default is SIGTERM already, but the
+# timeout is the part that matters: it must exceed the server's own shutdown
+# grace period or systemd kills mid-drain and the deploy drops requests.
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+# ProtectSystem=strict makes the entire filesystem read-only, so the data
+# directory has to be named explicitly. Without ReadWritePaths the app starts
+# and then fails on the first write, which looks like a database problem.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ReadWritePaths={{ app_data_dir }}
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

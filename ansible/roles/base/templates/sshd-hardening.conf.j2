@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+# Local edits are overwritten. Change roles/base/templates/ instead.
+#
+# The 00- prefix is load-bearing. sshd takes the FIRST value it reads for any
+# keyword, /etc/ssh/sshd_config Includes this directory near the top of the
+# file, and the directory is read in lexical order — so a 00- file wins over
+# both the main config and Alibaba's own drop-ins. Rename it to 99- and it
+# silently stops taking effect.
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin {{ base_permit_root_login }}

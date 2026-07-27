@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Poll for new bykami releases
+
+[Timer]
+OnCalendar={{ app_update_oncalendar }}
+
+# Persistent, so a box that was stopped overnight pulls once at boot rather
+# than waiting for the next slot. Pay-as-you-go means it may well be stopped.
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

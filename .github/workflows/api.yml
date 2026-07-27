@@ -1,9 +1,20 @@
 name: API
 
-# Build and test only. There is no deploy step yet on purpose: no VPS exists,
-# and the infrastructure record is explicit that the binary is built in CI and
-# shipped to the host rather than compiled there. The deploy job lands in the
-# same commit that configures the Alibaba Cloud instance.
+# Build and test only. The binary is built here and shipped to the host rather
+# than compiled there, which is the standing rule.
+#
+# The VPS now exists and ansible/roles/app deploys to it, so the original reason
+# for having no deploy job is gone. What blocks it is reachability, not
+# readiness: the box has one inbound rule, port 22 from a single admin address,
+# and GitHub's runners come from ranges too broad to allowlist without undoing
+# the reason the tunnel exists.
+#
+# The fix is Cloudflare Access in front of an ssh:// tunnel ingress, with a
+# service token for CI — short-lived, revocable, and no open port. That needs a
+# Zero Trust organization and an API token carrying Access permissions, neither
+# of which exists yet. Until then deploys run from a workstation:
+#
+#   ansible-playbook site.yml --tags app -e app_binary_src=/tmp/bykami
 on:
   push:
     branches: [main]
@@ -65,3 +76,65 @@ jobs:
           GOOS: linux
           GOARCH: amd64
         run: go build -trimpath -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami
+
+  # Publishing, not deploying. The box pulls; nothing here reaches out to it.
+  #
+  # That inversion is the whole design: the VPS has one inbound rule, port 22
+  # from a single admin address, and GitHub's runner ranges are far too broad to
+  # allowlist without undoing the reason the tunnel exists. A release is a
+  # notice board, and the box reads it on its own schedule.
+  #
+  # Tagged by commit SHA, never "latest", so a rollback is redeploying a known
+  # SHA rather than rebuilding and hoping.
+  release:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      # The one write in this file, and the narrowest that can publish a
+      # release. No packages, no id-token, no pull-requests.
+      contents: write
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          set -euo pipefail
+          go build -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/bykami" ./cmd/bykami
+
+      - name: Checksum
+        # The updater on the box verifies this before installing anything. A
+        # download that is truncated or tampered with should fail loudly at the
+        # box rather than become the running binary.
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          sha256sum bykami > bykami.sha256
+          cat bykami.sha256
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: api-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "api built from ${GITHUB_SHA}" \
+            "$RUNNER_TEMP/bykami" \
+            "$RUNNER_TEMP/bykami.sha256"

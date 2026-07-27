@@ -7,15 +7,25 @@ Provisioned 2026-07-26 on the free trial: instance `i-t4n7sxn0wwzevsimxwnr`,
 `ecs.e-c1m1.large`, Singapore zone A (`ap-southeast-1`), pay-as-you-go, trial
 credit through 2026-10-26.
 
-Two things about it are not yet fit for the design and must be fixed before
-anything is configured:
+Two things about it were not fit for the design, and both were fixed on
+2026-07-26 before anything else was configured:
 
-- **It runs CentOS 7.9**, which went end-of-life on 2024-06-30 — no security
-  updates, repositories moved to vault, and every Ansible role below written
-  against `apt`. Replace the system disk with Ubuntu 24.04.
-- **It has no key pair and no public IP.** Login is a console password reset,
-  which Ansible cannot use; and with no public IP the box has no outbound path
-  to install anything. Both are start-time settings, so fix them together.
+- **It ran CentOS 7.9**, end-of-life since 2024-06-30 — no security updates,
+  repositories moved to vault, and every Ansible role below written against
+  `apt`. Replaced with Ubuntu 24.04 via the console's Replace Operating System
+  flow, which calls `ReplaceSystemDisk`. That wipes the system disk but keeps
+  the instance ID, so the trial's savings-plan binding survived.
+- **It had no key pair and no public IP.** Login was a console password reset,
+  which Ansible cannot use; and with no public IP the box had no outbound path
+  to install anything. Both are start-time settings, so they were fixed together
+  during the re-image.
+
+The re-image also grew the system disk from 20 GB to 100 GB — worth knowing
+because system disks can be grown but never shrunk, so this is fixed for the
+life of the instance and draws against the trial credit continuously whether or
+not the box is doing anything. Nothing here needs 100 GB; check Billing → Cost
+Analysis to see what it actually costs before assuming the credit stretches to
+2026-10-26. Size the disk deliberately on the rebuild.
 
 Its public IP is auto-assigned and pay-by-traffic, which means it is **released
 whenever the instance stops**. Nothing may be pinned to it — it is a bootstrap
@@ -126,11 +136,22 @@ Owns resources with an API and a lifecycle. Never shells out to Ansible.
 
 **The trial instance is deliberately *not* a Terraform resource**, which reverses
 the earlier plan to import it. The trial is attached to this specific instance ID
-through a savings plan, and `image_id` and `instance_type` are both ForceNew — so
-a managed `alicloud_instance` gives Terraform standing permission to replace the
-one thing whose identity the discount depends on. The failure is silent: the
-apply succeeds, the box comes back, and billing has quietly become full-rate
+through a savings plan, and losing the ID loses the trial silently — the apply
+succeeds, the box comes back, and billing has quietly become full-rate
 pay-as-you-go.
+
+An earlier version of this section blamed ForceNew on `image_id` and
+`instance_type`. That was wrong, and it matters because it argued against a
+re-image that turned out to be safe: both are modifiable in place, and changing
+`image_id` calls `ReplaceSystemDisk`, which wipes the system disk but keeps the
+instance ID. The fields that genuinely force replacement are
+`system_disk_category`, `availability_zone`, `data_disks` and `spot_strategy`.
+
+The real blocker is state, not ForceNew. CI has no remote backend, so a
+stateless `terraform plan` against a managed `alicloud_instance` would propose
+creating a second one on every run. Making the instance a resource means moving
+state to R2 first, and adding `lifecycle { prevent_destroy = true }` so that a
+plan which *would* replace it errors instead.
 
 So Terraform owns only what is additive — the SSH key pair and the security group
 rules — and the instance, VPC, vSwitch, and security group stay console-owned
@@ -181,12 +202,12 @@ them — `InvalidAccessKeyId.NotFound` and `SignatureDoesNotMatch` against
 |---|---|
 | Instance | `i-t4n7sxn0wwzevsimxwnr` (`ecs.e-c1m1.large`) |
 | Region | Singapore zone A, `ap-southeast-1` |
-| Size | 2 vCPU / 2 GiB, 20 GB system disk |
+| Size | 2 vCPU / 2 GiB, 100 GB system disk (`/dev/vda3`, 99 GB usable) |
 | Network | `vpc-t4nhh131nrk5jf0zbb90y` / `vsw-t4nwwj3yx0q786ie56g1y`, sg `sg-t4n7sxn0wwzevsiowbta` |
-| Public IP | none while stopped — auto-assigned at start, released at stop |
-| Image | CentOS 7.9 — **EOL, must be replaced** |
+| Public IP | auto-assigned at start, released at stop — 5 Mbps pay-by-traffic, $0.081/GB |
+| Image | Ubuntu 24.04.4 LTS, kernel 6.8.0-124-generic (re-imaged 2026-07-26) |
 | Billing | Pay-as-you-go, $90 trial credit through 2026-10-26 |
-| State | Stopped, Economical Mode |
+| State | Running; auto-release set for 2026-10-24 00:00:00 |
 
 Both of the questions this table originally raised are now answered, and the
 answers went the way that needs action rather than the way that needed none:
@@ -199,6 +220,71 @@ answers went the way that needs action rather than the way that needed none:
   public IP at start, restrict port 22 to an admin address via
   `ssh_admin_cidr`, enforce key-only auth (`PasswordAuthentication no`), get
   `cloudflared` dialling out, then clear the rule.
+
+### Bootstrap state as of 2026-07-26
+
+Done: re-imaged to Ubuntu 24.04, hostname `bykami-app`, timezone `Asia/Jakarta`
+(the image ships UTC+8, which silently puts every log line and cron schedule an
+hour ahead of the business), key-only auth enforced via
+`/etc/ssh/sshd_config.d/00-hardening.conf`, and `sshd -T` confirms
+`passwordauthentication no` and `permitrootlogin without-password`.
+
+The `base` role has been applied and a second run reports `changed=0`, so the
+box's configuration is now described by `ansible/` rather than by whatever was
+typed into it. That run added the 2 GB swapfile the memory budget calls for —
+absent until then — set `vm.swappiness=10`, and created the `deploy` user. The
+sshd drop-in it wrote differs from the hand-applied one by comments only, which
+is the useful part: adopting the role changed no behaviour.
+
+`deploy` has no authorized keys yet, so it cannot log in. That is deliberate —
+it wants a key of its own rather than a copy of root's, and
+`base_deploy_user_authorized_keys` stays empty until one is minted. Until then
+root remains the only way in, which is why `base_permit_root_login` is still
+`prohibit-password` rather than `no`.
+
+**Leave `cloud-init` on hold.** The image ships Alibaba's own build, `23.2.2-8`,
+held along with `intel-microcode`, while the archive offers `26.1`. The hold is
+not staleness to tidy up: the package owns
+`/etc/cloud/cloud.cfg.d/aliyun_cloud.cfg`, which pins `datasource_list:
+[ AliYun ]`. Upgrading to the Ubuntu build removes that conffile as obsolete,
+and a box that cannot identify its datasource may come back from a reboot with
+no network configuration — recoverable only through the VNC console. Upstream
+cloud-init does support `AliYun` and would probably re-detect it, but "probably"
+is doing load-bearing work in that sentence. `unattended-upgrades` is enabled
+and its allowed origins include plain `noble` and `noble-security`, both of
+which carry a newer `cloud-init`; the hold is the only thing standing between
+those two facts.
+
+**A deploy private key was disclosed in full and is burned.** It was rotated,
+but rotation only *added* the new key — the burned one stayed authorized for
+root until it was removed on 2026-07-26. `authorized_keys` now holds exactly one
+key, `SHA256:YWCg0VdnM9eoXW6RrfxFKpvyJK/zDFJkb2XXa6+nfgQ`, verified by logging
+in with it and confirming every other local key is refused. The previous file is
+kept as a `.bak` beside it.
+
+Both follow-ups are now closed, audited against the API rather than assumed:
+
+- **The ECS key pair holds the good key, not the burned one.** One pair exists
+  in `ap-southeast-1`, `bykami-deploy`, MD5 `42:04:3f:56:52:2e:4e:f3:c8:3d:ac:
+  04:a1:cb:b5:a8` — identical to the surviving local key. Re-attaching it
+  cannot resurrect the disclosed key, which was the thing worth checking.
+- **The security group carries exactly one inbound rule**, TCP 22/22 from a
+  single `/32`. No `0.0.0.0/0`.
+
+That rule is **not** Terraform-managed, despite carrying the description text
+from `alicloud_security_group_rule.ssh_bootstrap`. There is no state, and
+`ssh_admin_cidr` is empty, so the resource's `count` is 0. Two consequences
+worth knowing before either is discovered the hard way: clearing
+`ssh_admin_cidr` will never remove this rule, and setting it to the same
+address would try to create a rule that already exists rather than adopt it.
+Removing the rule is a console action, or an import first.
+
+It is also pinned to a residential address, so it goes stale whenever that IP
+changes — one more reason the tunnel is the destination rather than a nicety.
+
+Rotating a key is two steps, and the second one is the whole point. Adding the
+new key restores access, which makes it feel finished; removing the old one is
+what ends the exposure, and nothing fails if you skip it.
 
 ## Residency is an object-storage problem, not a region problem
 
@@ -287,10 +373,19 @@ plaintext and must never sit in the repo, which is public.
 Owns packages, users, systemd units, config files, the deployed app. Never
 creates cloud resources Terraform manages.
 
-Roles:
+Roles, in `ansible/roles/` — see `ansible/README.md` for the run order and the
+non-obvious parts:
 1. `base` — swap, `vm.swappiness`, unattended upgrades, SSH hardening, deploy user
-2. `cloudflared` — install, credentials file, systemd unit, ingress config
+2. `cloudflared` — install, service user, systemd unit, connector token
 3. `app` — binary drop, systemd unit with `GOMEMLIMIT`, SQLite data dir, backups
+
+**`cloudflared` owns no ingress config**, which corrects this list's earlier
+claim that it did. The connector runs in remotely-managed mode: the tunnel and
+its routes are Terraform resources, and the box holds only a token. Ingress
+cannot be owned in two places — a `config.yml` on the box plus rules in
+Terraform is two sources of truth, and the failure is a route that works until
+the next playbook run restores a stale copy. Adding a hostname is a Terraform
+change, not an Ansible run.
 
 Rules:
 - Real modules (`ansible.builtin.systemd`, `apt`, `template`, `user`) — never bare
@@ -380,10 +475,18 @@ Cloudflare and the compute provider split cleanly, and the split is deliberate:
   photo objects live — never the VPS disk, because serving galleries is the
   product's dominant egress and R2 has no egress fee.
 
-The VPS should keep **no public IP**: Cloudflare Tunnel dials out, so nothing
-depends on the provider's firewall rules staying correct. The trial box needs one
-temporarily to bootstrap `cloudflared`, which is what `ssh_admin_cidr` in
-`infra/alicloud/` exists to scope — and to be cleared afterwards.
+The VPS should keep **no inbound rules** — not no public IP. The distinction was
+stated wrongly here before, and getting it backwards costs an afternoon: an ECS
+instance in a VPC with no public IP and no NAT gateway has no internet egress at
+all, so `cloudflared` cannot dial out and the tunnel never comes up. It presents
+as a broken tunnel, not as a missing address.
+
+So the end state is a public IP with an empty inbound rule set. A public IP is an
+egress path and a *potential* ingress path; the security group decides whether it
+is an actual one. Port 22 is opened only to bootstrap `cloudflared`, scoped by
+`ssh_admin_cidr` in `infra/alicloud/`, and cleared once the tunnel is up. After
+that nothing depends on the provider's firewall rules staying correct, which was
+the point of the tunnel in the first place.
 
 ## Managed robots.txt contradicts ours
 

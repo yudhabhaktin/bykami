@@ -1,0 +1,6 @@
+---
+- name: Restart app
+  ansible.builtin.systemd_service:
+    name: "{{ app_name }}"
+    state: restarted
+    daemon_reload: true

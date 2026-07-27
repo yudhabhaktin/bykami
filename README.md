@@ -20,7 +20,7 @@ Read in this order:
 | `design/booking-phase2.md` | Self-hosted booking to replace YouCanBook.me, QRIS via Xendit |
 | `design/kiosk.md` | Self-service capture, print and delivery in the studio; the franchise path |
 | `design/infrastructure.md` | VPS memory budget, Cloudflare Tunnel, Terraform/Ansible split, CI/CD |
-| `api/` | Phase 2 monolith — identity, loyalty ledger, SQLite store |
+| `api/README.md` | Phase 2 monolith — the HTTP surface at `app.bykami.id` and why auth is closed |
 | `design/assets-needed.md` | Checklist of assets only the owner can supply |
 
 ## Phasing
@@ -60,8 +60,9 @@ full resolution — Instagram downloads are re-compressed and unusable at hero s
 - [~] Design direction — structure, type, and content done; palette blocked on
       original brand assets
 - [x] Phase 1 built and live on `bykami.id`
-- [~] Phase 2 — identity, loyalty ledger and SQLite store built in `api/`;
-      no HTTP transport yet, booking blocked
+- [~] Phase 2 — identity, loyalty ledger and SQLite store built in `api/` and
+      served over HTTP at `app.bykami.id`; auth routes closed until OTP
+      delivery and residency are settled, booking blocked
 - [x] Kiosk architecture decided — not yet built
 - [~] VPS — Alibaba ECS trial box running in Singapore; not hardened, not
       Terraform-managed, **synthetic data only until residency is settled**

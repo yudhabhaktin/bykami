@@ -1,0 +1,43 @@
+---
+app_name: bykami
+
+# Path on the CONTROL machine to a linux/amd64 binary. There is deliberately no
+# default: the design rule is "never build on the VPS", so this role copies a
+# binary someone else built — CI, or a local cross-compile:
+#
+#   cd api && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+#     go build -trimpath -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami
+app_binary_src: ""
+
+app_user: bykami
+app_install_path: /usr/local/bin/bykami
+app_data_dir: /var/lib/bykami
+
+# localhost, and this is the security boundary rather than a preference. The
+# tunnel dials out to reach it; binding 0.0.0.0 would expose the app on the
+# public IP and make the security group load-bearing again.
+app_listen_addr: 127.0.0.1:8080
+
+# ~1.4 GiB per the memory budget. Sized against the OS and cloudflared's ~210 MB
+# rather than against the box total: a limit set at capacity is not a limit,
+# because the OOM killer arrives before the GC does.
+app_gomemlimit: 1400MiB
+
+app_backup_dir: /var/backups/bykami
+app_backup_keep: 7
+app_backup_oncalendar: "*-*-* 03:30:00"
+
+# Pull-based deploy. CI publishes a release tagged api-<sha>; the box polls for
+# it. Inverted on purpose: the VPS has one inbound rule and GitHub's runner
+# ranges are too broad to allowlist without undoing the point of the tunnel.
+app_release_repo: bhaktiyudha/bykami
+
+# Every 10 minutes, offset from the hour. The cost of a poll is one API call
+# against an unauthenticated rate limit of 60/hour per IP — 6/hour leaves room
+# for a manual `systemctl start bykami-update` without tripping it.
+app_update_oncalendar: "*:03/10"
+
+# Off by default. A box that installs whatever main published, unattended, is a
+# supply-chain path from a merged commit straight to production — so turning it
+# on is a deliberate act, per host, not a side effect of running the role.
+app_update_enabled: false

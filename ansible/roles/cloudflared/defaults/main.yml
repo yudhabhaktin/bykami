@@ -1,0 +1,12 @@
+---
+# The connector token from the Terraform-managed tunnel. Never committed —
+# pass it in from a vault file or the environment:
+#
+#   ansible-playbook site.yml -e cloudflared_token="$CLOUDFLARED_TOKEN"
+#
+# Empty by default so the role fails with an explanation rather than installing
+# a daemon that cannot connect and reports itself as active.
+cloudflared_token: ""
+
+cloudflared_config_dir: /etc/cloudflared
+cloudflared_service_user: cloudflared
