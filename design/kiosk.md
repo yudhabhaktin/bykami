@@ -625,6 +625,41 @@ startup: payment (`-payments=sim`), printing (`-printer=sim`) and capture
 (`-source=webcam`). None is a product tier; each is a stand-in for hardware or
 an account that does not exist yet.
 
+### The screen flow
+
+`attract → packages → pay → frame → capture → review → delivery → done`, held as
+one value in `App.tsx` rather than in a router. The booth has no URLs: a
+customer cannot navigate, cannot go back, and must never reach a screen out of
+order. On load the step is derived from the server's session state, so a
+refresh, a browser restart or a power cut resumes where the customer was rather
+than dropping them at the start of a session they have already paid for.
+
+Two of these are the booth's resting behaviour rather than steps. **Attract** is
+what the panel shows with nobody in front of it, and is where the 45-second
+walkaway timeout on the price list and the 12-second reset after the thank-you
+both land. The timeout is deliberately only armed before payment: a timer that
+resets a paid session takes money and gives nothing back.
+
+**The frame is chosen before the camera opens**, and again at review. The number
+of cells is what decides how many photos the session needs, and a customer who
+learns that after shooting has been told too late — so `capture` can say "this
+frame needs 4, you have 2". The package still names a default, so tapping
+straight through gets the frame the price list advertised, and changing your
+mind at review stays free because the template travels with the print request
+rather than being committed earlier.
+
+**Camera preparation is a phase of `capture`, not its own screen.** Opening a
+webcam is the longest single wait in the flow and it belongs to the driver;
+giving it a separate route would mean opening the camera twice and paying that
+cost twice. It has three states — opening, live, failed — and `failed` is
+distinct on purpose: a booth that says "preparing…" forever reads as a slow
+machine rather than a broken one, and nobody calls staff.
+
+Against the customer-facing flow the owner specified, what is **not** built is
+`download QR` and `reprint`. The QR has nothing behind it until upload and the
+gallery exist, which is gated on the residency fork. Reprint is an open
+commercial decision, not an implementation gap — see below.
+
 ### The derivative is a performance decision, not only a delivery one
 
 `internal/derive` was written for the gallery — long edge 2048, EXIF stripped,
@@ -694,6 +729,22 @@ server.
   boundaries and 30-day expiry both depend on it.
 - **Printer error mid-session** — reprint policy, and whether a failed print is
   refunded.
+- ~~Reprint~~ — settled. **The paid copies are handed out one at a time.** A
+  package including two prints releases the first on "Cetak", then offers
+  "Cetak lagi (1 tersisa)", which is what a pair splitting a strip actually
+  wants. No money rule changed and no second payment flow.
+
+  This moved the allowance check from per-request to cumulative, and that was
+  load-bearing rather than cosmetic: while the browser asked for all copies at
+  once, `copies > print_copies` was a sufficient backstop. Handing them out one
+  at a time makes every individual request look legal, so the server now sums
+  what the session has already claimed (`Queue.CopiesForSession`, failed jobs
+  excluded) and `prints_done` is served in the session view — counted in the
+  browser it would reset on a refresh.
+
+  What is *not* built is the staff-unlocked reprint for a smudged sheet, which
+  is the industry meaning of the word and still needs the kiosk staff auth open
+  above.
 - Frame spec: bleed, safe area, DPI, cut marks for strips.
 - Privacy policy page must exist before the first number is collected.
 - ~~`identity.go:8` still claims `.bykami.id` scoping in a comment~~ — settled.

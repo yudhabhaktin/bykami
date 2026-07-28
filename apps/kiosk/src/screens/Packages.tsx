@@ -4,21 +4,30 @@ import type { ScreenProps } from "../App";
 import { api, ApiError, rupiah } from "../api";
 
 /**
- * The first screen: choose a package, then pay.
+ * Choose a package, then pay.
  *
  * Payment comes first because the booth is self-service. Nobody stands between
  * a stranger and the camera, so the QR code is the attendant — this reverses
  * the "No payment at the kiosk" decision in design/kiosk.md, which held only
  * while a human at the counter took the money.
  */
-export function Idle({ state, refresh, setStep, setError }: ScreenProps) {
+export function Packages({
+  state,
+  refresh,
+  setStep,
+  setError,
+  setTemplateId,
+}: ScreenProps & { setTemplateId: (id: string) => void }) {
   const [busy, setBusy] = useState("");
 
   async function choose(packageId: string) {
     setBusy(packageId);
     setError("");
     try {
-      await api.start(packageId);
+      const { session } = await api.start(packageId);
+      // The package's own frame, preselected. The frame screen is a choice, not
+      // a form to fill in, so tapping straight through has to land somewhere.
+      setTemplateId(session.template_id);
       await refresh();
       setStep("pay");
     } catch (err) {

@@ -53,11 +53,22 @@ either impossible or unreliable to recover from Instagram screenshots.
       they exist somewhere
 - [ ] Confirmation of bleed, safe area and cut marks, or permission to redraw
       them to a spec
-- [ ] **Resolve "2R" against the printer.** The booth price list sells "cetak
-      strip 2R" and "frame 4R/strip", but 2R in Indonesian print sizing is
-      6×9 cm while the RX1HS strip is 2×6 in (5×15 cm) — a different shape, not
-      a different name. Frame artwork cannot be specified until this is settled,
-      and the price list may need rewording
+- [x] **"2R" resolved — the product is the 2×6 in strip** (5×15 cm), what the
+      DS-RX1HS actually cuts, not true 2R at 6×9 cm. The existing `strip-3` and
+      `strip-4` templates are therefore correct at 600×1800 px, and artwork can
+      now be specified against them:
+
+      | Template | Sheet | Cells |
+      |---|---|---|
+      | `strip-3` | 600 × 1800 | 3 |
+      | `strip-4` | 600 × 1800 | 4 |
+      | `4r-polos` | 1200 × 1800 | 1, full bleed |
+
+      All at 300 dpi, and the overlay is scaled to the sheet with **no
+      letterbox** — artwork delivered at the wrong aspect ratio gets stretched.
+- [ ] **Reword the price list.** It sells "cetak strip 2R", which names a size
+      the booth does not print. Wrong on a customer-facing price list in a way
+      that invites an argument at the counter
 
 Importing these beats building an authoring tool, and it sidesteps the logo
 vector being blocked.

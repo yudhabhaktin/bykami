@@ -1,15 +1,20 @@
 /*
- * Booth screen styling — warm minimalism, touch-first.
+ * Booth screen styling — Scandinavian minimalism with flat cartoon illustration.
  *
  * Tokens are not imported from packages/ui/src/tokens.css: this bundle is
  * embedded in a Go binary and must not depend on the Astro build. They are
  * restated here on purpose.
  *
+ * Two rules from the design language are enforced structurally rather than by
+ * discipline, because they are the ones easiest to reintroduce by accident:
+ * no gradient anywhere, and no blurred shadow anywhere. Depth is a hard ink
+ * offset — the sticker idiom — which stays flat at any size and survives the
+ * low-gamut panel a booth is likely to end up with.
+ *
  * Still no webfont *request*. The booth PC is offline-first and a font fetch
- * that hangs is a screen that hangs, so the rounded families the design calls
- * for are named as local preferences and the system stack catches the fall.
- * Self-hosting one as a bundled woff2 is the fix that would make it certain —
- * see agent/README.md.
+ * that hangs is a screen that hangs, so both families are named as local
+ * preferences with the system stack catching the fall. Self-hosting them as
+ * bundled woff2 is the fix that would make it certain — see agent/README.md.
  *
  * Everything is sized for touch and for arm's length. The input device is
  * still undecided in design/kiosk.md, so nothing here depends on hover and
@@ -17,21 +22,33 @@
  */
 
 :root {
-  /* Warm off-white rather than pure white: the interface should read closer to
-     a lifestyle brand than to an operator console. */
-  --ground: #f8f6f2;
-  --surface: #ffffff;
-  --text: #222222;
-  --muted: #757575;
-  --accent: #f7c8c6;
-  --accent-2: #d9e7d2;
-  --warning: #f6c453;
-  --error: #e96b6b;
-  --line: rgba(34, 34, 34, 0.08);
+  /* Five colours and an ink, and nothing between them. A limited palette is
+     what stops a booth screen drifting into an operator console, so there is
+     deliberately no neutral-grey ramp to reach for. */
+  --ink: #1a1a1a;
+  --cream: #f6efe3;
+  --red: #be3a31;
+  --green: #1e7a55;
+  --pink: #f3c9c3;
+  --yellow: #e7b23f;
 
-  /* Kept as aliases so nothing that already referenced them has to change. */
-  --bad: var(--error);
-  --good: #4f7a52;
+  --ground: var(--cream);
+  --surface: #fffcf7;
+  --text: var(--ink);
+  /* Warm, not grey: a cool grey on cream reads as dirt. */
+  --muted: #6b6257;
+  --accent: var(--pink);
+  --accent-2: #dcebe1;
+  --warning: var(--yellow);
+  --error: var(--red);
+
+  /* Outlines are the design language, so the line token is ink itself. */
+  --line: var(--ink);
+  --stroke: 2px;
+  --stroke-thick: 3px;
+
+  --bad: var(--red);
+  --good: var(--green);
 
   --r-xs: 8px;
   --r-sm: 12px;
@@ -53,7 +70,10 @@
   --s-8: 64px;
 
   --tap: 64px;
-  --shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  /* Hard, not blurred. This is the whole "no glossy effects" rule in one value:
+     anything that reaches for --shadow gets a flat offset it cannot soften. */
+  --shadow: 4px 4px 0 var(--ink);
+  --shadow-lg: 6px 6px 0 var(--ink);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -82,6 +102,18 @@ body {
   -webkit-user-select: none;
   user-select: none;
   overscroll-behavior: none;
+}
+
+/*
+ * The handwritten accent, used on single words and never on anything a
+ * customer has to act on. Segoe Script ships with Windows, which is what the
+ * booth runs; the rest are fallbacks for developing on a Mac. If none resolve
+ * the text is still legible, just no longer charming — which is the right
+ * failure mode for a font that cannot be fetched.
+ */
+.hand {
+  font-family: "Segoe Script", "Bradley Hand", "Comic Sans MS", cursive;
+  font-weight: 400;
 }
 
 button {
@@ -191,34 +223,36 @@ p {
   min-height: var(--tap);
   padding: var(--s-3) var(--s-6);
   border-radius: var(--r-btn);
-  border: 1px solid var(--text);
-  background: var(--text);
-  color: var(--surface);
+  border: var(--stroke) solid var(--line);
+  background: var(--red);
+  color: var(--cream);
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
   box-shadow: var(--shadow);
   transition:
     transform 200ms var(--ease),
+    box-shadow 200ms var(--ease),
     background-color 200ms var(--ease),
     border-color 200ms var(--ease),
     opacity 200ms var(--ease);
 }
 
-/* A gentle press, not a bounce. The only feedback a touchscreen can give. */
+/* Pressed into its own shadow rather than scaled: with a hard offset the button
+   physically travels the 4px it was floating, which is the flat-vector way of
+   saying "pressed" without a gradient or a glow. */
 .btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 var(--ink);
 }
 
 .btn.secondary {
   background: var(--surface);
   color: var(--text);
-  border-color: var(--line);
 }
 
 .btn.secondary[aria-pressed="true"] {
   background: var(--accent);
-  border-color: var(--text);
 }
 
 .btn.ghost {
@@ -228,8 +262,16 @@ p {
   box-shadow: none;
 }
 
+.btn.ghost:active:not(:disabled) {
+  transform: none;
+}
+
+/* Flattened rather than faded: a disabled control that keeps its drop shadow
+   still looks pressable from two metres away. */
 .btn:disabled {
-  opacity: 0.35;
+  background: var(--surface);
+  color: var(--muted);
+  border-color: var(--muted);
   box-shadow: none;
   cursor: not-allowed;
 }
@@ -254,10 +296,142 @@ p {
 
 .card {
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: var(--stroke) solid var(--line);
   border-radius: var(--r-lg);
   padding: var(--s-5);
   box-shadow: var(--shadow);
+}
+
+/* The resting screen. The whole panel is the target: a walk-up customer should
+   not have to find a button, and there is nothing else on a kiosk to mis-tap.
+   Flat blush, no gradient — the depth comes from the outline and the botanical
+   doodles sitting behind the text. */
+.attract {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-6);
+  flex-grow: 1;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  padding: clamp(var(--s-5), 4vw, var(--s-8));
+  border: var(--stroke-thick) solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--pink);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  transition:
+    transform 200ms var(--ease),
+    box-shadow 200ms var(--ease);
+}
+
+/* Editorial rather than centred: the copy holds one column and the character
+   the other, which is what stops a full-bleed panel reading as a splash screen.
+   Stacked on a portrait booth, where two columns would leave neither room. */
+.attract-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-4);
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+
+.attract-art {
+  flex: 1 1 40%;
+  max-width: 46%;
+  height: auto;
+  align-self: center;
+}
+
+@media (max-aspect-ratio: 1/1) {
+  .attract {
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    gap: var(--s-7);
+  }
+
+  .attract-copy {
+    align-items: center;
+    flex: 0 0 auto;
+  }
+
+  /* Sized by height, not by flex. In a column the earlier `flex: 1 1 40%`
+     resolves against the main axis, which stretched the character down the
+     panel and left the composition with a hole in the middle. */
+  .attract-art {
+    flex: 0 1 auto;
+    max-width: min(78%, 26rem);
+    max-height: 42vh;
+    object-fit: contain;
+  }
+}
+
+.attract:active {
+  transform: translate(6px, 6px);
+  box-shadow: 0 0 0 var(--ink);
+}
+
+/* Decoration, and decoration only: pushed behind the content and out of the
+   accessibility tree so it can never become something to read or tap.
+   Emerald rather than a faded ink, because opacity over a flat fill produces a
+   muddy in-between colour and this palette has a green in it already. */
+.attract .doodle {
+  position: absolute;
+  pointer-events: none;
+  color: var(--green);
+}
+
+.attract .doodle-tl {
+  top: var(--s-5);
+  left: var(--s-5);
+  width: clamp(72px, 12vw, 132px);
+  transform: rotate(-12deg);
+}
+
+.attract .doodle-br {
+  bottom: var(--s-5);
+  right: var(--s-5);
+  width: clamp(72px, 12vw, 132px);
+  /* Mirrored rather than rotated far: past about 20° a stem stops reading as
+     growing and starts reading as fallen. */
+  transform: scaleX(-1) rotate(-9deg);
+}
+
+.attract > * {
+  position: relative;
+}
+
+.attract-kicker {
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.attract-title {
+  font-size: clamp(2.5rem, 7vw, 3.75rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -1px;
+}
+
+.attract-sub {
+  font-size: 1.125rem;
+  max-width: 24rem;
+}
+
+.attract-price {
+  margin-top: var(--s-3);
+  padding: var(--s-3) var(--s-5);
+  border: var(--stroke) solid var(--line);
+  border-radius: var(--r-btn);
+  background: var(--yellow);
+  box-shadow: var(--shadow);
+  font-size: 1.25rem;
 }
 
 .packages {
@@ -273,7 +447,7 @@ p {
   align-items: flex-start;
   text-align: left;
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: var(--stroke) solid var(--line);
   border-radius: var(--r-lg);
   padding: var(--s-5);
   cursor: pointer;
@@ -281,16 +455,16 @@ p {
   box-shadow: var(--shadow);
   transition:
     transform 200ms var(--ease),
-    border-color 200ms var(--ease);
+    box-shadow 200ms var(--ease),
+    background-color 200ms var(--ease);
 }
 
 .package:active {
-  transform: scale(0.98);
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 var(--ink);
 }
 
 .package[aria-pressed="true"] {
-  border-color: var(--text);
-  border-width: 2px;
   background: var(--accent-2);
 }
 
@@ -310,8 +484,10 @@ p {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1a1a1a;
+  background: var(--ink);
+  border: var(--stroke-thick) solid var(--line);
   border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
@@ -326,6 +502,28 @@ p {
    way. The captured frame is not mirrored — that would print back to front. */
 .stage video {
   transform: scaleX(-1);
+}
+
+/* Camera preparation. The webcam's cold start is the longest wait in the flow
+   and belongs to the driver, so it is narrated rather than hidden behind a
+   button that does nothing yet. */
+.preparing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  background: var(--ink);
+  color: var(--cream);
+  font-size: 1.25rem;
+  text-align: center;
+  padding: var(--s-5);
+}
+
+.preparing .small {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .countdown {
@@ -388,7 +586,10 @@ p {
   background: #fff;
   overflow: hidden;
   border-radius: var(--r-xs);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+  /* Outlined like everything else, but the white stays pure white: this is a
+     depiction of the printed sheet, and tinting it would misreport the paper. */
+  border: var(--stroke) solid var(--line);
+  box-shadow: var(--shadow);
   animation: rise 200ms var(--ease) both;
 }
 
@@ -422,8 +623,10 @@ p {
 
 /* Preview beside the frames on a wide screen, above them on a tall one. The
    booth's touchscreen is still undecided in design/kiosk.md, so this cannot
-   assume an orientation. */
-.review {
+   assume an orientation. Shared by frame selection and review: they are the
+   same question asked twice, once before the shots and once after. */
+.review,
+.frame {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
@@ -431,14 +634,16 @@ p {
   flex-grow: 1;
 }
 
-.review .preview {
+.review .preview,
+.frame .preview {
   display: grid;
   place-items: center;
   min-height: 0;
   max-height: 34vh;
 }
 
-.review .picker {
+.review .picker,
+.frame .picker {
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -446,13 +651,70 @@ p {
 }
 
 @media (min-aspect-ratio: 1/1) {
-  .review {
+  .review,
+  .frame {
     grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
   }
 
-  .review .preview {
+  .review .preview,
+  .frame .preview {
     max-height: none;
   }
+}
+
+/* Each card holds a real preview of its own sheet, so the choice is made by
+   looking at the thing rather than reading its name. */
+.frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--s-4);
+  overflow-y: auto;
+  min-height: 0;
+  padding: var(--s-1);
+}
+
+.frame-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s-4);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition:
+    transform 200ms var(--ease),
+    box-shadow 200ms var(--ease),
+    background-color 200ms var(--ease);
+}
+
+/* The card's own preview is a thumbnail, not the hero: a definite height is
+   what .sheet derives its width from. */
+.frame-card .sheet {
+  height: 9rem;
+}
+
+.frame-card:active {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 var(--ink);
+}
+
+.frame-card[aria-pressed="true"] {
+  background: var(--accent-2);
+}
+
+.frame-name {
+  font-weight: 600;
+}
+
+/* The one decorative mark on the thank-you screen. Emerald on cream, sized so
+   it reads as a flourish above the heading rather than as an illustration
+   competing with it. */
+.done-doodle {
+  width: clamp(64px, 9vw, 104px);
+  color: var(--green);
 }
 
 .thumb {
@@ -460,17 +722,18 @@ p {
   aspect-ratio: 4 / 3;
   border-radius: var(--r-img);
   overflow: hidden;
-  border: 3px solid transparent;
-  background: rgba(34, 34, 34, 0.06);
+  border: var(--stroke) solid var(--line);
+  background: var(--surface);
   padding: 0;
   cursor: pointer;
   transition:
     transform 200ms var(--ease),
-    border-color 200ms var(--ease);
+    box-shadow 200ms var(--ease),
+    border-width 200ms var(--ease);
 }
 
 .thumb:active {
-  transform: scale(0.98);
+  transform: translate(2px, 2px);
 }
 
 .thumb img {
@@ -480,19 +743,23 @@ p {
   display: block;
 }
 
+/* Selection is a heavier outline plus the offset, not a colour change: the
+   thumbnail is a photograph and nothing should tint it. */
 .thumb[aria-pressed="true"] {
-  border-color: var(--text);
+  border-width: var(--stroke-thick);
+  box-shadow: var(--shadow);
 }
 
 .thumb .order {
   position: absolute;
   top: 6px;
   left: 6px;
-  min-width: 28px;
-  height: 28px;
+  min-width: 30px;
+  height: 30px;
   border-radius: 999px;
-  background: var(--text);
-  color: var(--surface);
+  border: var(--stroke) solid var(--line);
+  background: var(--yellow);
+  color: var(--ink);
   display: grid;
   place-items: center;
   font-size: 14px;
@@ -504,8 +771,8 @@ p {
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(10, 10, 10, 0.65);
-  color: #fff;
+  background: var(--ink);
+  color: var(--cream);
   font-size: 12px;
   padding: 2px 6px;
   text-align: right;
@@ -513,32 +780,33 @@ p {
 
 /* Messages */
 
+/* Messages carry ink text on a flat fill rather than tinted text on a tinted
+   ground: five colours is not enough to build a legible tint ramp from, and a
+   flat fill behind black is the only combination that holds contrast in all
+   three states. */
 .notice,
 .error,
 .warn {
-  border: 1px solid var(--line);
+  border: var(--stroke) solid var(--line);
   border-radius: var(--r-md);
   padding: var(--s-3) var(--s-5);
   font-size: 16px;
+  color: var(--ink);
   animation: rise 200ms var(--ease) both;
 }
 
 .notice {
-  border-color: transparent;
   background: var(--accent-2);
-  color: var(--good);
 }
 
 .error {
-  border-color: transparent;
-  background: rgba(233, 107, 107, 0.14);
-  color: #a83b3b;
+  background: var(--red);
+  color: var(--cream);
+  font-weight: 600;
 }
 
 .warn {
-  border-color: transparent;
-  background: rgba(246, 196, 83, 0.22);
-  color: #8a6414;
+  background: var(--yellow);
   font-weight: 600;
 }
 
@@ -548,7 +816,8 @@ p {
   background: #fff;
   padding: 1rem;
   border-radius: var(--radius);
-  border: 1px solid var(--line);
+  border: var(--stroke-thick) solid var(--line);
+  box-shadow: var(--shadow);
 }
 
 .qr canvas {
@@ -596,10 +865,16 @@ input[type="tel"] {
   font: inherit;
   font-size: 24px;
   padding: 0.875rem 1rem;
-  border: 1px solid var(--line);
+  border: var(--stroke) solid var(--line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--ground);
   color: inherit;
+}
+
+input[type="tel"]:focus {
+  outline: none;
+  border-width: var(--stroke-thick);
+  background: var(--surface);
 }
 
 .consent {
@@ -611,11 +886,43 @@ input[type="tel"] {
   font-weight: 400;
 }
 
+/*
+ * Drawn rather than native. The platform checkbox is a thin blue-tinted control
+ * that ignores every token in this file, and consent is the one place on the
+ * booth where a customer must be able to see at a glance what they have ticked.
+ * Kept as a real <input> underneath — appearance:none changes the paint, not
+ * the element, so keyboard and screen-reader behaviour is untouched.
+ */
 .consent input {
-  width: 28px;
-  height: 28px;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 32px;
+  height: 32px;
   flex: none;
-  margin-top: 2px;
+  margin: 2px 0 0;
+  border: var(--stroke) solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background-color 200ms var(--ease);
+}
+
+.consent input:checked {
+  background: var(--green);
+}
+
+/* The tick, as a rotated corner rather than a glyph: no font dependency, and
+   it stays crisp at any size. */
+.consent input:checked::after {
+  content: "";
+  width: 9px;
+  height: 16px;
+  margin-top: -3px;
+  border: solid var(--cream);
+  border-width: 0 3px 3px 0;
+  transform: rotate(45deg);
 }
 
 .terms {

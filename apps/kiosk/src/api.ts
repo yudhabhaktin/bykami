@@ -46,6 +46,9 @@ export interface Session {
   price_idr: number;
   template_id: string;
   print_copies: number;
+  /** How many of print_copies have been claimed. Server-held, so a refresh
+   *  cannot hand the allowance out twice. */
+  prints_done: number;
   take_limit: number;
   takes: number;
   phone_given: boolean;
