@@ -232,6 +232,46 @@ and it opened with the real schema — `users`, `sessions`, `otp_challenges`,
 `loyalty_entries`, `schema_migrations`. A backup nobody has opened is a
 hypothesis.
 
+## `booth` — a test deployment, and it should not outlive the test
+
+Puts the **booth agent** on this box behind `booth-test.bykami.id`. The agent is
+a booth binary: on a real deployment it owns a printer, a hot folder and a camera
+on a PC in a shop, and it has none of those here. What it has here is a real
+HTTPS origin, which is the one thing a laptop cannot provide — `getUserMedia`
+refuses to run on an insecure origin, so the capture flow cannot be tried on a
+phone without it.
+
+Off unless `booth_enabled` is true. The role is listed in `site.yml`
+unconditionally so that turning the flag back off **stops** the service rather
+than leaving whatever was last deployed running indefinitely.
+
+```bash
+pnpm --filter @bykami/kiosk build          # or the binary embeds an empty UI
+cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+  go build -trimpath -ldflags="-s -w" -o /tmp/bykami-agent ./cmd/bykami-agent
+
+openssl rand -hex 24 > /tmp/booth-token    # then put it in a vars file
+ansible-playbook site.yml --tags booth -e @booth.vars.yml
+```
+
+Three things this role refuses to do:
+
+- **Start without an access token.** The agent enforces it too; the assert here
+  only moves the failure earlier and names it. Every route the agent serves is
+  unauthenticated by design, and `/api/capture` takes a 16 MB upload.
+- **Put the token in the unit file.** `/etc/systemd/system` is world-readable and
+  `ExecStart` is visible in `ps`. It goes in a mode-0600 `EnvironmentFile`.
+- **Pull its own updates.** `app` has a release poller; this deliberately does
+  not. A temporary surface should not acquire a supply chain.
+
+`GOMEMLIMIT` is 350MiB against the app's 1400MiB. The box is 2 GiB, the agent
+decodes and rescales full-size frames, and without a limit of its own one 24 MP
+frame at a bad moment takes the operator console down with it.
+
+The matching Cloudflare ingress is `booth_test_enabled` in
+`infra/cloudflare/`, also off by default. Both flags have to be on for the
+hostname to resolve to anything.
+
 ## Order of operations, once the tunnel is real
 
 1. `--tags base`, confirm a second run is `changed=0`

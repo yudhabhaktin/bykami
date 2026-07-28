@@ -26,6 +26,7 @@ package httpd
 
 import (
 	"context"
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -115,6 +116,23 @@ type Deps struct {
 	// any configuration that could take real money.
 	Simulated *payment.Simulated
 
+	// PublicHost is a hostname the booth will answer to besides localhost.
+	//
+	// Empty in a real booth, and that is the whole security posture: the kiosk
+	// is a screen wired to the PC beside it, so nothing about it needs a public
+	// address. This exists for a test deployment behind Cloudflare Tunnel,
+	// where the flow has to be reachable from a phone over HTTPS because
+	// getUserMedia refuses to run on an insecure origin.
+	//
+	// Setting it without AccessToken is refused at startup. An unauthenticated
+	// public endpoint here accepts 16 MB image uploads and writes them to disk.
+	PublicHost string
+
+	// AccessToken gates PublicHost. Not a login: one shared secret in the URL,
+	// which is the point — the operator console's real auth is unrelated and,
+	// for a UI a customer walks up to, a password prompt is the wrong shape.
+	AccessToken string
+
 	Log *slog.Logger
 }
 
@@ -126,6 +144,13 @@ type Server struct {
 func New(d Deps) (*Server, error) {
 	if d.Log == nil {
 		d.Log = slog.New(slog.DiscardHandler)
+	}
+	// Refused rather than warned about. Every route here is unauthenticated by
+	// design — see the package comment — which is correct while the only client
+	// is a browser on the same machine and indefensible the moment the hostname
+	// is public: /api/capture accepts 16 MB uploads and writes them to disk.
+	if d.PublicHost != "" && d.AccessToken == "" {
+		return nil, errors.New("httpd: a public host needs an access token; without one every route is open to the internet")
 	}
 	s := &Server{Deps: d, mux: http.NewServeMux()}
 	s.routes()
@@ -169,14 +194,27 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		if h, _, err := net.SplitHostPort(host); err == nil {
 			host = h
 		}
-		switch host {
-		case "localhost", "127.0.0.1", "::1", "[::1]":
+
+		// Whether this request arrived over the public hostname rather than the
+		// loopback one. The two are held to different rules: loopback is the
+		// booth's own browser and is trusted, the public hostname is the
+		// internet and has to prove it holds the token.
+		public := s.PublicHost != "" && host == s.PublicHost
+
+		switch {
+		case host == "localhost", host == "127.0.0.1", host == "::1", host == "[::1]":
+		case public:
 		default:
 			http.Error(w, "this booth answers only to localhost", http.StatusForbidden)
 			return
 		}
 
-		if origin := r.Header.Get("Origin"); origin != "" && !localOrigin(origin) {
+		if public && !s.admit(w, r) {
+			http.Error(w, "this test booth needs its access token", http.StatusUnauthorized)
+			return
+		}
+
+		if origin := r.Header.Get("Origin"); origin != "" && !s.allowedOrigin(origin) {
 			http.Error(w, "cross-site request refused", http.StatusForbidden)
 			return
 		}
@@ -188,16 +226,68 @@ func (s *Server) guard(next http.Handler) http.Handler {
 	})
 }
 
-func localOrigin(origin string) bool {
+func (s *Server) allowedOrigin(origin string) bool {
 	rest, ok := strings.CutPrefix(origin, "http://")
 	if !ok {
-		return false
+		// The test deployment is served over TLS, so its own same-origin
+		// requests arrive with an https Origin and would otherwise be refused
+		// by the check that exists to keep other sites out.
+		if rest, ok = strings.CutPrefix(origin, "https://"); !ok {
+			return false
+		}
+		host := rest
+		if h, _, err := net.SplitHostPort(rest); err == nil {
+			host = h
+		}
+		return s.PublicHost != "" && host == s.PublicHost
 	}
+
 	host := rest
 	if h, _, err := net.SplitHostPort(rest); err == nil {
 		host = h
 	}
 	return host == "localhost" || host == "127.0.0.1" || host == "[::1]"
+}
+
+// accessCookie holds the token once it has been presented in a URL, so the
+// customer's next tap does not need it and the token stops appearing in the
+// address bar.
+const accessCookie = "bykami_booth_access"
+
+// admit reports whether a request over the public hostname carries the token.
+//
+// Accepted from ?t= once, then moved into a cookie. A query parameter is how
+// somebody opens the link on a phone; a cookie is how the fifteen requests that
+// follow do not each need one, and keeps the secret out of the Referer header
+// on any link the page might later carry.
+func (s *Server) admit(w http.ResponseWriter, r *http.Request) bool {
+	if s.AccessToken == "" {
+		// Unreachable: New refuses this combination. Belt and braces, because
+		// the failure mode is an open photo-upload endpoint on the internet.
+		return false
+	}
+
+	if c, err := r.Cookie(accessCookie); err == nil && tokenEqual(c.Value, s.AccessToken) {
+		return true
+	}
+
+	if t := r.URL.Query().Get("t"); tokenEqual(t, s.AccessToken) {
+		http.SetCookie(w, &http.Cookie{
+			Name:     accessCookie,
+			Value:    s.AccessToken,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   int((12 * time.Hour).Seconds()),
+		})
+		return true
+	}
+	return false
+}
+
+func tokenEqual(got, want string) bool {
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 // ui serves the embedded bundle, falling back to index.html so that the UI can

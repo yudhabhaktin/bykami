@@ -617,12 +617,49 @@ and simulated payment and printer backends. See `agent/README.md`.
 | Compose | 300 dpi sheets from the originals, fill-and-crop cells, PNG overlay |
 | Print queue | DNP DS-RX1HS timings, media as an append-only ledger, interrupted jobs failed on restart with a reason |
 | Delivery | Phone captured unverified with two separate unticked consents and a stored consent version |
+| Derivatives | A background worker builds the long-edge-2048 copy of every frame; the review screen serves it, not the original |
 | Retention | 7-day purge of originals, derivatives **and composed sheets** |
 
 Three things are simulated and each needs an explicit flag that warns at
 startup: payment (`-payments=sim`), printing (`-printer=sim`) and capture
 (`-source=webcam`). None is a product tier; each is a stand-in for hardware or
 an account that does not exist yet.
+
+### The derivative is a performance decision, not only a delivery one
+
+`internal/derive` was written for the gallery — long edge 2048, EXIF stripped,
+~600 KB against a 6–10 MB original — and then never called. `derived_path` was
+always empty, so the branch in `servePhoto` that prefers it never ran and the
+review screen painted **full-resolution originals into 9rem thumbnails**.
+
+Measured on a 24 MP frame: 13.2 MB served per thumbnail, now 580 KB. Across a
+15-take filmstrip that is ~200 MB and 360 megapixels of decode, on the one
+screen the customer is actively tapping through.
+
+It runs in a background worker rather than inline in the capture handler,
+because `File` costs a few hundred milliseconds on a 24 MP original and the
+capture handler is on the shutter path — the one place in the booth where
+latency is the product.
+
+Derivatives live under `derived/`, **not** beside their originals. `Recover`
+walks `sessions/` and records every JPEG without a row, so a derivative filed
+next to its original comes back as a second photo on the next restart and
+duplicates every frame in the filmstrip. There is a test for exactly that.
+
+### Where the booth's smoothness is actually decided
+
+In the browser, almost entirely. The agent is on loopback; the two things a
+customer waits for — the camera opening and `canvas.toBlob` encoding the frame —
+never reach it. `?perf=1` puts those timings on the screen, which is where they
+have to be: a booth is tested standing in front of one, and a phone has no
+devtools window.
+
+A consequence worth stating plainly: **measuring the agent on a server measures
+the fastest part of the system.** There is a tunnelled test deployment
+(`ansible/roles/booth`, `booth_test_enabled` in `infra/cloudflare/`) but its
+value is that `getUserMedia` needs a secure origin, so the flow can be tried on
+a phone. It is not a performance environment, and the booth will never run on a
+server.
 
 ## Open
 

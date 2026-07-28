@@ -158,6 +158,19 @@ func (s *Store) Orphans(ctx context.Context, limit int) ([]Photo, error) {
 	return s.query(ctx, `SELECT `+columns+` FROM photos WHERE session_id IS NULL ORDER BY captured_at DESC LIMIT ?`, limit)
 }
 
+// Underived returns frames that still have no derivative, oldest first.
+//
+// Purged frames are excluded because their originals are gone: there is nothing
+// left to derive from, and re-offering them would make the worker retry a file
+// that will never come back.
+func (s *Store) Underived(ctx context.Context, limit int) ([]Photo, error) {
+	return s.query(ctx,
+		`SELECT `+columns+` FROM photos
+		  WHERE derived_path IS NULL AND purged_at IS NULL
+		  ORDER BY ingested_at, rowid
+		  LIMIT ?`, limit)
+}
+
 // SetDerived records the delivered derivative. The original is untouched:
 // printing from a recompressed file would give back exactly what full
 // resolution capture bought.

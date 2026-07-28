@@ -36,6 +36,10 @@ ansible/vault_pass
 ansible/*.vault.yml
 ansible/r2vars.yml
 ansible/*vars.local.yml
+# Any vars file passed with -e @… . booth.vars.yml holds the booth agent's
+# access token, which is the only thing standing in front of an unauthenticated
+# photo-upload endpoint on a public hostname.
+ansible/*.vars.yml
 ansible/group_vars/*/vault.yml
 ansible/inventory.local.yml
 ansible/*.retry

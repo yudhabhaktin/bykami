@@ -22,3 +22,7 @@
     # new binary each time.
     - role: app
       tags: [app]
+    # A no-op unless booth_enabled is true, and listed unconditionally so that
+    # turning the flag back off stops the service rather than leaving it running.
+    - role: booth
+      tags: [booth]

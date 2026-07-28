@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ScreenProps } from "../App";
 import { api, ApiError } from "../api";
+import { record, timed, type Timings } from "../perf";
 
 /**
  * The countdown before the shutter fires.
@@ -17,7 +18,7 @@ const COUNTDOWN = 5;
 /** JPEG quality for a browser-captured frame. */
 const WEBCAM_QUALITY = 0.92;
 
-export function Capture({ state, refresh, setStep, setError }: ScreenProps) {
+export function Capture({ state, refresh, setStep, setError, onTimings }: ScreenProps) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const [count, setCount] = useState<number | null>(null);
@@ -36,6 +37,7 @@ export function Capture({ state, refresh, setStep, setError }: ScreenProps) {
   useEffect(() => {
     if (!webcam) return;
     let cancelled = false;
+    const openedAt = performance.now();
 
     void navigator.mediaDevices
       .getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
@@ -46,6 +48,12 @@ export function Capture({ state, refresh, setStep, setError }: ScreenProps) {
         }
         stream.current = s;
         if (video.current) video.current.srcObject = s;
+
+        // Cold-start cost of the camera itself, which on a booth PC is the
+        // longest single wait in the whole flow and is entirely the driver's.
+        const t: Timings = {};
+        record(t, "camera", performance.now() - openedAt);
+        onTimings(t);
       })
       .catch(() => setError("Kamera tidak bisa diakses."));
 
@@ -60,10 +68,14 @@ export function Capture({ state, refresh, setStep, setError }: ScreenProps) {
     setFlash(true);
     setTimeout(() => setFlash(false), 320);
 
+    const t: Timings = {};
+    const firedAt = performance.now();
+
     try {
       if (webcam) {
-        const frame = await grabFrame(video.current);
-        await api.capture(frame);
+        const frame = await timed(t, "encode", () => grabFrame(video.current));
+        record(t, "bytes", frame.size);
+        await timed(t, "upload", () => api.capture(frame));
       } else {
         // The tethered path. How a tap reaches a Canon's shutter is the last
         // open question in the capture design — a USB relay into the RS-60E3
@@ -71,13 +83,15 @@ export function Capture({ state, refresh, setStep, setError }: ScreenProps) {
         // announces the moment and the frame is fired by hand.
         await fetch("/api/capture", { method: "POST" });
       }
-      await refresh();
+      await timed(t, "refresh", refresh);
+      record(t, "shutter", performance.now() - firedAt);
+      onTimings(t);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal mengambil foto.");
     } finally {
       setBusy(false);
     }
-  }, [webcam, refresh, setError]);
+  }, [webcam, refresh, setError, onTimings]);
 
   // The countdown auto-fires. A real photobooth 3–2–1 rather than an advisory
   // "get ready", which is what customers expect from the format and what the

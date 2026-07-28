@@ -1,0 +1,150 @@
+---
+# Everything here is conditional on booth_enabled. The role is listed in
+# site.yml unconditionally so that flipping the flag off actually removes the
+# service, rather than leaving whatever was last deployed running forever.
+
+- name: Stop and disable the booth agent when it is not wanted
+  ansible.builtin.systemd_service:
+    name: "{{ booth_name }}"
+    enabled: false
+    state: stopped
+  failed_when: false
+  when: not booth_enabled
+
+- name: Report that the booth agent is not deployed
+  ansible.builtin.debug:
+    msg: >-
+      booth_enabled is false, so no booth agent is running here. This is the
+      correct state for a box that only serves the operator console.
+  when: not booth_enabled
+
+- name: Deploy the booth agent
+  when: booth_enabled
+  block:
+    - name: Require an access token
+      # The agent refuses to start without one, so this only moves the failure
+      # earlier and names it. Every route it serves is unauthenticated by
+      # design — correct for a screen wired to the PC beside it, indefensible
+      # on a public hostname where /api/capture takes 16 MB uploads.
+      ansible.builtin.assert:
+        that:
+          - booth_access_token | length >= 24
+        fail_msg: >-
+          booth_access_token is empty or too short. Generate one with
+          `openssl rand -hex 24` and pass it from a vars file, not on the
+          command line where ps would show it to every local user.
+        quiet: true
+
+    - name: Check the pushed binary exists on the control machine
+      ansible.builtin.stat:
+        path: "{{ booth_binary_src }}"
+      register: booth_binary_stat
+      delegate_to: localhost
+      become: false
+      when: booth_binary_src | length > 0
+
+    - name: Require a binary
+      ansible.builtin.assert:
+        that:
+          - booth_binary_src | length > 0
+          - booth_binary_stat.stat.exists | default(false)
+        fail_msg: >-
+          No binary at booth_binary_src. Build the kiosk bundle first or the
+          embedded UI is empty:
+            pnpm --filter @bykami/kiosk build
+            cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath
+              -ldflags="-s -w" -o /tmp/bykami-agent ./cmd/bykami-agent
+          There is no pull-based updater for the agent: this deployment is
+          temporary and should not acquire one.
+        quiet: true
+
+    - name: Create the service user
+      ansible.builtin.user:
+        name: "{{ booth_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+        state: present
+
+    - name: Create the data directory
+      ansible.builtin.file:
+        path: "{{ booth_data_dir }}"
+        state: directory
+        owner: "{{ booth_user }}"
+        group: "{{ booth_user }}"
+        # 0750. Holds captured frames — faces, on a public-facing box.
+        mode: "0750"
+
+    - name: Install the binary
+      ansible.builtin.copy:
+        src: "{{ booth_binary_src }}"
+        dest: "{{ booth_install_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Restart booth agent
+
+    - name: Write the environment file
+      ansible.builtin.copy:
+        content: "BYKAMI_ACCESS_TOKEN={{ booth_access_token }}\n"
+        dest: /etc/bykami-agent.env
+        owner: root
+        group: root
+        # 0600. The unit file is 0644 and world-readable; this is why the token
+        # is not in it.
+        mode: "0600"
+      no_log: true
+      notify: Restart booth agent
+
+    - name: Install the systemd unit
+      ansible.builtin.template:
+        src: bykami-agent.service.j2
+        dest: "/etc/systemd/system/{{ booth_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart booth agent
+
+    - name: Enable and start the booth agent
+      ansible.builtin.systemd_service:
+        name: "{{ booth_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Flush handlers so the checks below test the new binary
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for the booth agent to answer
+      # Against localhost with a localhost Host header, which is the path that
+      # needs no token. A 200 here proves the process is up and its database
+      # opened; it says nothing about the tunnel.
+      ansible.builtin.uri:
+        url: "http://{{ booth_listen_addr }}/api/state"
+        status_code: 200
+      register: booth_health
+      retries: 10
+      delay: 2
+      until: booth_health is succeeded
+      changed_when: false
+
+    - name: Load printer media if the roll is empty
+      # Without this the print step refuses and a test run stops three screens
+      # early. Conditional so that re-running the play does not keep adding
+      # sheets to a roll that already has some — the ledger is append-only and
+      # every load is a permanent entry.
+      ansible.builtin.command:
+        cmd: >-
+          {{ booth_install_path }} -root {{ booth_data_dir }}
+          media load {{ booth_media_sheets }} "test deployment"
+      become: true
+      become_user: "{{ booth_user }}"
+      when: booth_health.json.media.sheets_remaining | int == 0
+      changed_when: true
+
+    - name: Report where the test booth is
+      ansible.builtin.debug:
+        msg: >-
+          Booth agent up. Open https://{{ booth_public_host }}/?t=<token> —
+          the token is in /etc/bykami-agent.env on this host. Payments are
+          simulated and settle themselves; nothing here takes money.

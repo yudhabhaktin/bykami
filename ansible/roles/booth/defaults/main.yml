@@ -1,0 +1,74 @@
+---
+# The booth agent, deployed to the VPS for testing only.
+#
+# This is not where the agent belongs. It is a booth binary: it owns a printer,
+# a hot folder and a camera on a PC in a shop, and on this box it has none of
+# those. What it does have here is a real HTTPS origin, which is the one thing a
+# laptop cannot give it — getUserMedia refuses to run on an insecure origin, so
+# without this the capture flow cannot be tried on a phone or a tablet at all.
+#
+# Everything below is therefore sized for a test surface that gets deleted, not
+# for an outlet.
+
+# Off, and the role is a no-op until this is true. A booth agent quietly running
+# on the operator console's box is a surprise nobody needs to find later.
+booth_enabled: false
+
+booth_name: bykami-agent
+
+# Path on the CONTROL machine to a linux/amd64 binary. Same rule as the app
+# role: never build on the VPS.
+#
+#   cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+#     go build -trimpath -ldflags="-s -w" -o /tmp/bykami-agent ./cmd/bykami-agent
+#
+# The kiosk bundle must be built first or the binary embeds an empty UI:
+#   pnpm --filter @bykami/kiosk build
+booth_binary_src: ""
+
+booth_user: bykami-agent
+booth_install_path: /usr/local/bin/bykami-agent
+booth_data_dir: /var/lib/bykami-agent
+
+# localhost. The tunnel dials out to reach it; the public hostname below is
+# routed there by Cloudflare, not by binding a public interface.
+booth_listen_addr: 127.0.0.1:8899
+
+# The hostname the agent will additionally answer to. Must match the ingress
+# rule in infra/cloudflare/tunnel.tf, and must be non-empty for the token to be
+# demanded at all.
+booth_public_host: booth-test.bykami.id
+
+# The shared secret admitting requests to booth_public_host. No default: the
+# agent refuses to start with a public host and an empty token, so a forgotten
+# value fails loudly at deploy time rather than silently publishing an open
+# photo-upload endpoint.
+#
+# Pass it from a vars file, never on the command line:
+#   ansible-playbook site.yml --tags booth -e @booth.vars.yml
+booth_access_token: ""
+
+# Simulated, both of them, and neither can become real by accident. There is no
+# printer on this box and no payment provider anywhere yet.
+#
+# sim-auto-settle is what removes the QR step: the charge settles on its own a
+# second after it is created, so a tester walks from package selection straight
+# into the camera without a payment app.
+booth_auto_settle: 1s
+booth_print_speed: 1000
+
+# Frames come from the tester's own browser. There is no camera here.
+booth_source: webcam
+
+# Shorter than the booth's seven days. These are test frames, but they are still
+# faces on a public-facing box.
+booth_retention: 24h
+
+# Sheets to load so the print step can be exercised. Printing refuses with an
+# empty roll, which would stop a test run three screens early.
+booth_media_sheets: 700
+
+# ~350 MB. The agent decodes and rescales full frames; on a 2 GiB box shared
+# with the operator API this is the limit that keeps the GC working before the
+# OOM killer reaches the other process.
+booth_gomemlimit: 350MiB
