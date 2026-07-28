@@ -22,10 +22,15 @@ export function Review({
   setError,
   onTimings,
   onPrinted,
-}: ScreenProps & { onPrinted: (photos: Photo[]) => void }) {
+  templateId,
+  setTemplateId,
+}: ScreenProps & {
+  onPrinted: (photos: Photo[]) => void;
+  templateId: string;
+  setTemplateId: (id: string) => void;
+}) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [chosen, setChosen] = useState<string[]>([]);
-  const [templateId, setTemplateId] = useState(state.session?.template_id ?? "");
   const [job, setJob] = useState<{ id: string; state: string } | null>(null);
   const [busy, setBusy] = useState(false);
 

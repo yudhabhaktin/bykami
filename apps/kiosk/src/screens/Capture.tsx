@@ -18,18 +18,37 @@ const COUNTDOWN = 5;
 /** JPEG quality for a browser-captured frame. */
 const WEBCAM_QUALITY = 0.92;
 
-export function Capture({ state, refresh, setStep, setError, onTimings }: ScreenProps) {
+export function Capture({
+  state,
+  refresh,
+  setStep,
+  setError,
+  onTimings,
+  templateId,
+}: ScreenProps & { templateId: string }) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const [count, setCount] = useState<number | null>(null);
   const [flash, setFlash] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The camera-preparation phase. Opening a webcam on a booth PC is the longest
+  // single wait in the flow and it is the driver's, not ours — so it gets a
+  // screen that says what is happening instead of a dead button. "failed" is
+  // distinct from "opening" because a booth that says "preparing…" forever
+  // looks like a slow machine rather than a broken one, and nobody calls staff.
+  const [camera, setCamera] = useState<"opening" | "live" | "failed">("opening");
 
   const session = state.session;
   const takes = session?.takes ?? 0;
   const limit = session?.take_limit ?? 0;
   const atLimit = takes >= limit;
   const webcam = state.source === "webcam";
+
+  // Known before the shutter, which is the point of choosing the frame first:
+  // "you need four" is useless advice after the fourth photo.
+  const template = state.templates.find((t) => t.id === templateId);
+  const need = template?.cells.length ?? 0;
+  const enough = takes >= need;
 
   // The browser owns the camera on the webcam path. On the tethered path there
   // is nothing to preview here: the camera's own software has the sensor, and
@@ -48,6 +67,7 @@ export function Capture({ state, refresh, setStep, setError, onTimings }: Screen
         }
         stream.current = s;
         if (video.current) video.current.srcObject = s;
+        setCamera("live");
 
         // Cold-start cost of the camera itself, which on a booth PC is the
         // longest single wait in the whole flow and is entirely the driver's.
@@ -55,14 +75,24 @@ export function Capture({ state, refresh, setStep, setError, onTimings }: Screen
         record(t, "camera", performance.now() - openedAt);
         onTimings(t);
       })
-      .catch(() => setError("Kamera tidak bisa diakses."));
+      .catch(() => {
+        if (cancelled) return;
+        setCamera("failed");
+        setError("Kamera tidak bisa diakses. Panggil petugas.");
+      });
 
     return () => {
       cancelled = true;
       stream.current?.getTracks().forEach((t) => t.stop());
       stream.current = null;
+      setCamera("opening");
     };
   }, [webcam, setError]);
+
+  // Nothing to warm up on the tethered path: the camera's own software has the
+  // sensor and the frame arrives through the hot folder.
+  const preparing = webcam && camera === "opening";
+  const broken = webcam && camera === "failed";
 
   const shoot = useCallback(async () => {
     setFlash(true);
@@ -108,7 +138,7 @@ export function Capture({ state, refresh, setStep, setError, onTimings }: Screen
   }, [count, shoot]);
 
   function start() {
-    if (busy || atLimit || count !== null) return;
+    if (busy || atLimit || preparing || count !== null) return;
     setBusy(true);
     setError("");
     setCount(COUNTDOWN);
@@ -117,7 +147,10 @@ export function Capture({ state, refresh, setStep, setError, onTimings }: Screen
   return (
     <div className="grow" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <h2>{session?.package_name}</h2>
+        <h2>
+          {session?.package_name}
+          {template && <span className="muted small"> · {template.name}</span>}
+        </h2>
         <span className="counter">
           {takes} / {limit} take
         </span>
@@ -131,15 +164,37 @@ export function Capture({ state, refresh, setStep, setError, onTimings }: Screen
             Kamera tethering aktif. Foto akan muncul otomatis setelah diambil.
           </p>
         )}
+        {(preparing || broken) && (
+          <div className="preparing">
+            <span>{broken ? "Kamera tidak terbaca" : "Menyiapkan kamera…"}</span>
+            <span className="small">
+              {broken ? "Panggil petugas, ya." : "Berdiri di depan layar, ya."}
+            </span>
+          </div>
+        )}
         {count !== null && <div className="countdown">{count}</div>}
         {flash && <div className="flash" />}
       </div>
 
-      {atLimit && <p className="notice">Sudah mencapai batas take. Lanjut pilih foto.</p>}
+      {atLimit ? (
+        <p className="notice">Sudah mencapai batas take. Lanjut pilih foto.</p>
+      ) : (
+        need > 0 && (
+          <p className="notice">
+            {enough
+              ? `Cukup untuk ${template?.name}. Ambil lagi kalau mau pilihan lebih banyak.`
+              : `Frame ini butuh ${need} foto — sudah ${takes}.`}
+          </p>
+        )
+      )}
 
       <div className="actions">
-        <button className="btn big" onClick={start} disabled={busy || atLimit || count !== null}>
-          {count !== null ? "Bersiap…" : "Ambil foto"}
+        <button
+          className="btn big"
+          onClick={start}
+          disabled={busy || atLimit || preparing || broken || count !== null}
+        >
+          {count !== null ? "Bersiap…" : preparing ? "Menyiapkan…" : "Ambil foto"}
         </button>
         <button
           className="btn secondary big"

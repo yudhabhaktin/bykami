@@ -51,14 +51,14 @@ export function Pay({ state, refresh, setStep, setError }: ScreenProps) {
 
         if (payment.state === "settled" && session.state === "open") {
           await refresh();
-          setStep("capture");
+          setStep("frame");
           return;
         }
         if (payment.state === "expired" || payment.state === "failed") {
           setError("Waktu pembayaran habis. Silakan mulai lagi.");
           await api.cancel().catch(() => undefined);
           await refresh();
-          setStep("idle");
+          setStep("attract");
         }
       } catch {
         // A failed poll is not a failed payment. The customer is standing
@@ -76,7 +76,7 @@ export function Pay({ state, refresh, setStep, setError }: ScreenProps) {
   async function cancel() {
     await api.cancel().catch(() => undefined);
     await refresh();
-    setStep("idle");
+    setStep("attract");
   }
 
   const mins = Math.floor(remaining / 60);

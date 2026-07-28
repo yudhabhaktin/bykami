@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import type { ScreenProps } from "../App";
+import { Doodle } from "../Doodle";
 
 /** How long the thank-you stays up before the booth resets itself. */
 const RESET_MS = 12_000;
@@ -16,21 +17,24 @@ export function Done({ refresh, setStep }: ScreenProps) {
   useEffect(() => {
     const t = setTimeout(() => {
       void refresh();
-      setStep("idle");
+      setStep("attract");
     }, RESET_MS);
     return () => clearTimeout(t);
   }, [refresh, setStep]);
 
   return (
     <div className="grow center">
-      <h1>Makasih sudah mampir!</h1>
-      <p className="muted">Ambil hasil cetakmu di bawah layar.</p>
+      <Doodle shape="bloom" className="done-doodle" />
+      <h1>
+        <span className="hand">Makasih</span> sudah mampir!
+      </h1>
+      <p>Ambil hasil cetakmu di bawah layar.</p>
       <p className="muted small">#SobatKAMi</p>
       <button
         className="btn secondary"
         onClick={() => {
           void refresh();
-          setStep("idle");
+          setStep("attract");
         }}
       >
         Selesai

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError, type Photo, type State } from "./api";
 import { initPerf, labels, perfEnabled, type Timings } from "./perf";
+import { Attract } from "./screens/Attract";
 import { Capture } from "./screens/Capture";
 import { Delivery } from "./screens/Delivery";
 import { Done } from "./screens/Done";
-import { Idle } from "./screens/Idle";
+import { Frame } from "./screens/Frame";
+import { Packages } from "./screens/Packages";
 import { Pay } from "./screens/Pay";
 import { Review } from "./screens/Review";
 
@@ -18,14 +20,31 @@ import { Review } from "./screens/Review";
  * refresh, a browser restart or a power cut therefore resumes where the
  * customer was rather than dropping them at the start of a session they have
  * already paid for.
+ *
+ * "attract" is the resting state, not the first step: every timeout and every
+ * finished session lands back there.
  */
-export type Step = "idle" | "pay" | "capture" | "review" | "delivery" | "done";
+export type Step =
+  | "attract"
+  | "packages"
+  | "pay"
+  | "frame"
+  | "capture"
+  | "review"
+  | "delivery"
+  | "done";
+
+/** How long the price list may sit untouched before the booth goes back to attract. */
+const WALKAWAY_MS = 45_000;
 
 export function App() {
   const [state, setState] = useState<State | null>(null);
-  const [step, setStep] = useState<Step>("idle");
+  const [step, setStep] = useState<Step>("attract");
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Photo[]>([]);
+  // Chosen on the frame screen and still changeable at review, so it outlives
+  // both. Seeded from the package, which is the frame the price list sold.
+  const [templateId, setTemplateId] = useState("");
   const [timings, setTimings] = useState<Timings>({});
   const [perf] = useState(initPerf);
 
@@ -51,10 +70,23 @@ export function App() {
     void (async () => {
       const next = await refresh();
       if (!next) return;
-      if (!next.session) return setStep("idle");
-      setStep(next.session.state === "awaiting_payment" ? "pay" : "capture");
+      if (!next.session) return setStep("attract");
+      setTemplateId(next.session.template_id);
+      if (next.session.state === "awaiting_payment") return setStep("pay");
+      // Frames already taken means the frame screen has been through once;
+      // sending them back to it would look like the booth forgot.
+      setStep(next.session.takes > 0 ? "capture" : "frame");
     })();
   }, [refresh]);
+
+  // A customer who walks away from the price list leaves the booth showing a
+  // price list. Only before payment: a timeout that resets a paid session would
+  // take money and give nothing back.
+  useEffect(() => {
+    if (step !== "packages") return;
+    const t = setTimeout(() => setStep("attract"), WALKAWAY_MS);
+    return () => clearTimeout(t);
+  }, [step]);
 
   if (!state) {
     return (
@@ -91,11 +123,20 @@ export function App() {
         </p>
       )}
 
-      {step === "idle" && <Idle {...common} />}
+      {step === "attract" && <Attract {...common} />}
+      {step === "packages" && <Packages {...common} setTemplateId={setTemplateId} />}
       {step === "pay" && <Pay {...common} />}
-      {step === "capture" && <Capture {...common} />}
+      {step === "frame" && (
+        <Frame {...common} templateId={templateId} setTemplateId={setTemplateId} />
+      )}
+      {step === "capture" && <Capture {...common} templateId={templateId} />}
       {step === "review" && (
-        <Review {...common} onPrinted={(photos) => { setSelected(photos); setStep("delivery"); }} />
+        <Review
+          {...common}
+          templateId={templateId}
+          setTemplateId={setTemplateId}
+          onPrinted={(photos) => { setSelected(photos); setStep("delivery"); }}
+        />
       )}
       {step === "delivery" && <Delivery {...common} selected={selected} />}
       {step === "done" && <Done {...common} />}

@@ -57,15 +57,47 @@ opened on. A 4R cell is 1200×1800 where a strip cell is 540×360, so the same
 frame is 300 dpi in one and 266 in the other — reading the package's template
 here suppressed a genuine below-300-dpi warning after the customer switched.
 
-### The typeface is named, never fetched
+### The design language, and the two rules that are structural
 
-The design calls for a rounded family — Pretendard, Plus Jakarta Sans, Manrope,
-Inter. `styles.css` names them as *local* preferences with the system stack
-behind them, because a booth PC is offline-first and a font request that hangs
-is a screen that hangs. A machine without any of them installed falls back and
-looks slightly more generic. Bundling one self-hosted woff2 would settle it —
-those four are all SIL OFL, so committing one is fine — at the cost of a couple
-of hundred kilobytes in the binary. Not done yet.
+Scandinavian minimalism with flat cartoon illustration: a five-colour palette
+(deep red, emerald, cream, blush, mustard) over near-black ink, thick outlines,
+generous radii, botanical doodles.
+
+Two of its rules — **no gradients** and **no glossy effects** — are the ones
+easiest to reintroduce by accident months later, so they are enforced by the
+tokens rather than by discipline. `--shadow` is a *hard* offset,
+`4px 4px 0 var(--ink)`, not a blur. Anything that reaches for it gets flat depth
+it cannot soften, and pressing a control translates it into its own shadow
+instead of fading or glowing. There is no gradient token to reach for at all.
+
+Spacing comes from the `--s-*` scale and nothing else. Outlines come from
+`--stroke` (2px) and `--stroke-thick` (3px).
+
+### The typefaces are named, never fetched
+
+Two families: a sans for everything, and a handwritten face for single accent
+words (`.hand`). `styles.css` names both as *local* preferences with the system
+stack behind them, because a booth PC is offline-first and a font request that
+hangs is a screen that hangs.
+
+The sans candidates — Pretendard, Plus Jakarta Sans, Manrope, Inter — are all
+SIL OFL, so bundling one self-hosted woff2 is licence-clean and would settle it,
+at the cost of a couple of hundred kilobytes in the binary. Not done yet.
+
+The handwritten stack is weaker: it resolves to Segoe Script on Windows, which
+is what the booth runs, and to Bradley Hand on a developer's Mac. Neither is
+redistributable, so this one *needs* a bundled OFL face to be certain rather
+than merely likely. Until then a machine with neither installed falls back to
+the sans and the accent simply stops being an accent — which is the right way
+for a decorative font to fail.
+
+### Illustration
+
+`src/assets/selfie.svg` is from [Open Doodles](https://www.opendoodles.com),
+CC0, recoloured onto the palette — see `src/assets/README.md` for exactly what
+was changed. The botanical marks in `src/Doodle.tsx` are drawn inline as SVG
+paths for the same reason there is no webfont request: a decoration that arrives
+over the network is a decoration that can fail to arrive.
 
 ### Measuring it
 
