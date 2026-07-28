@@ -1,0 +1,142 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --cream: #f6efe3;
+    --red: #be3a31;
+    --green: #1e7a55;
+    --pink: #f3c9c3;
+    --yellow: #e7b23f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 600px; height: 1800px; overflow: hidden; }
+  body { background: var(--cream); }
+
+  /* The mask pass paints the same geometry in black on white; the alpha
+     channel is taken from it, so the two passes must agree exactly. */
+  body.mask { background: #fff; }
+  body.mask .art { display: none; }
+  /* The punch belongs to the mask pass only; in the art pass the cell area is
+     left as ground, because its pixels are about to become transparent. */
+  .hole { display: none; }
+  body.mask .hole { display: block; }
+
+  .sheet { position: relative; width: 600px; height: 1800px; }
+
+  /* Drawn at the cell rect. The hole is inset inside this, so the border
+     survives the punch and laps over the photo's outer few pixels. */
+  .cell-ring {
+    position: absolute;
+    border: 3px solid var(--ink);
+    border-radius: 12px;
+  }
+  .hole {
+    position: absolute;
+    background: #000;
+    border-radius: 9px;
+  }
+
+  .edge {
+    position: absolute;
+    inset: 9px;
+    border: 2px solid var(--ink);
+    border-radius: 16px;
+  }
+
+  .foot {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .wordmark {
+    font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 700;
+    font-size: 46px;
+    letter-spacing: -1.5px;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .tag {
+    font-family: "Bradley Hand", "Segoe Script", "Comic Sans MS", cursive;
+    font-size: 26px;
+    color: var(--red);
+    line-height: 1.1;
+  }
+  .rule {
+    width: 120px;
+    height: 3px;
+    background: var(--ink);
+    border-radius: 2px;
+  }
+
+  .doodle { position: absolute; color: var(--green); }
+</style>
+</head>
+<body>
+<div class="sheet" id="sheet"></div>
+
+<script>
+  const params = new URLSearchParams(location.search);
+  const which = params.get("t") === "3" ? 3 : 4;
+  const mask = params.get("mask") === "1";
+
+  // The manifests, restated. These must match template.json exactly — the hole
+  // punched here is where the photo shows through.
+  const LAYOUTS = {
+    3: { cells: [[30,36,540,450],[30,516,540,450],[30,996,540,450]], foot: 354 },
+    4: { cells: [[30,30,540,360],[30,405,540,360],[30,780,540,360],[30,1155,540,360]], foot: 285 },
+  };
+
+  const sprig =
+    `<svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="5"
+          stroke-linecap="round" stroke-linejoin="round">
+       <path d="M50 94 C 46 70, 48 44, 58 12"/>
+       <path d="M49 74 C 34 72, 26 62, 27 50 C 40 51, 48 60, 49 74 Z"/>
+       <path d="M52 56 C 66 50, 72 39, 69 27 C 57 31, 51 42, 52 56 Z"/>
+       <path d="M54 38 C 42 33, 34 24, 36 13 C 47 17, 54 27, 54 38 Z"/>
+     </svg>`;
+
+  const L = LAYOUTS[which];
+  const sheet = document.getElementById("sheet");
+  if (mask) document.body.classList.add("mask");
+
+  const px = (n) => n + "px";
+  let html = "";
+
+  // Rings and edge are artwork; holes are mask-only.
+  html += `<div class="art"><div class="edge"></div></div>`;
+  for (const [x, y, w, h] of L.cells) {
+    html += `<div class="art cell-ring" style="left:${px(x - 3)};top:${px(y - 3)};` +
+            `width:${px(w + 6)};height:${px(h + 6)}"></div>`;
+  }
+
+  // The punch, 4px inside the cell so the ring laps the photo edge.
+  for (const [x, y, w, h] of L.cells) {
+    html += `<div class="hole" style="left:${px(x + 4)};top:${px(y + 4)};` +
+            `width:${px(w - 8)};height:${px(h - 8)}"></div>`;
+  }
+
+  const doodleSize = which === 3 ? 108 : 88;
+  html += `<div class="art foot" style="height:${px(L.foot)}">
+             <div class="wordmark">bykami</div>
+             <div class="rule"></div>
+             <div class="tag">self photo studio</div>
+           </div>
+           <div class="art doodle" style="left:26px;bottom:28px;
+                width:${px(doodleSize)};transform:rotate(-14deg)">${sprig}</div>
+           <div class="art doodle" style="right:26px;bottom:28px;
+                width:${px(doodleSize)};transform:scaleX(-1) rotate(-10deg)">${sprig}</div>`;
+
+  sheet.innerHTML = html;
+</script>
+</body>
+</html>

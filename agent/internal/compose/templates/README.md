@@ -1,28 +1,30 @@
 # Built-in templates
 
 These three exist so that a booth with no artwork installed can still complete a
-session end to end — they are not the design work.
+session end to end.
 
-## The two strip overlays are placeholders
+## The two strip overlays
 
-`strip-3/overlay.png` and `strip-4/overlay.png` were **drawn programmatically**,
-not designed: a flat mat with the photo cells punched out and a blocky bitmap
-wordmark. The blockiness is deliberate, so that nobody mistakes one for final
-artwork.
+`strip-3/overlay.png` and `strip-4/overlay.png` are drawn to the house design
+language — cream mat, ink outlines, the wordmark and a handwritten line, a
+botanical mark at each foot. Source and the regeneration steps are in
+`design/frames/`; edit `frame.html` there rather than the PNGs.
 
-They are here rather than downloaded because every stock source carries
+They are ours rather than downloaded because every stock source carries
 attribution or share-alike terms and this repository is public — the same reason
-`refs/screenshots/` is gitignored. Drawing them makes them ours to publish.
+`refs/screenshots/` is gitignored. Drawing them makes them ours to publish, and
+that constraint is why a competitor's frames are not an option however
+convenient they look.
 
-Delete both the moment the studio's real files land. `4r-polos` has no overlay
-and should not get one: *polos* means plain, and its single cell is the whole
-sheet, so any overlay would cover the photograph.
+`4r-polos` has no overlay and must not get one: *polos* means plain, and its
+single cell is the whole sheet, so any overlay would cover the photograph.
+Giving 4R a frame means a **new template** with a smaller cell.
 
-The real templates are **flat files that already exist**: booth packages
-advertise *"free desain frame"*, so the artwork has been drawn. Importing it is
-content work, and `design/kiosk.md` is explicit that importing beats building an
-authoring tool, and that 99+ templates versus six is the actual gap against the
-incumbent. It also sidesteps the logo-vector blocker in `assets-needed.md`.
+These are the house frames, not the catalogue. `design/kiosk.md` is explicit
+that 99+ templates versus six is the actual gap against the incumbent, that
+importing beats building an authoring tool, and that the studio's existing
+*"free desain frame"* files are flat artwork that already exists. Importing
+those is still content work and still worth doing.
 
 ## Adding one
 
@@ -61,7 +63,11 @@ without a rebuild by pointing `-templates` at a folder on the booth PC.
 
 ## Frame spec still open
 
-`design/kiosk.md` lists bleed, safe area and cut marks as undecided. Until they
-are settled, the margins here are a guess that looks reasonable rather than a
-measurement against a printed sheet — check one on the real printer before
-anyone draws forty designs against these numbers.
+The strip size is settled — **2×6 in**, which is what the DS-RX1HS cuts, so
+600×1800 at 300 dpi is right (`design/assets-needed.md`).
+
+Bleed, safe area and cut marks are not. The margins here are a guess that looks
+reasonable rather than a measurement against a printed sheet, and the ink ring
+around each cell is exactly the kind of detail a few millimetres of cut drift
+would ruin. **Print one and measure it** before anyone draws forty designs
+against these numbers.
