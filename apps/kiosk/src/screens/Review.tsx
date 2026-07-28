@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScreenProps } from "../App";
 import { api, ApiError, type Photo, type Template } from "../api";
 import { record, type Timings } from "../perf";
+import { SheetPreview } from "../SheetPreview";
 
 /** How often the printer's progress is checked while the customer watches. */
 const POLL_MS = 1500;
@@ -33,22 +34,31 @@ export function Review({
   // decodes one full-resolution original per thumbnail.
   const paintedAt = useRef(0);
   const decoded = useRef(0);
+  const measured = useRef(false);
 
+  // Refetched when the template changes, because print_dpi is a property of the
+  // cell a frame lands in and the customer can switch layout here.
   const load = useCallback(async () => {
     try {
-      const { photos } = await api.photos();
+      const { photos } = await api.photos(templateId);
       paintedAt.current = performance.now();
       decoded.current = 0;
       setPhotos(photos);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal memuat foto.");
     }
-  }, [setError]);
+  }, [setError, templateId]);
 
   const onThumbLoaded = useCallback(
     (total: number) => {
       decoded.current++;
       if (decoded.current < total) return;
+      // Only the first paint. A reload after switching template is served from
+      // the browser cache and would overwrite the real measurement with a
+      // near-zero one.
+      if (measured.current) return;
+      measured.current = true;
+
       const t: Timings = {};
       record(t, "filmstrip", performance.now() - paintedAt.current);
       onTimings(t);
@@ -62,6 +72,12 @@ export function Review({
 
   const template: Template | undefined = state.templates.find((t) => t.id === templateId);
   const need = template?.cells.length ?? 0;
+
+  // In tap order, which is cell order — the preview and the badge on each
+  // thumbnail have to be showing the same thing.
+  const chosenPhotos = chosen
+    .map((id) => photos.find((p) => p.id === id))
+    .filter((p): p is Photo => p !== undefined);
 
   function toggle(id: string) {
     setChosen((prev) => {
@@ -122,7 +138,12 @@ export function Review({
   }
 
   return (
-    <div className="grow" style={{ display: "flex", flexDirection: "column", gap: "1rem", minHeight: 0 }}>
+    <div className="review">
+      <div className="preview">
+        {template && <SheetPreview template={template} chosen={chosenPhotos} />}
+      </div>
+
+      <div className="picker">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <h2>Pilih {need} foto</h2>
         <span className="counter">
@@ -180,6 +201,7 @@ export function Review({
         <button className="btn" onClick={() => void print()} disabled={busy || chosen.length !== need}>
           Cetak {state.session?.print_copies ?? 1}x
         </button>
+      </div>
       </div>
     </div>
   );

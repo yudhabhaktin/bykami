@@ -1,6 +1,7 @@
 {
   "name": "Strip 3 foto",
   "layout": "strip2x6",
+  "overlay": "overlay.png",
   "cells": [
     { "x": 30, "y": 36, "w": 540, "h": 450 },
     { "x": 30, "y": 516, "w": 540, "h": 450 },

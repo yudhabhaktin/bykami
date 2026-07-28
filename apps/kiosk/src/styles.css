@@ -1,10 +1,15 @@
 /*
- * Booth screen styling.
+ * Booth screen styling — warm minimalism, touch-first.
  *
- * Tokens mirrored from packages/ui/src/tokens.css rather than imported: this
- * bundle is embedded in a Go binary and must not depend on the Astro build.
- * Warm neutrals, ink-only accent, no webfont — the booth PC is offline-first
- * and a font request that hangs is a screen that hangs.
+ * Tokens are not imported from packages/ui/src/tokens.css: this bundle is
+ * embedded in a Go binary and must not depend on the Astro build. They are
+ * restated here on purpose.
+ *
+ * Still no webfont *request*. The booth PC is offline-first and a font fetch
+ * that hangs is a screen that hangs, so the rounded families the design calls
+ * for are named as local preferences and the system stack catches the fall.
+ * Self-hosting one as a bundled woff2 is the fix that would make it certain —
+ * see agent/README.md.
  *
  * Everything is sized for touch and for arm's length. The input device is
  * still undecided in design/kiosk.md, so nothing here depends on hover and
@@ -12,15 +17,44 @@
  */
 
 :root {
-  --ground: #fafaf9;
+  /* Warm off-white rather than pure white: the interface should read closer to
+     a lifestyle brand than to an operator console. */
+  --ground: #f8f6f2;
   --surface: #ffffff;
-  --line: rgba(10, 10, 10, 0.1);
-  --text: rgba(10, 10, 10, 0.92);
-  --muted: rgba(10, 10, 10, 0.6);
-  --bad: #9f1239;
-  --good: #14532d;
-  --radius: 14px;
+  --text: #222222;
+  --muted: #757575;
+  --accent: #f7c8c6;
+  --accent-2: #d9e7d2;
+  --warning: #f6c453;
+  --error: #e96b6b;
+  --line: rgba(34, 34, 34, 0.08);
+
+  /* Kept as aliases so nothing that already referenced them has to change. */
+  --bad: var(--error);
+  --good: #4f7a52;
+
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 24px;
+  --r-xl: 32px;
+  --r-btn: 20px;
+  --r-img: 18px;
+  --radius: var(--r-lg);
+
+  /* The only spacing values in this file. Anything else is a mistake. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
   --tap: 64px;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 *,
@@ -39,7 +73,9 @@ body {
   margin: 0;
   background: var(--ground);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Named families are tried locally first and never fetched. */
+  font-family: Pretendard, "Plus Jakarta Sans", Manrope, Inter, ui-sans-serif, system-ui,
+    -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 18px;
   line-height: 1.5;
   /* A customer must not be able to select the interface text by holding it. */
@@ -51,6 +87,39 @@ body {
 button {
   font: inherit;
   color: inherit;
+}
+
+/*
+ * Motion.
+ *
+ * Fade plus a short rise, 200ms, settling rather than bouncing. A booth screen
+ * is watched from a standing start by someone deciding whether the machine is
+ * working, so movement has to read as responsive and never as decoration.
+ */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.screen > * {
+  animation: rise 200ms var(--ease) both;
+}
+
+/* Vestibular disorders are a real accessibility need, and a kiosk cannot ask. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }
 
 .screen {
@@ -73,15 +142,18 @@ button {
   letter-spacing: -0.5px;
 }
 
+/* Display 40 / Heading 28 / Body 18 / Caption 14. */
 h1 {
-  font-size: clamp(28px, 4vw, 44px);
+  font-size: clamp(32px, 4vw, 40px);
+  font-weight: 700;
   line-height: 1.15;
   letter-spacing: -1px;
   margin: 0;
 }
 
 h2 {
-  font-size: clamp(20px, 2.5vw, 28px);
+  font-size: clamp(22px, 2.5vw, 28px);
+  font-weight: 600;
   letter-spacing: -0.5px;
   margin: 0;
 }
@@ -96,7 +168,7 @@ p {
 }
 
 .small {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .grow {
@@ -117,29 +189,48 @@ p {
 
 .btn {
   min-height: var(--tap);
-  padding: 0.75rem 1.75rem;
-  border-radius: var(--radius);
+  padding: var(--s-3) var(--s-6);
+  border-radius: var(--r-btn);
   border: 1px solid var(--text);
   background: var(--text);
   color: var(--surface);
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
+  box-shadow: var(--shadow);
+  transition:
+    transform 200ms var(--ease),
+    background-color 200ms var(--ease),
+    border-color 200ms var(--ease),
+    opacity 200ms var(--ease);
+}
+
+/* A gentle press, not a bounce. The only feedback a touchscreen can give. */
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .btn.secondary {
-  background: transparent;
+  background: var(--surface);
   color: var(--text);
+  border-color: var(--line);
+}
+
+.btn.secondary[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--text);
 }
 
 .btn.ghost {
   background: transparent;
   color: var(--muted);
   border-color: transparent;
+  box-shadow: none;
 }
 
 .btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
+  box-shadow: none;
   cursor: not-allowed;
 }
 
@@ -151,7 +242,7 @@ p {
 
 .actions {
   display: flex;
-  gap: 1rem;
+  gap: var(--s-4);
   flex-wrap: wrap;
 }
 
@@ -164,33 +255,43 @@ p {
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 1.5rem;
+  border-radius: var(--r-lg);
+  padding: var(--s-5);
+  box-shadow: var(--shadow);
 }
 
 .packages {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  gap: 1rem;
+  gap: var(--s-4);
 }
 
 .package {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--s-2);
   align-items: flex-start;
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 1.5rem;
+  border-radius: var(--r-lg);
+  padding: var(--s-5);
   cursor: pointer;
   min-height: 12rem;
+  box-shadow: var(--shadow);
+  transition:
+    transform 200ms var(--ease),
+    border-color 200ms var(--ease);
+}
+
+.package:active {
+  transform: scale(0.98);
 }
 
 .package[aria-pressed="true"] {
   border-color: var(--text);
   border-width: 2px;
+  background: var(--accent-2);
 }
 
 .price {
@@ -209,8 +310,8 @@ p {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0a0a0a;
-  border-radius: var(--radius);
+  background: #1a1a1a;
+  border-radius: var(--r-lg);
   overflow: hidden;
 }
 
@@ -272,15 +373,104 @@ p {
   padding-bottom: 0.5rem;
 }
 
+/* The printed sheet, previewed. Every position is a percentage of the
+   template's own 300 dpi geometry, so this and compose.Sheet cannot disagree.
+   White ground because compose paints white first — a dye-sub printer has no
+   alpha channel, and an unpainted region would encode as black. */
+.sheet {
+  position: relative;
+  /* Height first, width derived from the sheet's own aspect ratio. Every child
+     is absolutely positioned, so the box has no intrinsic width to size from —
+     `max-height` alone collapses it to nothing. */
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  background: #fff;
+  overflow: hidden;
+  border-radius: var(--r-xs);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+  animation: rise 200ms var(--ease) both;
+}
+
+.sheet-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.sheet-cell {
+  position: absolute;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 10, 10, 0.06);
+  color: var(--muted);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+/* cover, not contain: the cell is filled and the overflow centre-cropped,
+   which is what compose.drawCover does to the real file. */
+.sheet-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Preview beside the frames on a wide screen, above them on a tall one. The
+   booth's touchscreen is still undecided in design/kiosk.md, so this cannot
+   assume an orientation. */
+.review {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-height: 0;
+  flex-grow: 1;
+}
+
+.review .preview {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  max-height: 34vh;
+}
+
+.review .picker {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+}
+
+@media (min-aspect-ratio: 1/1) {
+  .review {
+    grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+  }
+
+  .review .preview {
+    max-height: none;
+  }
+}
+
 .thumb {
   position: relative;
   aspect-ratio: 4 / 3;
-  border-radius: 10px;
+  border-radius: var(--r-img);
   overflow: hidden;
   border: 3px solid transparent;
-  background: #eee;
+  background: rgba(34, 34, 34, 0.06);
   padding: 0;
   cursor: pointer;
+  transition:
+    transform 200ms var(--ease),
+    border-color 200ms var(--ease);
+}
+
+.thumb:active {
+  transform: scale(0.98);
 }
 
 .thumb img {
@@ -327,24 +517,28 @@ p {
 .error,
 .warn {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.875rem 1.25rem;
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-5);
   font-size: 16px;
+  animation: rise 200ms var(--ease) both;
 }
 
 .notice {
-  border-color: var(--good);
+  border-color: transparent;
+  background: var(--accent-2);
   color: var(--good);
 }
 
 .error {
-  border-color: var(--bad);
-  color: var(--bad);
+  border-color: transparent;
+  background: rgba(233, 107, 107, 0.14);
+  color: #a83b3b;
 }
 
 .warn {
-  border-color: var(--bad);
-  color: var(--bad);
+  border-color: transparent;
+  background: rgba(246, 196, 83, 0.22);
+  color: #8a6414;
   font-weight: 600;
 }
 

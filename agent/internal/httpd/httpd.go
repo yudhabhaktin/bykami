@@ -167,6 +167,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/capture", s.capture)
 	s.mux.HandleFunc("GET /api/photos", s.listPhotos)
 	s.mux.HandleFunc("GET /api/photos/{id}/file", s.servePhoto)
+	s.mux.HandleFunc("GET /api/templates/{id}/{kind}", s.templateAsset)
 	s.mux.HandleFunc("POST /api/print", s.print)
 	s.mux.HandleFunc("GET /api/print/{id}", s.printStatus)
 	s.mux.HandleFunc("POST /api/delivery", s.delivery)
@@ -342,6 +343,13 @@ type templateView struct {
 	Layout printer.Layout `json:"layout"`
 	Cells  []compose.Cell `json:"cells"`
 	Sheet  [2]int         `json:"sheet"`
+
+	// URLs for the frame artwork, empty when the template has none. Cells and
+	// Sheet are in pixels at 300 dpi, so the screen can lay the preview out as
+	// percentages of the template's own geometry and cannot drift away from
+	// what compose.Sheet will draw.
+	Overlay    string `json:"overlay"`
+	Background string `json:"background"`
 }
 
 type sessionView struct {
@@ -393,7 +401,14 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		views = append(views, templateView{ID: t.ID, Name: t.Name, Layout: t.Layout, Cells: t.Cells, Sheet: [2]int{w, h}})
+		v := templateView{ID: t.ID, Name: t.Name, Layout: t.Layout, Cells: t.Cells, Sheet: [2]int{w, h}}
+		if t.Overlay != "" {
+			v.Overlay = "/api/templates/" + t.ID + "/overlay"
+		}
+		if t.Background != "" {
+			v.Background = "/api/templates/" + t.ID + "/background"
+		}
+		views = append(views, v)
 	}
 
 	resp := stateResponse{
@@ -766,7 +781,18 @@ func (s *Server) listPhotos(w http.ResponseWriter, r *http.Request) {
 
 	// The cell the chosen template would put this frame in decides the print
 	// resolution, so the number the UI shows is the real one.
-	cellW, cellH := s.cellSize(sess.Package.TemplateID)
+	//
+	// The template being looked at, not the one the package opened on: the
+	// review screen lets the customer switch, and a 4R cell is 1200x1800 where a
+	// strip cell is 540x360. Reading the package's template here reported the
+	// resolution of a layout the customer had already switched away from — which
+	// fails in the direction that matters, since it can hide a genuine
+	// below-300-dpi warning.
+	templateID := r.URL.Query().Get("template")
+	if templateID == "" {
+		templateID = sess.Package.TemplateID
+	}
+	cellW, cellH := s.cellSize(templateID)
 
 	out := make([]photoView, 0, len(photos))
 	for _, p := range photos {
@@ -827,6 +853,44 @@ func (s *Server) servePhoto(w http.ResponseWriter, r *http.Request) {
 		rel = p.DerivedPath
 	}
 	http.ServeFile(w, r, filepath.Join(s.Root, filepath.FromSlash(rel)))
+}
+
+// templateAsset serves a template's frame artwork to the review screen.
+//
+// The screen composites the same three layers compose.Sheet draws — background,
+// photos, overlay — so what the customer approves is what the printer produces.
+// Rendering the real sheet server-side instead would mean a full 300 dpi
+// compose, which takes seconds, on every template a customer taps.
+func (s *Server) templateAsset(w http.ResponseWriter, r *http.Request) {
+	tpl, ok := s.template(r.PathValue("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	f, ctype, err := tpl.Asset(r.PathValue("kind"))
+	if errors.Is(err, compose.ErrNoAsset) {
+		// A template with no artwork is the normal case — pas foto is a plain
+		// photo — so this is a 404 rather than a failure.
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.fail(w, "template asset", err)
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Content-Type", ctype)
+	// Long enough that tapping between templates does not re-fetch and flicker,
+	// short enough that an outlet redrawing its own artwork sees the change
+	// without clearing the kiosk browser's cache. Not immutable: the URL carries
+	// the template id, which is stable, so an immutable response would pin the
+	// old artwork for as long as the cache survives.
+	w.Header().Set("Cache-Control", "max-age=300")
+	if _, err := io.Copy(w, f); err != nil {
+		s.Log.Error("httpd: write template asset", "template", tpl.ID, "err", err)
+	}
 }
 
 // print composes the chosen frames and queues a sheet.

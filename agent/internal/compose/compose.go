@@ -43,6 +43,7 @@ var (
 	ErrNoTemplate    = errors.New("compose: no such template")
 	ErrBadManifest   = errors.New("compose: invalid template manifest")
 	ErrUnknownLayout = errors.New("compose: unknown layout")
+	ErrNoAsset       = errors.New("compose: template has no such asset")
 )
 
 // Cell is where one photo goes, in pixels at 300 dpi with the sheet's top-left
@@ -276,6 +277,42 @@ func drawCover(dst *image.RGBA, c Cell, src image.Image) {
 		src,
 		image.Rect(offX, offY, offX+srcW, offY+srcH),
 		draw.Src, nil)
+}
+
+// Asset opens the template's overlay or background so the screen can composite
+// the same layers the printed sheet has, and reports its content type.
+//
+// Only the two names the manifest itself declares can be opened. The template's
+// fs.FS already refuses a path that climbs out of the template's own directory,
+// so this is not the traversal defence — it is what keeps the route from
+// becoming a general reader of whatever else an outlet left in that folder.
+func (t Template) Asset(kind string) (fs.File, string, error) {
+	var name string
+	switch kind {
+	case "overlay":
+		name = t.Overlay
+	case "background":
+		name = t.Background
+	}
+	if name == "" {
+		return nil, "", fmt.Errorf("%w: %q", ErrNoAsset, kind)
+	}
+
+	var ctype string
+	switch strings.ToLower(path.Ext(name)) {
+	case ".png":
+		ctype = "image/png"
+	case ".jpg", ".jpeg":
+		ctype = "image/jpeg"
+	default:
+		return nil, "", fmt.Errorf("%w: %q is not a PNG or JPEG", ErrBadManifest, name)
+	}
+
+	f, err := t.files.Open(name)
+	if err != nil {
+		return nil, "", err
+	}
+	return f, ctype, nil
 }
 
 func (t Template) readImage(name string) (image.Image, error) {
