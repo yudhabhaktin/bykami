@@ -357,6 +357,77 @@ func TestPrintRefusesMoreCopiesThanThePackage(t *testing.T) {
 	}
 }
 
+// Reprint hands the paid copies out one at a time, which makes every single
+// request look legal on its own. The allowance is therefore cumulative: MIDI
+// includes two prints, so the third single-copy request must be refused.
+func TestPrintRefusesMoreCopiesAcrossSeparateRequests(t *testing.T) {
+	f := setup(t)
+	start := f.pay(t, "midi") // two prints
+
+	var ids []string
+	for range 3 {
+		w := f.do(t, "POST", "/api/capture", frameBytes(t, 800, 600))
+		ids = append(ids, decode[struct {
+			Photo struct {
+				ID string `json:"id"`
+			} `json:"photo"`
+		}](t, w).Photo.ID)
+	}
+
+	body := map[string]any{
+		"template_id": start.Session.TemplateID,
+		"photo_ids":   ids,
+		"copies":      1,
+	}
+	for i := range 2 {
+		if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusAccepted {
+			t.Fatalf("copy %d of a two-print package refused: %d %s", i+1, w.Code, w.Body)
+		}
+	}
+	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusForbidden {
+		t.Fatalf("gave away a third print on a two-print package: %d %s", w.Code, w.Body)
+	}
+}
+
+// prints_done is what the screen decides "cetak lagi" from, so it has to track
+// the copies actually claimed rather than the number of requests.
+func TestSessionViewReportsPrintsDone(t *testing.T) {
+	f := setup(t)
+	start := f.pay(t, "midi")
+
+	var ids []string
+	for range 3 {
+		w := f.do(t, "POST", "/api/capture", frameBytes(t, 800, 600))
+		ids = append(ids, decode[struct {
+			Photo struct {
+				ID string `json:"id"`
+			} `json:"photo"`
+		}](t, w).Photo.ID)
+	}
+
+	if w := f.do(t, "POST", "/api/print", map[string]any{
+		"template_id": start.Session.TemplateID,
+		"photo_ids":   ids,
+		"copies":      1,
+	}); w.Code != http.StatusAccepted {
+		t.Fatalf("print: %d %s", w.Code, w.Body)
+	}
+
+	w := f.do(t, "GET", "/api/state", nil)
+	got := decode[struct {
+		Session struct {
+			PrintCopies int `json:"print_copies"`
+			PrintsDone  int `json:"prints_done"`
+		} `json:"session"`
+	}](t, w)
+	if got.Session.PrintsDone != 1 {
+		t.Fatalf("prints_done = %d, want 1", got.Session.PrintsDone)
+	}
+	if got.Session.PrintCopies != 2 {
+		t.Fatalf("print_copies = %d, want 2", got.Session.PrintCopies)
+	}
+}
+
 func TestPrintRequiresTheRightNumberOfPhotos(t *testing.T) {
 	f := setup(t)
 	start := f.pay(t, "mini")

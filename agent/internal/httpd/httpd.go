@@ -360,9 +360,13 @@ type sessionView struct {
 	PriceIDR    int64  `json:"price_idr"`
 	TemplateID  string `json:"template_id"`
 	PrintCopies int    `json:"print_copies"`
-	TakeLimit   int    `json:"take_limit"`
-	Takes       int    `json:"takes"`
-	PhoneGiven  bool   `json:"phone_given"`
+	// PrintsDone is how many of PrintCopies have been claimed. Served rather
+	// than counted in the browser so that a refresh mid-session cannot hand a
+	// customer their allowance a second time.
+	PrintsDone int  `json:"prints_done"`
+	TakeLimit  int  `json:"take_limit"`
+	Takes      int  `json:"takes"`
+	PhoneGiven bool `json:"phone_given"`
 }
 
 type paymentView struct {
@@ -459,6 +463,10 @@ func (s *Server) sessionView(ctx context.Context, sess session.Session) (session
 	if err != nil {
 		return sessionView{}, err
 	}
+	printed, err := s.Printer.CopiesForSession(ctx, sess.ID)
+	if err != nil {
+		return sessionView{}, err
+	}
 	return sessionView{
 		ID:          sess.ID,
 		State:       string(sess.State),
@@ -467,6 +475,7 @@ func (s *Server) sessionView(ctx context.Context, sess session.Session) (session
 		PriceIDR:    sess.Package.PriceIDR,
 		TemplateID:  sess.Package.TemplateID,
 		PrintCopies: sess.Package.PrintCopies,
+		PrintsDone:  printed,
 		TakeLimit:   sess.TakeLimit,
 		Takes:       takes,
 		PhoneGiven:  sess.Phone != "",
@@ -930,12 +939,24 @@ func (s *Server) print(w http.ResponseWriter, r *http.Request) {
 	if copies <= 0 {
 		copies = sess.Package.PrintCopies
 	}
+
 	// The backstop kiosk.md keeps: a stray file in the folder must never become
 	// a free print, and neither must a customer asking for more copies than the
 	// package includes.
-	if copies > sess.Package.PrintCopies {
+	//
+	// Checked against everything this session has already claimed, not against
+	// this request alone. Reprint hands the copies out one at a time, so a
+	// per-request check would let a customer with a two-print package tap "cetak
+	// lagi" indefinitely — each request passing on its own while the total ran
+	// away.
+	printed, err := s.Printer.CopiesForSession(ctx, sess.ID)
+	if err != nil {
+		s.fail(w, "copies for session", err)
+		return
+	}
+	if printed+copies > sess.Package.PrintCopies {
 		s.reject(w, http.StatusForbidden,
-			fmt.Sprintf("Paket ini termasuk %d cetak.", sess.Package.PrintCopies))
+			fmt.Sprintf("Paket ini termasuk %d cetak, sudah %d.", sess.Package.PrintCopies, printed))
 		return
 	}
 

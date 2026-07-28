@@ -78,6 +78,11 @@ export function Review({
   const template: Template | undefined = state.templates.find((t) => t.id === templateId);
   const need = template?.cells.length ?? 0;
 
+  // The paid allowance, and what is left of it. Both come from the server, so
+  // reloading the page mid-session cannot reset the count.
+  const printed = state.session?.prints_done ?? 0;
+  const remaining = Math.max(0, (state.session?.print_copies ?? 1) - printed);
+
   // In tap order, which is cell order — the preview and the badge on each
   // thumbnail have to be showing the same thing.
   const chosenPhotos = chosen
@@ -94,12 +99,17 @@ export function Review({
     });
   }
 
+  // One at a time, not the whole allowance at once. A pair splitting a strip
+  // wants the second copy when they are ready for it, and this is the only
+  // meaning of "reprint" that costs nothing and changes no money rule. The
+  // server counts what the session has already claimed, so tapping again can
+  // never exceed what was paid for.
   async function print() {
     if (!template || chosen.length !== need) return;
     setBusy(true);
     setError("");
     try {
-      const { job } = await api.print(template.id, chosen, state.session?.print_copies ?? 1);
+      const { job } = await api.print(template.id, chosen, 1);
       setJob({ id: job.id, state: job.state });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal mencetak.");
@@ -123,8 +133,17 @@ export function Review({
             setBusy(false);
           }
           if (next.state === "done") {
-            void refresh();
-            onPrinted(photos.filter((p) => chosen.includes(p.id)));
+            // The refreshed state carries prints_done, which is what decides
+            // whether there is a copy left to offer.
+            void refresh().then((next) => {
+              const sess = next?.session;
+              if (sess && sess.prints_done < sess.print_copies) {
+                setJob(null);
+                setBusy(false);
+                return;
+              }
+              onPrinted(photos.filter((p) => chosen.includes(p.id)));
+            });
           }
         })
         .catch(() => undefined);
@@ -199,12 +218,34 @@ export function Review({
         })}
       </div>
 
+      {printed > 0 && (
+        <p className="notice">
+          Cetakan ke-{printed} sudah keluar. Sisa {remaining} cetak — ambil sekarang atau lanjut.
+        </p>
+      )}
+
       <div className="actions">
-        <button className="btn secondary" onClick={() => setStep("capture")} disabled={busy}>
-          Foto lagi
-        </button>
-        <button className="btn" onClick={() => void print()} disabled={busy || chosen.length !== need}>
-          Cetak {state.session?.print_copies ?? 1}x
+        {printed === 0 ? (
+          <button className="btn secondary" onClick={() => setStep("capture")} disabled={busy}>
+            Foto lagi
+          </button>
+        ) : (
+          // Declining the rest of the allowance has to be one tap. Some of it
+          // will go unclaimed and that is the customer's call, not the booth's.
+          <button
+            className="btn secondary"
+            onClick={() => onPrinted(chosenPhotos)}
+            disabled={busy}
+          >
+            Lanjut
+          </button>
+        )}
+        <button
+          className="btn"
+          onClick={() => void print()}
+          disabled={busy || chosen.length !== need || remaining === 0}
+        >
+          {printed === 0 ? "Cetak" : `Cetak lagi (${remaining} tersisa)`}
         </button>
       </div>
       </div>

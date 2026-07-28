@@ -729,15 +729,22 @@ server.
   boundaries and 30-day expiry both depend on it.
 - **Printer error mid-session** — reprint policy, and whether a failed print is
   refunded.
-- **Reprint is unbuilt because it is an unanswered commercial question**, not
-  because it is hard. The server currently refuses any request above the
-  package's `print_copies` with a 403, deliberately. Making reprint real means
-  picking one: split the paid copies so "cetak lagi" hands out the second one on
-  demand (no money changes hands, but a customer who walks away early loses a
-  copy they bought); charge for it (a second payment mid-session); or make it a
-  staff action for smudged prints, which needs the kiosk staff auth that is also
-  still open above. The first is free to build, the third is the industry
-  meaning of the word.
+- ~~Reprint~~ — settled. **The paid copies are handed out one at a time.** A
+  package including two prints releases the first on "Cetak", then offers
+  "Cetak lagi (1 tersisa)", which is what a pair splitting a strip actually
+  wants. No money rule changed and no second payment flow.
+
+  This moved the allowance check from per-request to cumulative, and that was
+  load-bearing rather than cosmetic: while the browser asked for all copies at
+  once, `copies > print_copies` was a sufficient backstop. Handing them out one
+  at a time makes every individual request look legal, so the server now sums
+  what the session has already claimed (`Queue.CopiesForSession`, failed jobs
+  excluded) and `prints_done` is served in the session view — counted in the
+  browser it would reset on a refresh.
+
+  What is *not* built is the staff-unlocked reprint for a smudged sheet, which
+  is the industry meaning of the word and still needs the kiosk staff auth open
+  above.
 - Frame spec: bleed, safe area, DPI, cut marks for strips.
 - Privacy policy page must exist before the first number is collected.
 - ~~`identity.go:8` still claims `.bykami.id` scoping in a comment~~ — settled.

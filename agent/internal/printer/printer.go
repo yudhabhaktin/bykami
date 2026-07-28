@@ -410,6 +410,24 @@ func (q *Queue) pendingSheets(ctx context.Context) (int, error) {
 	return int(n.Int64), nil
 }
 
+// CopiesForSession counts the copies a session has already claimed, which is
+// what the paid allowance has to be checked against once a customer can ask for
+// their copies one at a time rather than all at once.
+//
+// Failed jobs do not count. A print that never came out of the machine was not
+// a copy the customer received, and charging them for it would turn a printer
+// fault into a lost print.
+func (q *Queue) CopiesForSession(ctx context.Context, sessionID string) (int, error) {
+	var n sql.NullInt64
+	if err := q.db.QueryRowContext(ctx,
+		`SELECT SUM(copies) FROM print_jobs WHERE session_id = ? AND state != 'failed'`,
+		sessionID,
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("printer: copies for session: %w", err)
+	}
+	return int(n.Int64), nil
+}
+
 func (q *Queue) Get(ctx context.Context, id string) (Job, error) {
 	return q.scanOne(ctx, `SELECT `+columns+` FROM print_jobs WHERE id = ?`, id)
 }
