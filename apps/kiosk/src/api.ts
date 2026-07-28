@@ -31,7 +31,11 @@ export interface Template {
   name: string;
   layout: string;
   cells: Cell[];
+  /** Sheet size in pixels at 300 dpi. Cells are in the same space. */
   sheet: [number, number];
+  /** Frame artwork URLs, empty when this template has none. */
+  overlay: string;
+  background: string;
 }
 
 export interface Session {
@@ -139,7 +143,14 @@ export const api = {
       headers: { "Content-Type": "image/jpeg" },
     }),
 
-  photos: () => request<{ photos: Photo[] }>("/api/photos"),
+  /**
+   * This session's frames. The template decides each frame's print_dpi, because
+   * the cell it lands in is what it has to be scaled to fill.
+   */
+  photos: (templateId?: string) =>
+    request<{ photos: Photo[] }>(
+      templateId ? `/api/photos?template=${encodeURIComponent(templateId)}` : "/api/photos",
+    ),
 
   photoURL: (id: string) => `/api/photos/${id}/file`,
 

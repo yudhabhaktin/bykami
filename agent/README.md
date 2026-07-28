@@ -40,6 +40,33 @@ Add `-sim-auto-settle 1s` and the charge settles itself, which skips the QR
 screen entirely — useful when the thing being tested is the capture flow rather
 than the payment one.
 
+### What the review screen shows
+
+The sheet as it will print, composited in the browser: background, photos,
+overlay, in the order `compose.Sheet` draws them, positioned as percentages of
+the template's own 300 dpi geometry. `object-fit: cover` is the CSS equivalent
+of `drawCover`, so the preview and the printed sheet agree by construction
+rather than by two crop implementations being kept in step by hand.
+
+**Not a server render, deliberately.** Composing the real sheet is a 300 dpi job
+that takes seconds, and a customer taps between templates; the file the printer
+receives is composed once, when they commit.
+
+`print_dpi` follows the template being looked at rather than the one the package
+opened on. A 4R cell is 1200×1800 where a strip cell is 540×360, so the same
+frame is 300 dpi in one and 266 in the other — reading the package's template
+here suppressed a genuine below-300-dpi warning after the customer switched.
+
+### The typeface is named, never fetched
+
+The design calls for a rounded family — Pretendard, Plus Jakarta Sans, Manrope,
+Inter. `styles.css` names them as *local* preferences with the system stack
+behind them, because a booth PC is offline-first and a font request that hangs
+is a screen that hangs. A machine without any of them installed falls back and
+looks slightly more generic. Bundling one self-hosted woff2 would settle it —
+those four are all SIL OFL, so committing one is fine — at the cost of a couple
+of hundred kilobytes in the binary. Not done yet.
+
 ### Measuring it
 
 `?perf=1` puts the client-side timings on the screen and keeps them for the tab:

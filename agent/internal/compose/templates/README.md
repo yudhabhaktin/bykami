@@ -1,7 +1,22 @@
 # Built-in templates
 
-Geometry only. These three exist so that a booth with no artwork installed can
-still complete a session end to end — they are not the design work.
+These three exist so that a booth with no artwork installed can still complete a
+session end to end — they are not the design work.
+
+## The two strip overlays are placeholders
+
+`strip-3/overlay.png` and `strip-4/overlay.png` were **drawn programmatically**,
+not designed: a flat mat with the photo cells punched out and a blocky bitmap
+wordmark. The blockiness is deliberate, so that nobody mistakes one for final
+artwork.
+
+They are here rather than downloaded because every stock source carries
+attribution or share-alike terms and this repository is public — the same reason
+`refs/screenshots/` is gitignored. Drawing them makes them ours to publish.
+
+Delete both the moment the studio's real files land. `4r-polos` has no overlay
+and should not get one: *polos* means plain, and its single cell is the whole
+sheet, so any overlay would cover the photograph.
 
 The real templates are **flat files that already exist**: booth packages
 advertise *"free desain frame"*, so the artwork has been drawn. Importing it is
