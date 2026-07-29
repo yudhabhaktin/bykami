@@ -70,10 +70,18 @@ booth_token: ""
 # Simulated, both of them, and neither can become real by accident. There is no
 # printer on this box and no payment provider anywhere yet.
 #
-# sim-auto-settle is what removes the QR step: the charge settles on its own a
-# second after it is created, so a tester walks from package selection straight
-# into the camera without a payment app.
-booth_auto_settle: 1s
+# sim-auto-settle was 1s, which removed the payment step entirely: the charge
+# settled before the QR had finished rendering and the booth walked itself into
+# frame selection. Convenient for rehearsing the camera, and indistinguishable
+# from a broken payment gate for anyone testing the actual flow — it was
+# reported as a bug, which is the clearest evidence the shortcut cost more than
+# it saved.
+#
+# Zero means the charge waits. The kiosk shows a "Simulasikan pembayaran"
+# button while the simulated provider is selected, so settling is one deliberate
+# tap and the shutter is locked until it happens, exactly as it will be with a
+# real provider.
+booth_auto_settle: 0
 booth_print_speed: 1000
 
 # Frames come from the tester's own browser. There is no camera here.
