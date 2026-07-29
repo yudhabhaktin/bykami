@@ -141,7 +141,12 @@
           media load {{ booth_media_sheets }} "test deployment"
       become: true
       become_user: "{{ booth_user }}"
-      when: booth_health.json.media.sheets_remaining | int == 0
+      # The uri task above does not execute under --check, so booth_health has
+      # no .json there and a bare reference aborts the whole play — which made
+      # --check unusable for this role rather than merely incomplete. Defaulting
+      # to a non-zero count skips the load, which is the right answer in check
+      # mode: nothing has been deployed to have an empty roll.
+      when: (booth_health.json | default({})).get('media', {}).get('sheets_remaining', 1) | int == 0
       changed_when: true
 
     - name: Report where the test booth is
