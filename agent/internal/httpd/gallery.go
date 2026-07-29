@@ -1,17 +1,21 @@
 package httpd
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"html/template"
+	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bhaktiyudha/bykami/agent/internal/photo"
+	"github.com/bhaktiyudha/bykami/agent/internal/printer"
 	"github.com/bhaktiyudha/bykami/agent/internal/session"
 )
 
@@ -39,18 +43,25 @@ import (
 // expires on its own — one session's photographs, read-only, gone with the
 // purge.
 //
-// These two routes are therefore the only ones on this server that a stranger
+// These three routes are therefore the only ones on this server that a stranger
 // is meant to reach, and they must stay that way:
 //
 //   - No write of any kind. /api/capture accepts 16 MB uploads; nothing here
 //     accepts a body.
 //   - Nothing about the session but its pictures. Not the phone number, not
 //     the price, not the package, not the consent — a link forwarded to a
-//     group chat must not carry the customer's number into it.
-//   - A photo is served only after its session is checked. The token names a
-//     session and the path names a photo, and without that comparison one
-//     valid token would open every photograph the booth has ever taken.
+//     group chat must not carry the customer's number into it. The print jobs
+//     are read for their sheets alone: not their state, their copies, or what
+//     they cost the media roll.
+//   - A file is served only after its session is checked. The token names a
+//     session and the path names a photo or a print job, and without that
+//     comparison one valid token would open everything the booth has ever
+//     taken or composed.
 type galleryPage struct {
+	// Sheets are the customer's photos inside the frame they chose — the same
+	// image that went to the printer. Empty until they print, which on the
+	// kiosk's flow means empty only if printing failed.
+	Sheets []gallerySheet
 	Photos []galleryPhoto
 	Token  string
 
@@ -71,6 +82,20 @@ type galleryPhoto struct {
 	Num int
 }
 
+type gallerySheet struct {
+	// ID is the print job's, not a filename. The handler looks the job up and
+	// checks its session, which is what keeps a path the customer can edit from
+	// reaching a file the customer has no claim to.
+	ID  string
+	Num int
+
+	// Class reserves the sheet's shape in CSS so a tall 2×6 strip does not
+	// shove the page around as it loads. Mapped from a fixed set rather than
+	// interpolated from the layout string, because the CSP hashes the
+	// stylesheet and an inline style attribute would be blocked by it.
+	Class string
+}
+
 // gallery renders one session's photos as a page a phone can save from.
 func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 	sess, ok := s.sessionByToken(w, r)
@@ -85,7 +110,8 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	page := galleryPage{
-		Token: sess.ShareToken,
+		Sheets: s.sheets(r.Context(), sess.ID),
+		Token:  sess.ShareToken,
 		// From the session rather than from the newest photo: a customer who
 		// takes their last frame an hour in should not read a later date than
 		// the one the booth promised them, and the purge is per photo anyway.
@@ -169,6 +195,119 @@ func (s *Server) galleryPhoto(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(s.Root, filepath.FromSlash(rel)))
 }
 
+// galleryPrint serves one composed sheet — the customer's frames inside the
+// template they picked, with their filter, exactly as it went to the printer.
+//
+// The sheet rather than a fresh composition, because the sheet is the thing
+// they are holding: recomposing here would need the template, the filter and
+// the chosen frames stored somewhere, and would still quietly differ from the
+// print the moment any of the three changed. It is also already the right file
+// to hand over — composed from the originals at 300 dpi, and re-encoded by
+// compose, which writes no EXIF and so carries no camera serial into whatever
+// group chat this reaches.
+func (s *Server) galleryPrint(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.sessionByToken(w, r)
+	if !ok {
+		return
+	}
+
+	job, err := s.Printer.Get(r.Context(), r.PathValue("sheet"))
+	switch {
+	case errors.Is(err, printer.ErrNotFound):
+		http.NotFound(w, r)
+		return
+	case err != nil:
+		s.fail(w, "gallery sheet", err)
+		return
+	}
+
+	// The same check the photo route rests on, for the same reason, and not
+	// found for the same reason: a 403 would confirm the job exists.
+	if job.SessionID != sess.ID {
+		http.NotFound(w, r)
+		return
+	}
+
+	path := filepath.Join(s.Root, filepath.FromSlash(job.SheetPath))
+	if _, err := os.Stat(path); err != nil {
+		// Sheets are swept by file age alongside the originals, so a job whose
+		// file has gone is retention working rather than anything broken. Same
+		// answer as a purged photo, because to the customer it is one event.
+		http.Error(w, "this photo has been deleted", http.StatusGone)
+		return
+	}
+
+	galleryHeaders(w)
+	if r.URL.Query().Get("dl") != "" {
+		w.Header().Set("Content-Disposition", `attachment; filename="bykami-frame-`+job.ID[:8]+`.jpg"`)
+	}
+	http.ServeFile(w, r, path)
+}
+
+// sheets lists a session's composed prints, newest first.
+//
+// Deduplicated by content, because a reprint composes the same picture again
+// under a new filename. Most packages include more than one print and most
+// customers use them, so without this the ordinary case is a page showing the
+// identical strip two or three times — which reads as a bug rather than as
+// generosity. Prints that genuinely differ, a second template or another
+// filter, hash differently and all survive.
+func (s *Server) sheets(ctx context.Context, sessionID string) []gallerySheet {
+	jobs, err := s.Printer.BySession(ctx, sessionID)
+	if err != nil {
+		// Logged and dropped rather than failing the request. The frames are
+		// what the customer scanned the code for; losing the framed version is
+		// a worse page, losing the page is a worse visit.
+		s.Log.Error("httpd: gallery sheets", "session", sessionID, "err", err)
+		return nil
+	}
+
+	var out []gallerySheet
+	seen := make(map[[sha256.Size]byte]bool, len(jobs))
+	for _, j := range jobs {
+		sum, err := hashFile(filepath.Join(s.Root, filepath.FromSlash(j.SheetPath)))
+		if err != nil {
+			// Swept, or never written because the job was refused. Either way
+			// listing it would give the customer a broken image.
+			continue
+		}
+		if seen[sum] {
+			continue
+		}
+		seen[sum] = true
+		out = append(out, gallerySheet{ID: j.ID, Num: len(out) + 1, Class: sheetClass(j.Layout)})
+	}
+	return out
+}
+
+// sheetClass names the CSS rule holding this layout's shape. An unknown layout
+// gets none, which costs a little layout shift and renders correctly.
+func sheetClass(l printer.Layout) string {
+	switch l {
+	case printer.Layout4R:
+		return "sheet-4r"
+	case printer.LayoutStrip:
+		return "sheet-strip"
+	case printer.Layout6x8:
+		return "sheet-6x8"
+	}
+	return ""
+}
+
+func hashFile(path string) ([sha256.Size]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	return [sha256.Size]byte(h.Sum(nil)), nil
+}
+
 // sessionByToken resolves the {token} path value, answering the request itself
 // when it does not name a session.
 func (s *Server) sessionByToken(w http.ResponseWriter, r *http.Request) (session.Session, bool) {
@@ -206,14 +345,14 @@ func (s *Server) RetentionDays() int {
 // customer cannot hold that token — it drives the booth — so requiring it here
 // would mean the QR only worked for the operator.
 //
-// It matches the two registered patterns exactly, and it has to. A prefix test
-// on "/g/" looked equivalent and was not: the mux falls through to the kiosk UI
-// on anything it cannot route, so "/g/", "/g/x/y/z" and any other near-miss
-// were served the booth's own interface with no token at all. A test asserts
-// that they are refused.
+// It matches the registered patterns exactly, and it has to. A prefix test on
+// "/g/" looked equivalent and was not: the mux falls through to the kiosk UI on
+// anything it cannot route, so "/g/", "/g/x/y/z" and any other near-miss were
+// served the booth's own interface with no token at all. A test asserts that
+// they are refused.
 //
-// If a third gallery route is ever added, it must be added here too — which is
-// the cost of the exemption, and the reason there are only two.
+// Every gallery route added must be added here too — which is the cost of the
+// exemption, and the reason there are only three.
 func isGalleryPath(p string) bool {
 	rest, ok := strings.CutPrefix(p, "/g/")
 	if !ok {
@@ -226,9 +365,10 @@ func isGalleryPath(p string) bool {
 	if !nested {
 		return true // GET /g/{token}
 	}
-	id, ok := strings.CutPrefix(sub, "p/")
-	// GET /g/{token}/p/{photo}, and nothing below it.
-	return ok && id != "" && !strings.Contains(id, "/")
+	// GET /g/{token}/p/{photo} and /g/{token}/s/{sheet}, and nothing below
+	// either of them.
+	kind, id, ok := strings.Cut(sub, "/")
+	return ok && (kind == "p" || kind == "s") && id != "" && !strings.Contains(id, "/")
 }
 
 // galleryHeaders locks the page down to what it actually is: some text and
@@ -277,9 +417,22 @@ body {
 }
 main { max-width: 46rem; margin: 0 auto }
 h1 { font-size: 1.75rem; letter-spacing: -0.5px; margin: 0 0 4px }
+h2 { font-size: 1.05rem; letter-spacing: -0.2px; margin: 30px 0 2px }
 .brand { font-weight: 700; font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: #6b6257 }
 p { margin: 0 0 4px; color: #6b6257 }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 12px; margin-top: 24px }
+.sheets { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px }
+.sheets a {
+  display: block; border: 2px solid #1a1a1a; border-radius: 14px;
+  overflow: hidden; background: #fffcf7; box-shadow: 3px 3px 0 #1a1a1a;
+  height: min(58vh, 22rem);
+}
+/* Sized from the height so a 2x6 strip and a 4R sheet sit side by side at the
+   same scale instead of one of them filling the phone. */
+.sheets img { display: block; height: 100%; width: auto; max-width: 100% }
+.sheet-4r { aspect-ratio: 2/3 }
+.sheet-strip { aspect-ratio: 1/3 }
+.sheet-6x8 { aspect-ratio: 3/4 }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 12px; margin-top: 12px }
 .grid a {
   display: block; border: 2px solid #1a1a1a; border-radius: 14px;
   overflow: hidden; background: #fffcf7; box-shadow: 3px 3px 0 #1a1a1a;
@@ -314,7 +467,18 @@ var galleryTmpl = template.Must(template.New("gallery").Parse(`<!doctype html>
   <span class="brand">bykami · self photo studio</span>
   <h1>Ini foto kamu 🎉</h1>
 {{if .Photos}}
-  <p>Ketuk satu foto untuk menyimpannya. {{len .Photos}} foto siap diunduh.</p>
+  <p>Ketuk gambar untuk menyimpannya ke HP.</p>
+{{if .Sheets}}
+  <h2>Versi bingkai</h2>
+  <p>Sama persis dengan hasil cetakmu.</p>
+  <div class="sheets">
+{{range .Sheets}}
+    <a href="/g/{{$.Token}}/s/{{.ID}}?dl=1"><img class="{{.Class}}" src="/g/{{$.Token}}/s/{{.ID}}" alt="Cetakan {{.Num}}"></a>
+{{end}}
+  </div>
+{{end}}
+  <h2>Foto asli</h2>
+  <p>Tanpa bingkai, satu per satu — {{len .Photos}} foto.</p>
   <div class="grid">
 {{range .Photos}}
     <a href="/g/{{$.Token}}/p/{{.ID}}?dl=1"><img src="/g/{{$.Token}}/p/{{.ID}}" alt="Foto {{.Num}}" loading="lazy"></a>

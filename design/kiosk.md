@@ -302,6 +302,13 @@ today. Everything below still describes the fleet-scale version, and the two
 differences worth holding onto are that a booth-served gallery dies when the
 booth is switched off, and does not exist at all for a booth with no tunnel.
 
+It hands back **two things, not one**: the loose frames, and the composed sheet
+that went to the printer. The table below sizes only the frames, which was an
+omission — the framed version is the one a customer posts, and a gallery without
+it gives back less than the print they are already holding. The cloud version
+would have to upload sheets as well; they are small next to the frames (one
+sheet against three to five originals) and they are already written to disk.
+
 It also closes an existing gap. `studio.ts` currently records *"Berapa lama file
 saya dikirim?"* → **blocked**, and "delivery method and window unknown".
 

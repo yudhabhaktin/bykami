@@ -62,6 +62,81 @@ func (f *fixture) shotSession(t *testing.T, n int) string {
 	return f.shareToken(t)
 }
 
+// printedSession pays, fires exactly the frames the package's template needs,
+// and prints them once per entry in filters — so a caller can ask for a reprint
+// of the same picture ("" twice) or for two different ones.
+func (f *fixture) printedSession(t *testing.T, packageID string, filters ...string) string {
+	t.Helper()
+	start := f.pay(t, packageID)
+
+	var ids []string
+	for range f.cellCount(t, start.Session.TemplateID) {
+		w := f.do(t, "POST", "/api/capture", frameBytes(t, 1600, 1200))
+		if w.Code != http.StatusCreated {
+			t.Fatalf("capture: %d %s", w.Code, w.Body)
+		}
+		ids = append(ids, decode[struct {
+			Photo struct {
+				ID string `json:"id"`
+			} `json:"photo"`
+		}](t, w).Photo.ID)
+	}
+
+	for _, filter := range filters {
+		w := f.do(t, "POST", "/api/print", map[string]any{
+			"template_id": start.Session.TemplateID,
+			"photo_ids":   ids,
+			"copies":      1,
+			"filter":      filter,
+		})
+		if w.Code != http.StatusAccepted {
+			t.Fatalf("print: %d %s", w.Code, w.Body)
+		}
+	}
+	return f.shareToken(t)
+}
+
+// cellCount is how many frames a template holds, read from the booth rather
+// than restated here so that editing a template's manifest cannot silently
+// leave these tests printing the wrong number of photos.
+func (f *fixture) cellCount(t *testing.T, templateID string) int {
+	t.Helper()
+	got := decode[struct {
+		Templates []struct {
+			ID    string           `json:"id"`
+			Cells []map[string]any `json:"cells"`
+		} `json:"templates"`
+	}](t, f.do(t, "GET", "/api/state", nil))
+
+	for _, tpl := range got.Templates {
+		if tpl.ID == templateID {
+			return len(tpl.Cells)
+		}
+	}
+	t.Fatalf("no template %q on the booth", templateID)
+	return 0
+}
+
+// sheetIDs lists the live session's print jobs, which is what the gallery
+// addresses a framed download by.
+func (f *fixture) sheetIDs(t *testing.T) []string {
+	t.Helper()
+	sess, ok, err := f.sessions.Current(t.Context())
+	if err != nil || !ok {
+		t.Fatalf("current session: %v (found %v)", err, ok)
+	}
+	jobs, err := f.printer.BySession(t.Context(), sess.ID)
+	if err != nil {
+		t.Fatalf("print jobs: %v", err)
+	}
+
+	ids := make([]string, 0, len(jobs))
+	for _, j := range jobs {
+		ids = append(ids, j.ID)
+	}
+	return ids
+}
+
 // The whole point. The access token opens /api/capture and /api/print, so it is
 // the booth's credential and a customer can never be given it — a gallery
 // behind it would be a QR code that only the operator could scan.
@@ -91,6 +166,7 @@ func TestTheGalleryExemptionDoesNotOpenTheBooth(t *testing.T) {
 	for _, path := range []string{
 		"/api/state", "/api/photos", "/",
 		"/g", "/g/", "/g/x/y/z", "/g/x/p/y/z", "/g/x/notp/y",
+		"/g/x/s/y/z", "/g/x/s/", "/g/x/s",
 	} {
 		if w := publicGet(t, f, path, ""); w.Code != http.StatusUnauthorized {
 			t.Errorf("%s = %d, want 401 without the access token", path, w.Code)
@@ -149,6 +225,112 @@ func TestGallerySeesOnlyItsOwnSessionsPhotos(t *testing.T) {
 	// everything.
 	if w := publicGet(t, f, "/g/"+first+"/p/"+mine[0], ""); w.Code != http.StatusOK {
 		t.Fatalf("own photo = %d %s", w.Code, w.Body)
+	}
+}
+
+// The frame is what the customer chose and what they walked out holding. A
+// gallery offering only the loose frames hands back less than the print did, so
+// the page carries both — the composed sheet and the untouched originals.
+func TestGalleryOffersBothTheFramedPrintAndTheLooseFrames(t *testing.T) {
+	f := publicBooth(t)
+	token := f.printedSession(t, "mini", "")
+
+	w := publicGet(t, f, "/g/"+token, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("gallery = %d %s", w.Code, w.Body)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "/g/"+token+"/s/") {
+		t.Error("the page offers no framed version")
+	}
+	if !strings.Contains(body, "/g/"+token+"/p/") {
+		t.Error("the page offers no unframed frames")
+	}
+}
+
+// The sheet is a file on disk composed for a printer, so the thing worth
+// asserting is that it reaches a phone as a saveable image rather than as a
+// page the browser tries to render.
+func TestGalleryServesTheSheetAndOffersItAsADownload(t *testing.T) {
+	f := publicBooth(t)
+	token := f.printedSession(t, "mini", "")
+
+	ids := f.sheetIDs(t)
+	if len(ids) != 1 {
+		t.Fatalf("%d print jobs, want 1", len(ids))
+	}
+
+	w := publicGet(t, f, "/g/"+token+"/s/"+ids[0], "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("sheet = %d %s", w.Code, w.Body)
+	}
+	if ctype := w.Header().Get("Content-Type"); !strings.HasPrefix(ctype, "image/") {
+		t.Errorf("Content-Type = %q, want an image", ctype)
+	}
+	if w.Header().Get("Content-Disposition") != "" {
+		t.Error("the plain URL forces a download, so the page cannot show it inline")
+	}
+
+	// iOS Safari honours the header and has historically ignored the anchor's
+	// download attribute, and iOS is most of what will scan this code.
+	w = publicGet(t, f, "/g/"+token+"/s/"+ids[0]+"?dl=1", "")
+	if cd := w.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment") {
+		t.Errorf("Content-Disposition = %q, want an attachment", cd)
+	}
+}
+
+// The check the whole surface rests on, applied to the second kind of file it
+// now serves. Without it one valid token would open every sheet the booth has
+// ever composed.
+func TestGallerySeesOnlyItsOwnSessionsSheets(t *testing.T) {
+	f := publicBooth(t)
+
+	f.printedSession(t, "mini", "")
+	first := f.shareToken(t)
+	mine := f.sheetIDs(t)
+	if w := f.do(t, "POST", "/api/session/close", nil); w.Code != http.StatusOK {
+		t.Fatalf("close: %d %s", w.Code, w.Body)
+	}
+
+	f.printedSession(t, "mini", "")
+	theirs := f.sheetIDs(t)
+
+	w := publicGet(t, f, "/g/"+first+"/s/"+theirs[0], "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-session sheet = %d, want 404 — one token opened another customer's print", w.Code)
+	}
+	if w := publicGet(t, f, "/g/"+first+"/s/"+mine[0], ""); w.Code != http.StatusOK {
+		t.Fatalf("own sheet = %d %s, so the check above refuses everything", w.Code, w.Body)
+	}
+}
+
+// A reprint composes the same picture again under a new filename. Most packages
+// include more than one print and most customers use them, so the identical
+// strip appearing two or three times is the ordinary case, not the exotic one —
+// and it reads as a bug.
+func TestGalleryShowsARepeatedPrintOnce(t *testing.T) {
+	f := publicBooth(t)
+	token := f.printedSession(t, "midi", "", "")
+
+	if got := len(f.sheetIDs(t)); got != 2 {
+		t.Fatalf("%d print jobs, want the 2 this test is about", got)
+	}
+	body := publicGet(t, f, "/g/"+token, "").Body.String()
+	if n := strings.Count(body, `href="/g/`+token+`/s/`); n != 1 {
+		t.Fatalf("%d framed downloads for one picture printed twice, want 1", n)
+	}
+}
+
+// And the dedupe must not be "show one and hope". Two prints that differ — here
+// a change of filter, on the kiosk also a change of template — are two
+// different pictures the customer paid for, and both belong on the page.
+func TestGalleryKeepsTwoPrintsThatDiffer(t *testing.T) {
+	f := publicBooth(t)
+	token := f.printedSession(t, "midi", "", "hitam-putih")
+
+	body := publicGet(t, f, "/g/"+token, "").Body.String()
+	if n := strings.Count(body, `href="/g/`+token+`/s/`); n != 2 {
+		t.Fatalf("%d framed downloads for two different prints, want 2", n)
 	}
 }
 

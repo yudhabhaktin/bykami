@@ -185,9 +185,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/delivery", s.delivery)
 
 	// The customer's download link. Read-only, and the only routes here a
-	// stranger is meant to reach — see gallery.go.
+	// stranger is meant to reach — see gallery.go. Adding one means teaching
+	// isGalleryPath about it, or it is served the kiosk UI instead.
 	s.mux.HandleFunc("GET /g/{token}", s.gallery)
 	s.mux.HandleFunc("GET /g/{token}/p/{photo}", s.galleryPhoto)
+	s.mux.HandleFunc("GET /g/{token}/s/{sheet}", s.galleryPrint)
 
 	s.mux.Handle("GET /", s.ui())
 }
