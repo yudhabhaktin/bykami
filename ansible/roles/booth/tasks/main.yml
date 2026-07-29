@@ -31,8 +31,9 @@
           - booth_access_token | length >= 24
         fail_msg: >-
           booth_access_token is empty or too short. Generate one with
-          `openssl rand -hex 24` and pass it from a vars file, not on the
-          command line where ps would show it to every local user.
+          `openssl rand -hex 24` — or several, comma-separated, for one per
+          tester — and pass it from a vars file, not on the command line where
+          ps would show it to every local user.
         quiet: true
 
     - name: Check the pushed binary exists on the control machine

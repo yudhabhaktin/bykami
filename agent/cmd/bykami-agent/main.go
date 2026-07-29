@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -93,7 +94,7 @@ func main() {
 	// getUserMedia will not run on an insecure origin and a phone cannot reach
 	// localhost.
 	flag.StringVar(&c.publicHost, "public-host", "", "extra hostname to answer to, for a tunnelled test deployment; needs -access-token")
-	flag.StringVar(&c.accessToken, "access-token", "", "shared secret admitting requests to -public-host; read from BYKAMI_ACCESS_TOKEN when unset")
+	flag.StringVar(&c.accessToken, "access-token", "", "secret admitting requests to -public-host; comma-separated for one per tester; read from BYKAMI_ACCESS_TOKEN when unset")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -197,6 +198,7 @@ func run(c config, log *slog.Logger) error {
 	if token == "" {
 		token = os.Getenv("BYKAMI_ACCESS_TOKEN")
 	}
+	tokens := splitTokens(token)
 
 	// The booth's credential for the cloud catalogue. Environment only — there
 	// is no flag — for the same reason the access token prefers one: argv is
@@ -216,7 +218,7 @@ func run(c config, log *slog.Logger) error {
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
 		Ingest: watcher, Templates: live, Packages: packages,
 		Root: root, Source: source, OutletID: c.outlet,
-		Simulated: simulated, PublicHost: c.publicHost, AccessToken: token,
+		Simulated: simulated, PublicHost: c.publicHost, AccessTokens: tokens,
 		Retention: c.retention,
 		Log:       log,
 	})
@@ -428,6 +430,21 @@ func frameSyncTarget(w *framesync.Worker, base string) string {
 	default:
 		return "disabled"
 	}
+}
+
+// splitTokens parses the comma-separated access token setting.
+//
+// Blanks are dropped rather than becoming a token that an empty ?t= matches,
+// which is what a trailing comma would otherwise leave behind — and the failure
+// mode of that mistake is an open booth.
+func splitTokens(s string) []string {
+	var out []string
+	for _, t := range strings.Split(s, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func providerName(p payment.Provider) string {

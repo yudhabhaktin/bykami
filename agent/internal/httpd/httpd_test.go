@@ -523,7 +523,7 @@ func publicBooth(t *testing.T) *fixture {
 	t.Helper()
 	return setupWith(t, func(d *httpd.Deps) {
 		d.PublicHost = testHost
-		d.AccessToken = testToken
+		d.AccessTokens = []string{testToken}
 	})
 }
 
@@ -587,6 +587,70 @@ func TestPublicHostAcceptsTheTokenAndThenTheCookie(t *testing.T) {
 	// token in the URL.
 	if w := publicGet(t, f, "/api/state", handed); w.Code != http.StatusOK {
 		t.Fatalf("refused the cookie it had just issued: %d", w.Code)
+	}
+}
+
+// One token per tester, which is the whole reason this is a list. With a single
+// shared secret, withdrawing one person's access means rotating for everybody —
+// which in practice means nobody's access is ever withdrawn.
+func TestAnyOfTheConfiguredTokensAdmits(t *testing.T) {
+	tokens := []string{"token-for-rina-000000000", "token-for-adi-0000000000", "token-for-sari-000000000"}
+	f := setupWith(t, func(d *httpd.Deps) {
+		d.PublicHost = testHost
+		d.AccessTokens = tokens
+	})
+
+	for _, tok := range tokens {
+		if w := publicGet(t, f, "/api/state?t="+tok, ""); w.Code != http.StatusOK {
+			t.Errorf("refused a configured token: %d %s", w.Code, w.Body)
+		}
+		if w := publicGet(t, f, "/api/state", tok); w.Code != http.StatusOK {
+			t.Errorf("refused a configured token presented as a cookie: %d", w.Code)
+		}
+	}
+
+	if w := publicGet(t, f, "/api/state?t=token-for-nobody-00000", ""); w.Code != http.StatusUnauthorized {
+		t.Errorf("a token that is not on the list opened the booth: %d", w.Code)
+	}
+}
+
+// And withdrawing one has to actually withdraw it. The cookie carries the token
+// that matched rather than the list, so dropping that token from the
+// configuration stops recognising the cookie it was issued for — and leaves
+// everyone else's working.
+func TestWithdrawingOneTokenLeavesTheOthersWorking(t *testing.T) {
+	const withdrawn = "token-for-the-ex-tester0"
+	const kept = "token-for-everyone-else0"
+
+	f := setupWith(t, func(d *httpd.Deps) {
+		d.PublicHost = testHost
+		d.AccessTokens = []string{withdrawn, kept}
+	})
+	w := publicGet(t, f, "/api/state?t="+withdrawn, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("refused a configured token: %d %s", w.Code, w.Body)
+	}
+
+	var handed string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "bykami_booth_access" {
+			handed = c.Value
+		}
+	}
+	if handed != withdrawn {
+		t.Fatalf("cookie carries %q, want the token that matched — otherwise one cookie survives every withdrawal", handed)
+	}
+
+	// The booth as it is after the token is taken out and the play re-run.
+	after := setupWith(t, func(d *httpd.Deps) {
+		d.PublicHost = testHost
+		d.AccessTokens = []string{kept}
+	})
+	if w := publicGet(t, after, "/api/state", handed); w.Code != http.StatusUnauthorized {
+		t.Errorf("the withdrawn tester's cookie still opens the booth: %d", w.Code)
+	}
+	if w := publicGet(t, after, "/api/state?t="+kept, ""); w.Code != http.StatusOK {
+		t.Errorf("withdrawing one token locked out the others: %d %s", w.Code, w.Body)
 	}
 }
 

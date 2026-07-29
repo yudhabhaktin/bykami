@@ -251,6 +251,22 @@ cookie so it stops appearing in the address bar. Requests arriving over
 localhost still need no token — demanding one there would be theatre, since
 anything on that machine can read it.
 
+**`-access-token` takes a comma-separated list, so testers can hold one each.**
+There is no endpoint that mints them: a token vending machine on the
+unauthenticated side of this server would hand out the booth, and these are
+deploy-time secrets read once at startup from a mode-0600 `EnvironmentFile`.
+Generate them with `openssl rand -hex 24`.
+
+The list is what makes access revocable. With a single shared secret,
+withdrawing one person means rotating for everybody — which in practice means
+nobody is ever withdrawn. The cookie carries the token that matched rather than
+the list, so dropping one token from the vars file and re-running the play stops
+recognising exactly that person's cookie and leaves the rest working. Tested.
+
+Every configured token is compared, with no early return on a match: stopping
+early would make the time taken depend on which token was presented, which is
+the leak the constant-time compare exists to close.
+
 **`/g/…` is exempt, and has to be.** That token is the *booth's* — it opens
 `/api/capture` and `/api/print` — so handing it to a customer to collect their
 photographs would hand them the booth. The download gallery carries its own,

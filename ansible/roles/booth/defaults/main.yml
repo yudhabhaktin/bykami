@@ -39,10 +39,15 @@ booth_listen_addr: 127.0.0.1:8899
 # demanded at all.
 booth_public_host: booth-test.bykami.id
 
-# The shared secret admitting requests to booth_public_host. No default: the
-# agent refuses to start with a public host and an empty token, so a forgotten
-# value fails loudly at deploy time rather than silently publishing an open
+# The secret admitting requests to booth_public_host. No default: the agent
+# refuses to start with a public host and an empty token, so a forgotten value
+# fails loudly at deploy time rather than silently publishing an open
 # photo-upload endpoint.
+#
+# Comma-separated for one token per tester — "<tester-1>,<tester-2>". Withdrawing
+# somebody is then deleting their token and re-running this play, which leaves
+# everyone else's link working. With one shared secret that operation costs
+# everybody their access, which is why it never happens.
 #
 # Pass it from a vars file, never on the command line:
 #   ansible-playbook site.yml --tags booth -e @booth.vars.yml
