@@ -313,6 +313,13 @@ expires on its own:
   fail loudly.
 - `noindex`, `no-referrer`, `same-origin` CORP.
 
+**The console error on this page is the policy working.** Cloudflare Web
+Analytics is on for the zone, so the edge injects its beacon into every HTML
+response and the CSP refuses to run it — which is the right outcome on a page
+showing a customer's face, and worth knowing before somebody "fixes" it by
+loosening `default-src`. The beacon is injected after the agent has served the
+bytes, so nothing here can stop it being added; only the CSP stops it running.
+
 ## Retention
 
 Seven days, and it does not depend on anyone remembering. Originals, delivered
