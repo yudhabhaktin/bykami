@@ -434,10 +434,111 @@ p {
   font-size: 1.25rem;
 }
 
+/*
+ * A heading with a mark beside it.
+ *
+ * The attract screen had all the illustration and the six screens behind it had
+ * none, so the moment a customer paid, the booth turned into a form. One doodle
+ * per screen, in the corner of the heading, is the cheapest fix that keeps the
+ * character going all the way through — and it costs no layout, because the
+ * mark is absolutely positioned out of flow.
+ */
+.page-head {
+  position: relative;
+  padding-right: 5.5rem;
+  margin-bottom: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.page-doodle {
+  position: absolute;
+  top: -0.75rem;
+  right: 0;
+  width: clamp(56px, 8vw, 88px);
+  pointer-events: none;
+}
+
+/* Doodles take their colour from `currentColor`, so tinting one is a class
+   rather than a prop. Named for the token, not for the screen — the same mark
+   turns up in several places and should not carry a page's name around. */
+.green {
+  color: var(--green);
+}
+
+.red {
+  color: var(--red);
+}
+
+.yellow {
+  color: var(--yellow);
+}
+
+.ink {
+  color: var(--ink);
+}
+
+/*
+ * Decoration breathes. Six seconds, a couple of degrees and a few pixels —
+ * slow and small enough to read as a drawing that is alive rather than as
+ * something demanding attention, which is the line a booth screen has to hold
+ * while a customer is trying to read a price.
+ *
+ * The global prefers-reduced-motion rule above collapses this to a single 1ms
+ * pass, so it disappears entirely for anyone who has asked for that.
+ */
+@keyframes drift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(3deg);
+  }
+}
+
+.page-doodle,
+.delivery-doodle {
+  animation: drift 6s ease-in-out infinite;
+}
+
 .packages {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   gap: var(--s-4);
+}
+
+/*
+ * The price list, in colour.
+ *
+ * Four identical cream rectangles is a table, and a table is what the booth
+ * should least resemble on the one screen where somebody decides to spend
+ * money. Cycling the palette makes each package a distinct object to point at
+ * — "the pink one" is how a pair standing at a booth actually chooses.
+ *
+ * Strictly the five tokens at the top of this file. A fifth package restarts
+ * the cycle rather than introducing a sixth colour, because inventing a tint to
+ * fill a gap is how a limited palette stops being one.
+ */
+.package:nth-child(4n + 1) {
+  background: var(--pink);
+}
+
+.package:nth-child(4n + 2) {
+  background: var(--accent-2);
+}
+
+.package:nth-child(4n + 3) {
+  background: var(--yellow);
+}
+
+/* The muted caption is warm grey against cream, which disappears on a saturated
+   fill. On a coloured card it is ink at reduced weight instead — the same
+   hierarchy, held by weight rather than by lightness. */
+.package .muted {
+  color: var(--ink);
+  opacity: 0.72;
 }
 
 .package {
@@ -496,6 +597,35 @@ p {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+/*
+ * The live preview, masked to the shape of the frame's photo hole.
+ *
+ * Sized the way .sheet is, and for the same reason: the aspect ratio is set
+ * inline from the template's own geometry, so the box needs one axis pinned and
+ * the other derived. Height first, width from the ratio, then clamped so a very
+ * wide cell on a tall screen cannot overflow.
+ *
+ * The ink letterbox around it is not wasted space — it is the crop, drawn.
+ * Everything outside this box is what the printer will discard.
+ */
+.shot {
+  position: relative;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+/* cover, not contain: this is the CSS equivalent of compose.drawCover, which is
+   what makes the preview and the print the same picture. contain here would
+   letterbox inside the mask and quietly reintroduce the mismatch. */
+.shot video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* Mirrored, because a preview that is not mirrored makes people lean the wrong
@@ -803,16 +933,34 @@ p {
   font-weight: 600;
 }
 
-/* The one decorative mark on the thank-you screen. Emerald on cream, sized so
-   it reads as a flourish above the heading rather than as an illustration
-   competing with it. */
+/* The flourish above the thank-you heading. Sized to read as a flourish rather
+   than as an illustration competing with it. */
 .done-doodle {
-  width: clamp(64px, 9vw, 104px);
-  color: var(--green);
+  width: clamp(56px, 8vw, 88px);
+}
+
+/* The outer two sit lower and lean outwards, so the trio reads as a scattered
+   handful rather than as three icons in a row. */
+.done-marks {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: var(--s-5);
+}
+
+.done-marks > :first-child {
+  transform: translateY(12px) rotate(-14deg);
+}
+
+.done-marks > :last-child {
+  transform: translateY(12px) rotate(14deg);
 }
 
 .thumb {
   position: relative;
+  /* Overridden inline with the chosen frame's own cell shape, so the filmstrip
+     shows the crop that will actually print. This 4:3 is the fallback for the
+     moment before a template is known. */
   aspect-ratio: 4 / 3;
   border-radius: var(--r-img);
   overflow: hidden;
@@ -904,6 +1052,84 @@ p {
   font-weight: 600;
 }
 
+/*
+ * Delivery — the download QR, and the number as an afterthought.
+ *
+ * Laid out so the QR is the largest thing on the screen and the WhatsApp
+ * button is plainly secondary. That ordering is the design: the booth's input
+ * device is a touchscreen, and anything that raises a keyboard has to earn it.
+ */
+.delivery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.delivery-head {
+  position: relative;
+  padding-right: 5rem;
+}
+
+/* Sat in the corner rather than above the heading: on a portrait booth the
+   heading is already near the top, and a mark above it pushes the QR under the
+   fold on the one screen that must not scroll to be understood. */
+.delivery-doodle {
+  position: absolute;
+  top: -0.5rem;
+  right: 0;
+  width: clamp(56px, 8vw, 84px);
+  color: var(--yellow);
+  pointer-events: none;
+}
+
+/* The QR beside its explanation on a wide screen, above it on a tall one — the
+   same rule the review and frame screens follow, for the same undecided
+   orientation. */
+.pickup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-6);
+  padding: var(--s-5);
+  border: var(--stroke-thick) solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--accent-2);
+  box-shadow: var(--shadow-lg);
+}
+
+.pickup-copy {
+  flex: 1 1 16rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+/* Deliberately not a .btn.big. It sits between the QR and "Selesai", and a
+   third full-width primary-sized control there would make the screen read as
+   three equal demands rather than one offer and one exit. */
+.wa-open {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.wa-form {
+  display: grid;
+  gap: var(--s-2);
+}
+
+/* Pinned to the bottom of the column so "Selesai" lands in the same place
+   whether or not the WhatsApp form is open. A button that moves under a thumb
+   already travelling towards it is a mis-tap. */
+.delivery-actions {
+  margin-top: auto;
+  padding-top: var(--s-3);
+}
+
 /* Payment */
 
 .qr {
@@ -919,6 +1145,14 @@ p {
   width: min(60vh, 22rem);
   height: auto;
   image-rendering: pixelated;
+}
+
+/* Smaller than the payment QR, which owns its whole screen. This one shares a
+   row with the copy explaining it, and at 22rem it pushed that copy onto a
+   second line on every booth narrower than a desk. Still far past the size a
+   phone camera needs from arm's length. */
+.pickup .qr canvas {
+  width: min(38vh, 15rem);
 }
 
 /* Measurements — only present with ?perf=1 */

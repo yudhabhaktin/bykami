@@ -68,6 +68,13 @@ export interface Session {
   take_limit: number;
   takes: number;
   phone_given: boolean;
+  /**
+   * The download page for this session, or "" when this booth has no public
+   * hostname and therefore nothing a phone could reach. Empty is the normal
+   * case on a real booth, and the delivery screen offers WhatsApp alone rather
+   * than a QR code that scans to nothing.
+   */
+  share_url: string;
 }
 
 export interface Payment {

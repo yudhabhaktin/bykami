@@ -52,6 +52,19 @@ rather than by two crop implementations being kept in step by hand.
 that takes seconds, and a customer taps between templates; the file the printer
 receives is composed once, when they commit.
 
+**The live camera preview is masked to the same cell.** A webcam hands over 16:9
+and a frame's holes are usually taller than they are wide, so `drawCover` throws
+the sides away — and a preview showing the whole sensor is a preview showing
+pixels that will never be printed. People frame themselves against the edges
+they can see and then find the print cropped into their shoulders. The preview
+box takes its aspect ratio from the template's first cell and the video fills it
+with `object-fit: cover`, which is the same crop; the ink letterbox around it is
+that crop, drawn. The filmstrip thumbnails follow the same rule.
+
+Nothing is discarded at *capture* — the file on disk is still the full frame, so
+switching frame at review re-crops from everything the camera saw rather than
+from an already-cropped copy.
+
 `print_dpi` follows the template being looked at rather than the one the package
 opened on. A 4R cell is 1200×1800 where a strip cell is 540×360, so the same
 frame is 300 dpi in one and 266 in the other — reading the package's template
@@ -95,9 +108,18 @@ for a decorative font to fail.
 
 `src/assets/selfie.svg` is from [Open Doodles](https://www.opendoodles.com),
 CC0, recoloured onto the palette — see `src/assets/README.md` for exactly what
-was changed. The botanical marks in `src/Doodle.tsx` are drawn inline as SVG
-paths for the same reason there is no webfont request: a decoration that arrives
-over the network is a decoration that can fail to arrive.
+was changed. The marks in `src/Doodle.tsx` are drawn inline as SVG paths for the
+same reason there is no webfont request: a decoration that arrives over the
+network is a decoration that can fail to arrive.
+
+The set is eight marks — two botanicals, a sparkle, a heart, a rainbow, a cloud,
+a camera and a squiggle — because it was two, both on the attract screen, and
+the six screens behind it therefore turned into a form the moment a customer
+paid. One mark per screen heading, absolutely positioned so it costs no layout,
+plus colour on the package cards: four identical cream rectangles is a table,
+and a table is what the booth should least resemble on the screen where somebody
+decides to spend money. Strictly the five palette tokens — a fifth package
+restarts the cycle rather than introducing a sixth colour.
 
 ### Measuring it
 
@@ -134,8 +156,8 @@ route that skips paying.
 ## The flow
 
 ```
-pilih paket → QR → (settle) → pilih frame → sesi foto → pilih foto + filter → cetak → nomor → selesai
-                 ↑ shutter locked here      ↑ automatic, one countdown per frame
+pilih paket → QR → (settle) → pilih frame → sesi foto → pilih foto + filter → cetak → QR download → selesai
+                 ↑ shutter locked here      ↑ automatic, one countdown per frame        ↑ nomor optional here
 ```
 
 **The photo session runs itself.** One tap starts it; the booth counts down,
@@ -158,7 +180,9 @@ there until the relay hardware in `design/kiosk.md` exists.
 | `POST` | `/api/capture` | Fire the shutter, or accept a webcam frame |
 | `GET` | `/api/photos` | This session's frames, in capture order, with print dpi |
 | `POST` | `/api/print` | Compose a sheet and queue it. Carries the template and the filter |
-| `POST` | `/api/delivery` | Phone number plus two separate consents |
+| `POST` | `/api/delivery` | Phone number plus two separate consents. Optional |
+| `GET` | `/g/{token}` | The customer's download page. No booth token — see below |
+| `GET` | `/g/{token}/p/{id}` | One photo. `?dl=1` sends it as an attachment |
 
 ## Things that are easy to get wrong and are therefore tested
 
@@ -226,6 +250,14 @@ cookie so it stops appearing in the address bar. Requests arriving over
 localhost still need no token — demanding one there would be theatre, since
 anything on that machine can read it.
 
+**`/g/…` is exempt, and has to be.** That token is the *booth's* — it opens
+`/api/capture` and `/api/print` — so handing it to a customer to collect their
+photographs would hand them the booth. The download gallery carries its own,
+much narrower secret instead; see below. The exemption matches the two gallery
+routes exactly rather than the `/g/` prefix, because anything the mux cannot
+route falls through to the kiosk UI, and a prefix test served that UI
+unauthenticated to `/g/`, `/g/x/y/z` and every other near-miss. There is a test.
+
 `ansible/roles/booth` deploys this behind the tunnel; it is off unless
 `booth_enabled` is true, and the token comes from a mode-0600 `EnvironmentFile`
 rather than the unit file, which is world-readable.
@@ -245,6 +277,42 @@ An adjustment without a reason is refused. The ledger is append-only, exactly as
 the loyalty ledger in `api/` is, and for the same reason: the most likely author
 of an `UPDATE` here is a well-meaning fix for "the counter looks wrong".
 
+## The download, and why the booth serves it
+
+`GET /g/{token}` is the page the delivery QR points at: one session's photos, as
+a phone can save them. `GET /g/{token}/p/{id}` serves a frame, and `?dl=1` adds
+a `Content-Disposition` so iOS Safari saves rather than displays it.
+
+**The booth serves this itself, rather than R2 behind `gallery.bykami.id`.** The
+cloud version in `design/kiosk.md` remains the right answer for a fleet, and it
+is blocked on the residency fork — meanwhile the booth already holds the
+photographs, already derives them to 2048px with EXIF stripped, and already
+deletes them after seven days. Serving them from here needs no upload, no
+bucket, no credential to rotate, and no decision about which country the files
+sit in. It is the version that works now.
+
+It needs `-public-host`, because a phone on mobile data cannot reach a booth PC
+on a shop's wifi. Without one, `share_url` is empty and the delivery screen
+offers WhatsApp alone instead of an unscannable square — which is every booth
+that has no tunnel in front of it.
+
+**What guards it is the unguessable URL, and deliberately nothing else.**
+Customers paste these links into group chats; that is wanted, and no control
+survives it. What makes it defensible is that the capability is narrow and
+expires on its own:
+
+- Read-only. Nothing under `/g/` accepts a body.
+- One session. The token names a session, the path names a photo, and the two
+  are compared — without that a single valid token would open every photograph
+  the booth has ever taken. Tested.
+- Nothing but pictures. Not the phone number, not the price, not the consent. A
+  link forwarded to a group must not carry the customer's number into it.
+- `default-src 'none'` with `img-src 'self'`, and the inline stylesheet is
+  hashed into the CSP at startup so the two cannot drift. A photo gallery is
+  exactly the page somebody later adds a lightbox to; this is what makes that
+  fail loudly.
+- `noindex`, `no-referrer`, `same-origin` CORP.
+
 ## Retention
 
 Seven days, and it does not depend on anyone remembering. Originals, delivered
@@ -255,6 +323,12 @@ full-resolution copy of every customer on the machine indefinitely.
 The photo rows stay. They are how the agent knows not to re-ingest bytes it has
 already seen, and how a question asked three weeks later is answerable once the
 pixels are gone.
+
+It is also the download's expiry. There is no second mechanism and no separate
+clock: the link stops working because the photos behind it are gone. `-retention`
+sets the window, and the number the delivery screen promises is read from the
+same value rather than typed into the UI — it said 30 days for a while, beside a
+purge that had always deleted at 7.
 
 ## Frames come from the cloud
 
@@ -280,10 +354,14 @@ when there is a second outlet, that becomes worth having.
 
 ## Not here yet
 
-- **Nothing leaves the booth PC.** R2 upload, the gallery renderer and the QR
-  download have no implementation, so the delivery screen captures a number and
-  a consent and does nothing with them yet. Gated on the residency fork in
+- **Nothing leaves the booth PC**, and the download now leans on that rather
+  than waiting for it — see below. R2 upload and `gallery.bykami.id` still have
+  no implementation and stay gated on the residency fork in
   `design/infrastructure.md`.
+- **No WhatsApp sender.** The delivery screen can still take a number, and
+  storing it is all that happens; `Sender` has no implementation anywhere. The
+  QR is what actually delivers today, which is why the number stopped being a
+  precondition for leaving the screen.
 - **No shutter release.** `-source=hotfolder` announces the countdown and the
   frame is fired by hand. The recommended path is a USB relay into the RS-60E3
   jack — the last open question in the capture design.

@@ -133,7 +133,17 @@ type Deps struct {
 	// AccessToken gates PublicHost. Not a login: one shared secret in the URL,
 	// which is the point — the operator console's real auth is unrelated and,
 	// for a UI a customer walks up to, a password prompt is the wrong shape.
+	//
+	// It does not gate the download gallery. A customer cannot be given this
+	// token — it drives the booth — so a QR behind it would work for nobody but
+	// the operator. See gallery.go for what guards that surface instead.
 	AccessToken string
+
+	// Retention is how long photographs survive on this PC, and therefore how
+	// long a download link works. Passed in rather than assumed because the
+	// customer is told the number, and a screen that says seven days beside a
+	// purge configured for two is worse than saying nothing.
+	Retention time.Duration
 
 	Log *slog.Logger
 }
@@ -174,6 +184,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/print/{id}", s.printStatus)
 	s.mux.HandleFunc("POST /api/delivery", s.delivery)
 
+	// The customer's download link. Read-only, and the only routes here a
+	// stranger is meant to reach — see gallery.go.
+	s.mux.HandleFunc("GET /g/{token}", s.gallery)
+	s.mux.HandleFunc("GET /g/{token}/p/{photo}", s.galleryPhoto)
+
 	s.mux.Handle("GET /", s.ui())
 }
 
@@ -212,7 +227,11 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			return
 		}
 
-		if public && !s.admit(w, r) {
+		// The download gallery is exempt, and has to be. The access token is the
+		// booth's — it opens the capture and print routes — so handing it to a
+		// customer to collect their photos would hand them the booth. The
+		// gallery carries its own, narrower secret in the path instead.
+		if public && !isGalleryPath(r.URL.Path) && !s.admit(w, r) {
 			http.Error(w, "this test booth needs its access token", http.StatusUnauthorized)
 			return
 		}
@@ -370,6 +389,11 @@ type sessionView struct {
 	TakeLimit  int  `json:"take_limit"`
 	Takes      int  `json:"takes"`
 	PhoneGiven bool `json:"phone_given"`
+
+	// ShareURL is what the delivery screen turns into a QR code. Empty when
+	// this booth has no public hostname, which is every real booth today — the
+	// screen then offers WhatsApp alone rather than an unscannable square.
+	ShareURL string `json:"share_url"`
 }
 
 type paymentView struct {
@@ -391,6 +415,11 @@ type consentView struct {
 	Version string `json:"version"`
 	// RetentionDays is shown to the customer, so it comes from the same place
 	// the purge uses rather than being typed into the UI separately.
+	//
+	// It said 30 until this was wired up, while the purge had always deleted at
+	// 7. The screen was telling every customer their photos would outlive them
+	// by three weeks — which is the exact failure a hardcoded copy of a number
+	// invites, and the reason Deps.Retention is now passed in.
 	RetentionDays int `json:"retention_days"`
 }
 
@@ -424,7 +453,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		Packages:  packages,
 		Templates: views,
 		Filters:   compose.Filters,
-		Consent:   consentView{Version: ConsentVersion, RetentionDays: 30},
+		Consent:   consentView{Version: ConsentVersion, RetentionDays: s.RetentionDays()},
 		Flags: map[string]bool{
 			"payments_enabled":   s.Payments.Enabled(),
 			"payments_simulated": s.Simulated != nil,
@@ -484,7 +513,25 @@ func (s *Server) sessionView(ctx context.Context, sess session.Session) (session
 		TakeLimit:   sess.TakeLimit,
 		Takes:       takes,
 		PhoneGiven:  sess.Phone != "",
+		ShareURL:    s.shareURL(sess),
 	}, nil
+}
+
+// shareURL is the address the delivery QR encodes, or empty when this booth
+// cannot be reached from a phone.
+//
+// Empty is the normal case and not a failure. A booth PC on a mall's wifi has
+// no public address, and a customer's phone on mobile data cannot reach it — so
+// rather than print a QR that resolves to nothing, the delivery screen simply
+// does not offer one. Configuring -public-host is what turns the download on.
+func (s *Server) shareURL(sess session.Session) string {
+	if s.PublicHost == "" || sess.ShareToken == "" {
+		return ""
+	}
+	// https unconditionally: the only way this hostname exists is a tunnel in
+	// front of it, and a QR that sends a customer's photographs over plaintext
+	// would be a worse bug than not having one.
+	return "https://" + s.PublicHost + "/g/" + sess.ShareToken
 }
 
 func paymentViewOf(p payment.Payment) paymentView {

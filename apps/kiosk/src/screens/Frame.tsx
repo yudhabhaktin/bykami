@@ -1,4 +1,5 @@
 import type { ScreenProps } from "../App";
+import { Doodle } from "../Doodle";
 import { SheetPreview } from "../SheetPreview";
 
 /**
@@ -29,12 +30,15 @@ export function Frame({
       </div>
 
       <div className="picker">
-        <h1>Pilih frame</h1>
-        <p className="muted">
-          {template
-            ? `${template.name} — butuh ${template.cells.length} foto.`
-            : "Pilih tata letak cetakanmu."}
-        </p>
+        <div className="page-head">
+          <Doodle shape="rainbow" className="page-doodle green" />
+          <h1>Pilih frame</h1>
+          <p className="muted">
+            {template
+              ? `${template.name} — butuh ${template.cells.length} foto.`
+              : "Pilih tata letak cetakanmu."}
+          </p>
+        </div>
 
         <div className="frames">
           {state.templates.map((t) => (

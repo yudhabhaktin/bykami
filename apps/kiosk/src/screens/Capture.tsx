@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScreenProps } from "../App";
 import { api, ApiError } from "../api";
 import { record, timed, type Timings } from "../perf";
+import { cellAspect } from "../shot";
 
 /**
  * The countdown before the first shot.
@@ -232,7 +233,16 @@ export function Capture({
 
       <div className="stage">
         {webcam ? (
-          <video ref={video} autoPlay playsInline muted />
+          /*
+            Masked to the frame's own cell shape, so the preview and the print
+            agree. The video fills this box and the overflow is cropped exactly
+            where compose.drawCover will crop it — what falls outside the box is
+            what will not be printed, and the customer can see that while there
+            is still time to move.
+          */
+          <div className="shot" style={{ aspectRatio: cellAspect(template) }}>
+            <video ref={video} autoPlay playsInline muted />
+          </div>
         ) : (
           <p className="muted" style={{ color: "#fff", padding: "2rem", textAlign: "center" }}>
             Kamera tethering aktif. Foto akan muncul otomatis setelah diambil.

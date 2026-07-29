@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { ScreenProps } from "../App";
 import { api, ApiError, rupiah } from "../api";
+import { Doodle } from "../Doodle";
 
 /**
  * Choose a package, then pay.
@@ -50,10 +51,11 @@ export function Packages({
 
   return (
     <div className="grow">
-      <h1>Pilih paket</h1>
-      <p className="muted" style={{ marginBottom: "1.5rem" }}>
-        Bayar dengan QRIS, lalu foto sepuasnya sampai batas take.
-      </p>
+      <div className="page-head">
+        <Doodle shape="camera" className="page-doodle ink" />
+        <h1>Pilih paket</h1>
+        <p className="muted">Bayar dengan QRIS, lalu foto sepuasnya sampai batas take.</p>
+      </div>
 
       <div className="packages">
         {state.packages.map((p) => (

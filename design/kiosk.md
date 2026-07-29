@@ -295,6 +295,13 @@ franchise's problem later. Build the counter now regardless — outlets inherit 
 The QR download is the only part of the MVP that genuinely requires a server: a
 customer's phone on mobile data cannot reach `localhost`.
 
+**Built, but not here.** The requirement above is a *reachable address*, not a
+cloud — and `agent/` satisfies it at `/g/{token}` whenever the booth has a
+public hostname, which is what the tunnel already gives it. That is what ships
+today. Everything below still describes the fleet-scale version, and the two
+differences worth holding onto are that a booth-served gallery dies when the
+booth is switched off, and does not exist at all for a booth with no tunnel.
+
 It also closes an existing gap. `studio.ts` currently records *"Berapa lama file
 saya dikirim?"* → **blocked**, and "delivery method and window unknown".
 
@@ -369,10 +376,24 @@ read the platform session cookie. Kiosk identity is token-based or absent.
 **Decided:**
 
 - The **print is unconditional** — they paid, they get it.
-- **Digital files require a phone number**, delivered immediately via on-screen
-  QR. No OTP.
+- **Digital files require nothing.** The QR is the delivery: it points at a page
+  the booth serves, and scanning it costs no typing at all. Superseded "digital
+  files require a phone number" — see below.
+- **The number is optional**, one tap away, for anyone who also wants the link
+  sent to WhatsApp.
 - The number is stored **unverified**. Loyalty credits only once it is verified
   through the existing `internal/identity` OTP flow, whenever a provider exists.
+
+**Why the number stopped being the price of admission.** The input device is a
+touchscreen, which makes typing the most expensive thing a screen can ask for:
+eleven digits on an on-screen keyboard, with a queue behind you, to receive
+photographs you are standing next to. The original design put that in front of
+every customer because the QR had nothing behind it. Once the booth serves the
+gallery itself, the cheap path exists and the expensive one becomes a choice.
+
+It also removes a quiet dishonesty. `Sender` still has no implementation, so
+"masukkan nomor untuk menerima link" was a promise nothing kept; the QR is a
+promise the booth keeps before the customer has walked away.
 
 This captures the number at the moment of peak delight — the customer has just
 received photos they like and wants the files — without putting WhatsApp/SMS
@@ -411,10 +432,19 @@ Two requirements that matter more than the wording:
 
 | Where | Rule | Mechanism |
 |---|---|---|
-| R2 gallery | Hard delete at **30 days** | Lifecycle rule |
-| Booth PC originals | Purge **7 days** after successful upload | Agent, per-session directory delete |
+| Booth PC originals, derivatives, sheets | Purge at **7 days** | Agent, hourly sweep |
+| Booth-served download link | Dies with the photos, at **7 days** | No separate mechanism |
+| R2 gallery, when it exists | Hard delete at **30 days** | Lifecycle rule |
 
 Neither depends on anyone remembering.
+
+**The download link has no expiry of its own, and that is the design.** It stops
+working because the photos behind it are gone. A second clock would be a second
+thing to get wrong, and the failure mode of the pair disagreeing is a live link
+to an empty page — or worse, a dead link to photos still on the disk.
+
+The number the customer is shown comes from the same configured window. It read
+30 days for a while, beside a purge that had always deleted at 7.
 
 **The local rule is the one that matters most, and the original plan had no
 equivalent.** A hot folder never empties itself. Twelve months in, an unmanaged
@@ -700,10 +730,10 @@ reachable throughout, and the waits are polled in slices so it lands within a
 tick rather than at the end of a countdown. The tethered path keeps its
 single-shot button: there is no shutter to drive there yet.
 
-Against the customer-facing flow the owner specified, what is **not** built is
-`download QR` and `reprint`. The QR has nothing behind it until upload and the
-gallery exist, which is gated on the residency fork. Reprint is an open
-commercial decision, not an implementation gap — see below.
+Against the customer-facing flow the owner specified, the only step **not**
+built is `reprint`, and that is an open commercial decision rather than an
+implementation gap — see below. `download QR` is built: the booth serves the
+gallery itself, so it no longer waits on R2 or the residency fork.
 
 ### The derivative is a performance decision, not only a delivery one
 
@@ -750,10 +780,13 @@ server.
   unlock it? Payment now answers most of this: the shutter is locked until a
   charge settles, so an unattended booth is no longer a free booth. What remains
   is whether staff need a way in for reprints and refunds.
-- **Upload to R2 and the gallery renderer are not built.** The agent captures,
-  composes, prints and purges; nothing leaves the booth PC yet, so the QR
-  download in the flow above has nothing behind it. This is the largest
-  remaining gap and it is gated on the residency fork.
+- **Upload to R2 and `gallery.bykami.id` are not built**, and are no longer what
+  blocks the QR. The booth serves the download itself at `/g/{token}` — the
+  photos are already there, already derived, already deleted at seven days, and
+  serving them locally needs no bucket, no credential and no answer to the
+  residency question. The cloud version stays the right answer for a fleet:
+  it survives the booth being switched off, and it is the only version that
+  works for a booth with no tunnel in front of it. See `agent/README.md`.
 - **Media is loaded from a subcommand**, `bykami-agent media load 700`, not from
   the touchscreen. Deliberate: everything else at `http://localhost` is defended
   only by the machine being the boundary, and inflating the media counter is the

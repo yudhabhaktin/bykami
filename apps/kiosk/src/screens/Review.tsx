@@ -4,6 +4,7 @@ import type { ScreenProps } from "../App";
 import { api, ApiError, type Photo, type Template } from "../api";
 import { filterCSS, FilterPicker } from "../Filters";
 import { record, type Timings } from "../perf";
+import { cellAspect } from "../shot";
 import { SheetPreview } from "../SheetPreview";
 
 /** How often the printer's progress is checked while the customer watches. */
@@ -216,6 +217,11 @@ export function Review({
             <button
               key={p.id}
               className="thumb"
+              // The cell's shape, not the sensor's. The filmstrip is where the
+              // customer decides which frame goes in the strip, and a 4:3
+              // thumbnail of a photo bound for a tall cell shows them a
+              // composition nobody will ever print.
+              style={{ aspectRatio: cellAspect(template) }}
               aria-pressed={index >= 0}
               onClick={() => toggle(p.id)}
             >
