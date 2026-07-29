@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"testing"
 )
@@ -130,6 +131,77 @@ func TestDetectIgnoresDecorativeHoles(t *testing.T) {
 	}
 	if len(got) != 3 {
 		t.Fatalf("got %d cells, want 3 — the diamond was counted: %+v", len(got), got)
+	}
+}
+
+// punch clears every pixel for which in(x, y) reports true.
+//
+// Redrawn into an NRGBA rather than type-asserted: artwork with no holes yet
+// encodes without an alpha channel and decodes back as an *image.RGBA.
+func punch(art []byte, in func(x, y int) bool) []byte {
+	src, err := png.Decode(bytes.NewReader(art))
+	if err != nil {
+		panic(err)
+	}
+	b := src.Bounds()
+	nrgba := image.NewNRGBA(b)
+	draw.Draw(nrgba, b, src, b.Min, draw.Src)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if in(x, y) {
+				nrgba.SetNRGBA(x, y, color.NRGBA{})
+			}
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, nrgba); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
+
+// A slot does not have to be square. Round and heart-shaped holes are ordinary
+// frame design: the photo fills the bounding box and the artwork drawn over it
+// masks the photo back to the cut shape, so nothing prints outside the hole.
+//
+// A circle scores 0.79 and a heart about 0.70. Rejecting those loses a whole
+// row of a real frame silently — the customer is never asked for those photos
+// and the holes print blank.
+func TestDetectAcceptsRoundSlots(t *testing.T) {
+	const cx, cy, r = 300, 900, 200
+	art := punch(frameWith(600, 1800, nil), func(x, y int) bool {
+		dx, dy := x-cx, y-cy
+		return dx*dx+dy*dy <= r*r
+	})
+
+	_, _, got, err := Detect(art)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d cells, want 1 — the round slot was dropped: %+v", len(got), got)
+	}
+	// The bounding box of the circle, which is where the photo goes.
+	if want := (Cell{X: cx - r, Y: cy - r, W: 2*r + 1, H: 2*r + 1}); got[0] != want {
+		t.Errorf("cell = %+v, want %+v", got[0], want)
+	}
+}
+
+// The shape check earns its keep here rather than on decoration, which is small
+// enough for the size check to catch. A design whose middle is transparent and
+// whose border is the artwork is one enormous hole — accepting it would offer a
+// cell the size of the sheet and print a face over the whole frame.
+func TestDetectRejectsATransparentMiddle(t *testing.T) {
+	outer := image.Rect(40, 40, 560, 1760)
+	inner := image.Rect(90, 90, 510, 1710)
+	art := punch(frameWith(600, 1800, nil), func(x, y int) bool {
+		p := image.Pt(x, y)
+		return p.In(outer) && !p.In(inner)
+	})
+
+	_, _, _, err := Detect(art)
+	if !errors.Is(err, ErrNoCells) {
+		t.Fatalf("err = %v, want ErrNoCells — the border ring was read as a slot", err)
 	}
 }
 

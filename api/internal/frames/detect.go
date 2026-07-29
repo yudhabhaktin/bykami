@@ -22,17 +22,28 @@ type Cell struct {
 // Both exist to tell a photo slot from decoration. A designer may punch a
 // transparent star or a cut-out corner into a frame, and without these that
 // hole becomes a cell the customer is asked to fill with their face.
+//
+// Decoration is small and slots are large, so size does most of the work here.
 const (
 	// minCellArea is the fraction of the sheet a region must cover. A photo
 	// cell on the smallest sheet is around 20% of it; a decorative cut-out is
 	// far under 1%.
 	minCellArea = 0.01
 
-	// minRectangularity is region area over bounding-box area. A rounded
-	// rectangle scores about 0.97, a circle 0.79, a star well under 0.5. Photos
-	// are drawn into the bounding box, so a region that is not nearly its own
-	// box would put a face outside the hole it was cut for.
-	minRectangularity = 0.85
+	// minRectangularity is region area over bounding-box area, and it rejects a
+	// shape that is nowhere near its own box: a border with a transparent
+	// middle, a ring, an L. Those score under 0.5 and are not slots.
+	//
+	// It is deliberately loose enough to admit shapes that are. A heart scores
+	// about 0.70 and a circle 0.79, and both are ordinary frame design — the
+	// photo fills the bounding box and the artwork, drawn over it, masks it
+	// back to the shape the designer cut. Nothing is printed outside the hole,
+	// so there is no reason to insist a slot be square.
+	//
+	// The real guard against decoration is minCellArea above; the second is
+	// that an import prints its slots and stays unpublished until somebody
+	// looks at them.
+	minRectangularity = 0.62
 )
 
 // Detect reads a frame PNG and returns the sheet size and the cells its
