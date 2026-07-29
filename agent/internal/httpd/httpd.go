@@ -126,18 +126,24 @@ type Deps struct {
 	// where the flow has to be reachable from a phone over HTTPS because
 	// getUserMedia refuses to run on an insecure origin.
 	//
-	// Setting it without AccessToken is refused at startup. An unauthenticated
+	// Setting it without AccessTokens is refused at startup. An unauthenticated
 	// public endpoint here accepts 16 MB image uploads and writes them to disk.
 	PublicHost string
 
-	// AccessToken gates PublicHost. Not a login: one shared secret in the URL,
-	// which is the point — the operator console's real auth is unrelated and,
-	// for a UI a customer walks up to, a password prompt is the wrong shape.
+	// AccessTokens gate PublicHost. Not a login: a secret in the URL, which is
+	// the point — the operator console's real auth is unrelated and, for a UI a
+	// customer walks up to, a password prompt is the wrong shape.
 	//
-	// It does not gate the download gallery. A customer cannot be given this
-	// token — it drives the booth — so a QR behind it would work for nobody but
-	// the operator. See gallery.go for what guards that surface instead.
-	AccessToken string
+	// A list rather than one string so a handful of testers can hold one each.
+	// With a single shared secret, withdrawing access from one person means
+	// rotating for everybody, which in practice means nobody's access is ever
+	// withdrawn. There is no endpoint that mints these: a token vending machine
+	// on the unauthenticated side of this server would hand out the booth.
+	//
+	// They do not gate the download gallery. A customer cannot be given one —
+	// they drive the booth — so a QR behind them would work for nobody but the
+	// operator. See gallery.go for what guards that surface instead.
+	AccessTokens []string
 
 	// Retention is how long photographs survive on this PC, and therefore how
 	// long a download link works. Passed in rather than assumed because the
@@ -161,7 +167,7 @@ func New(d Deps) (*Server, error) {
 	// design — see the package comment — which is correct while the only client
 	// is a browser on the same machine and indefensible the moment the hostname
 	// is public: /api/capture accepts 16 MB uploads and writes them to disk.
-	if d.PublicHost != "" && d.AccessToken == "" {
+	if d.PublicHost != "" && len(d.AccessTokens) == 0 {
 		return nil, errors.New("httpd: a public host needs an access token; without one every route is open to the internet")
 	}
 	s := &Server{Deps: d, mux: http.NewServeMux()}
@@ -278,27 +284,32 @@ func (s *Server) allowedOrigin(origin string) bool {
 // address bar.
 const accessCookie = "bykami_booth_access"
 
-// admit reports whether a request over the public hostname carries the token.
+// admit reports whether a request over the public hostname carries one of the
+// tokens.
 //
 // Accepted from ?t= once, then moved into a cookie. A query parameter is how
 // somebody opens the link on a phone; a cookie is how the fifteen requests that
 // follow do not each need one, and keeps the secret out of the Referer header
 // on any link the page might later carry.
 func (s *Server) admit(w http.ResponseWriter, r *http.Request) bool {
-	if s.AccessToken == "" {
+	if len(s.AccessTokens) == 0 {
 		// Unreachable: New refuses this combination. Belt and braces, because
 		// the failure mode is an open photo-upload endpoint on the internet.
 		return false
 	}
 
-	if c, err := r.Cookie(accessCookie); err == nil && tokenEqual(c.Value, s.AccessToken) {
+	if c, err := r.Cookie(accessCookie); err == nil && s.knownToken(c.Value) {
 		return true
 	}
 
-	if t := r.URL.Query().Get("t"); tokenEqual(t, s.AccessToken) {
+	if t := r.URL.Query().Get("t"); s.knownToken(t) {
 		http.SetCookie(w, &http.Cookie{
-			Name:     accessCookie,
-			Value:    s.AccessToken,
+			Name: accessCookie,
+			// The token that matched, not the whole list. It is what makes
+			// withdrawing one tester possible: drop their token from the
+			// configuration and their cookie stops being recognised, while
+			// everyone else's keeps working.
+			Value:    t,
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   true,
@@ -310,8 +321,19 @@ func (s *Server) admit(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-func tokenEqual(got, want string) bool {
-	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+// knownToken reports whether tok is one of the configured tokens.
+//
+// Every one is compared, with no early return on a match. Stopping early would
+// make the time taken depend on which token was presented — reintroducing, over
+// the list, exactly the leak the constant-time compare removes within a token.
+func (s *Server) knownToken(tok string) bool {
+	ok := false
+	for _, want := range s.AccessTokens {
+		if subtle.ConstantTimeCompare([]byte(tok), []byte(want)) == 1 {
+			ok = true
+		}
+	}
+	return ok
 }
 
 // ui serves the embedded bundle, falling back to index.html so that the UI can

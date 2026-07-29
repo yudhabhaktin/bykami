@@ -250,9 +250,20 @@ pnpm --filter @bykami/kiosk build          # or the binary embeds an empty UI
 cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -trimpath -ldflags="-s -w" -o /tmp/bykami-agent ./cmd/bykami-agent
 
-openssl rand -hex 24 > /tmp/booth-token    # then put it in a vars file
+openssl rand -hex 24                       # then put it in a vars file
 ansible-playbook site.yml --tags booth -e @booth.vars.yml
 ```
+
+`booth_access_token` takes a comma-separated list, one token per tester:
+
+```yaml
+booth_access_token: "<tester-1>,<tester-2>,<tester-3>"
+```
+
+Withdrawing somebody is deleting their token and re-running the play — their
+cookie stops being recognised, everyone else's keeps working. With one shared
+secret that operation costs everybody their access, which is why it never
+happens.
 
 Three things this role refuses to do:
 
