@@ -143,8 +143,8 @@ route that skips paying.
 ## The flow
 
 ```
-pilih paket → QR → (settle) → pilih frame → sesi foto → pilih foto + filter → cetak → nomor → selesai
-                 ↑ shutter locked here      ↑ automatic, one countdown per frame
+pilih paket → QR → (settle) → pilih frame → sesi foto → pilih foto + filter → cetak → QR download → selesai
+                 ↑ shutter locked here      ↑ automatic, one countdown per frame        ↑ nomor optional here
 ```
 
 **The photo session runs itself.** One tap starts it; the booth counts down,
@@ -167,7 +167,7 @@ there until the relay hardware in `design/kiosk.md` exists.
 | `POST` | `/api/capture` | Fire the shutter, or accept a webcam frame |
 | `GET` | `/api/photos` | This session's frames, in capture order, with print dpi |
 | `POST` | `/api/print` | Compose a sheet and queue it. Carries the template and the filter |
-| `POST` | `/api/delivery` | Phone number plus two separate consents |
+| `POST` | `/api/delivery` | Phone number plus two separate consents. Optional |
 | `GET` | `/g/{token}` | The customer's download page. No booth token — see below |
 | `GET` | `/g/{token}/p/{id}` | One photo. `?dl=1` sends it as an attachment |
 
@@ -341,10 +341,14 @@ when there is a second outlet, that becomes worth having.
 
 ## Not here yet
 
-- **Nothing leaves the booth PC.** R2 upload, the gallery renderer and the QR
-  download have no implementation, so the delivery screen captures a number and
-  a consent and does nothing with them yet. Gated on the residency fork in
+- **Nothing leaves the booth PC**, and the download now leans on that rather
+  than waiting for it — see below. R2 upload and `gallery.bykami.id` still have
+  no implementation and stay gated on the residency fork in
   `design/infrastructure.md`.
+- **No WhatsApp sender.** The delivery screen can still take a number, and
+  storing it is all that happens; `Sender` has no implementation anywhere. The
+  QR is what actually delivers today, which is why the number stopped being a
+  precondition for leaving the screen.
 - **No shutter release.** `-source=hotfolder` announces the countdown and the
   frame is fired by hand. The recommended path is a USB relay into the RS-60E3
   jack — the last open question in the capture design.

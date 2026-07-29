@@ -1020,6 +1020,84 @@ p {
   font-weight: 600;
 }
 
+/*
+ * Delivery — the download QR, and the number as an afterthought.
+ *
+ * Laid out so the QR is the largest thing on the screen and the WhatsApp
+ * button is plainly secondary. That ordering is the design: the booth's input
+ * device is a touchscreen, and anything that raises a keyboard has to earn it.
+ */
+.delivery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.delivery-head {
+  position: relative;
+  padding-right: 5rem;
+}
+
+/* Sat in the corner rather than above the heading: on a portrait booth the
+   heading is already near the top, and a mark above it pushes the QR under the
+   fold on the one screen that must not scroll to be understood. */
+.delivery-doodle {
+  position: absolute;
+  top: -0.5rem;
+  right: 0;
+  width: clamp(56px, 8vw, 84px);
+  color: var(--yellow);
+  pointer-events: none;
+}
+
+/* The QR beside its explanation on a wide screen, above it on a tall one — the
+   same rule the review and frame screens follow, for the same undecided
+   orientation. */
+.pickup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-6);
+  padding: var(--s-5);
+  border: var(--stroke-thick) solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--accent-2);
+  box-shadow: var(--shadow-lg);
+}
+
+.pickup-copy {
+  flex: 1 1 16rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+/* Deliberately not a .btn.big. It sits between the QR and "Selesai", and a
+   third full-width primary-sized control there would make the screen read as
+   three equal demands rather than one offer and one exit. */
+.wa-open {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.wa-form {
+  display: grid;
+  gap: var(--s-2);
+}
+
+/* Pinned to the bottom of the column so "Selesai" lands in the same place
+   whether or not the WhatsApp form is open. A button that moves under a thumb
+   already travelling towards it is a mis-tap. */
+.delivery-actions {
+  margin-top: auto;
+  padding-top: var(--s-3);
+}
+
 /* Payment */
 
 .qr {
@@ -1035,6 +1113,14 @@ p {
   width: min(60vh, 22rem);
   height: auto;
   image-rendering: pixelated;
+}
+
+/* Smaller than the payment QR, which owns its whole screen. This one shares a
+   row with the copy explaining it, and at 22rem it pushed that copy onto a
+   second line on every booth narrower than a desk. Still far past the size a
+   phone camera needs from arm's length. */
+.pickup .qr canvas {
+  width: min(38vh, 15rem);
 }
 
 /* Measurements — only present with ?perf=1 */
