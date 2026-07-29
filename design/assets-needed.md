@@ -64,14 +64,24 @@ either impossible or unreliable to recover from Instagram screenshots.
       | `strip-4` | 600 × 1800 | 4 |
       | `4r-polos` | 1200 × 1800 | 1, full bleed |
 
-      All at 300 dpi, and the overlay is scaled to the sheet with **no
-      letterbox** — artwork delivered at the wrong aspect ratio gets stretched.
+      All at 300 dpi. A frame is a **PNG with the photo areas fully
+      transparent** — those holes are what the console reads the cells out of,
+      so a hole filled with white is a white box printed over the customer's
+      face. The upload is rejected outright at any other canvas size, which is
+      what stops artwork being stretched to fit.
 - [ ] **Reword the price list.** It sells "cetak strip 2R", which names a size
       the booth does not print. Wrong on a customer-facing price list in a way
       that invites an argument at the counter
+- [ ] **Print one strip and measure it.** Bleed, safe area and cut marks are
+      still a guess. This matters more now that frames are uploaded rather than
+      committed: every design an operator draws inherits the margin convention
+      the three house frames set, and correcting it after forty exist is forty
+      files to redraw
 
 Importing these beats building an authoring tool, and it sidesteps the logo
-vector being blocked.
+vector being blocked. **The importer exists** — upload at `app.bykami.id`, and
+the booths pull what is published. What is missing is the artwork, not a place
+to put it.
 
 ## Needed for build quality
 

@@ -77,3 +77,9 @@ reasonable rather than a measurement against a printed sheet, and the ink ring
 around each cell is exactly the kind of detail a few millimetres of cut drift
 would ruin. **Print one and measure it** before anyone draws forty designs
 against these numbers.
+
+This got more expensive, not less, now that frames are uploaded rather than
+committed. Every design an operator draws inherits whatever margin convention
+these three set, and a correction after forty of them exist is forty files to
+redraw — so the measurement is worth taking before the catalogue fills up, not
+after.
