@@ -145,16 +145,42 @@ keep correct so that staff can look up a phone number.
 
 **A frame is a PNG and nothing else is typed in.** The sheet size comes from its
 dimensions and the photo cells from its transparent regions — flood-filled, then
-filtered by size and rectangularity so a decorative cut-out does not become a
-slot a customer is asked to fill with their face. A rectangle typed next to a
-picture that already contains it is a chance to disagree with the picture, and
-the symptom is a face printed off its slot, found on paper.
+filtered by size so a decorative cut-out does not become a slot a customer is
+asked to fill with their face. A rectangle typed next to a picture that already
+contains it is a chance to disagree with the picture, and the symptom is a face
+printed off its slot, found on paper.
+
+A hole does not have to be a rectangle. The photo fills the hole's bounding box
+and the artwork, drawn over it, masks the photo back to whatever shape was cut,
+so round and heart-shaped slots print correctly. What is rejected is a region
+nowhere near its own bounding box — a border with a transparent middle, which
+would otherwise be read as one slot the size of the sheet.
 
 Uploads land **unpublished**. Detection is inference, and the check on inference
 is a person looking at the slots drawn over the frame; publishing on upload
 would put that check after the customer. The preview is checkered, so a hole
 filled with white — the usual export mistake — reads as artwork rather than as a
 hole.
+
+### The catalogue is also a subcommand
+
+The console is the tool for this, but its login is the same OTP flow customers
+use — and on a box with no delivery configured, which is the deployed state,
+nobody can sign in at all. So the catalogue is reachable from a shell too, the
+same way `bykami-agent media` is:
+
+```bash
+bykami -db /var/lib/bykami/bykami.db frames list
+bykami -db … frames import strip-4.png "Klasik Empat" klasik
+bykami -db … frames publish klasik-empat
+bykami -db … frames season ramadan-2027 2027-02-08 2027-03-09
+```
+
+`import` prints the detected slots so they can be checked, and leaves the frame
+unpublished — the same rule the console follows, for the same reason.
+
+This is preferable to switching the development OTP sender on to get a login: a
+one-time code in a log file is a one-time code in whatever reads that log.
 
 **Seasons are dates, not a switch somebody flips.** A Ramadan frame that has to
 be turned off by hand is one that is still on the booth in August, and the

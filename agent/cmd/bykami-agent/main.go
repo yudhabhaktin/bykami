@@ -289,7 +289,12 @@ func run(c config, log *slog.Logger) error {
 			"addr", c.addr, "root", root, "source", source,
 			"hot_folder", c.hotFolder, "outlet", c.outlet,
 			"templates", live.Len(), "packages", len(packages),
-			"payments", providerName(provider), "printer", backend.Name())
+			"payments", providerName(provider), "printer", backend.Name(),
+			// Whether frames are being pulled is otherwise only answerable by
+			// reading the unit file, because a sync that finds nothing changed
+			// is deliberately silent — so "is sync even on?" had no answer in
+			// the log at all.
+			"frame_sync", frameSyncTarget(frameSync, c.frameSync))
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -407,6 +412,21 @@ func overlay(out, ts []compose.Template) []compose.Template {
 		}
 	}
 	return out
+}
+
+// frameSyncTarget describes the frame sync for the startup log: where it pulls
+// from, or why it is not pulling.
+func frameSyncTarget(w *framesync.Worker, base string) string {
+	switch {
+	case w != nil:
+		return base
+	case base != "":
+		// Configured but inert, which is the confusing case: the flag is right
+		// there in the unit and nothing happens, because the token is missing.
+		return "disabled (BYKAMI_BOOTH_TOKEN is not set)"
+	default:
+		return "disabled"
+	}
 }
 
 func providerName(p payment.Provider) string {
