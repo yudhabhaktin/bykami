@@ -24,7 +24,14 @@ export function Done({ refresh, setStep }: ScreenProps) {
 
   return (
     <div className="grow center">
-      <Doodle shape="bloom" className="done-doodle" />
+      {/* Three marks rather than one, spread across the width: this is the
+          screen that says goodbye, and a single centred sprig said it politely
+          rather than warmly. */}
+      <div className="done-marks">
+        <Doodle shape="heart" className="done-doodle red" />
+        <Doodle shape="bloom" className="done-doodle green" />
+        <Doodle shape="burst" className="done-doodle yellow" />
+      </div>
       <h1>
         <span className="hand">Makasih</span> sudah mampir!
       </h1>

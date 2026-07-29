@@ -95,9 +95,18 @@ for a decorative font to fail.
 
 `src/assets/selfie.svg` is from [Open Doodles](https://www.opendoodles.com),
 CC0, recoloured onto the palette — see `src/assets/README.md` for exactly what
-was changed. The botanical marks in `src/Doodle.tsx` are drawn inline as SVG
-paths for the same reason there is no webfont request: a decoration that arrives
-over the network is a decoration that can fail to arrive.
+was changed. The marks in `src/Doodle.tsx` are drawn inline as SVG paths for the
+same reason there is no webfont request: a decoration that arrives over the
+network is a decoration that can fail to arrive.
+
+The set is eight marks — two botanicals, a sparkle, a heart, a rainbow, a cloud,
+a camera and a squiggle — because it was two, both on the attract screen, and
+the six screens behind it therefore turned into a form the moment a customer
+paid. One mark per screen heading, absolutely positioned so it costs no layout,
+plus colour on the package cards: four identical cream rectangles is a table,
+and a table is what the booth should least resemble on the screen where somebody
+decides to spend money. Strictly the five palette tokens — a fifth package
+restarts the cycle rather than introducing a sixth colour.
 
 ### Measuring it
 

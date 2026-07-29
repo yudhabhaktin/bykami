@@ -434,10 +434,111 @@ p {
   font-size: 1.25rem;
 }
 
+/*
+ * A heading with a mark beside it.
+ *
+ * The attract screen had all the illustration and the six screens behind it had
+ * none, so the moment a customer paid, the booth turned into a form. One doodle
+ * per screen, in the corner of the heading, is the cheapest fix that keeps the
+ * character going all the way through — and it costs no layout, because the
+ * mark is absolutely positioned out of flow.
+ */
+.page-head {
+  position: relative;
+  padding-right: 5.5rem;
+  margin-bottom: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.page-doodle {
+  position: absolute;
+  top: -0.75rem;
+  right: 0;
+  width: clamp(56px, 8vw, 88px);
+  pointer-events: none;
+}
+
+/* Doodles take their colour from `currentColor`, so tinting one is a class
+   rather than a prop. Named for the token, not for the screen — the same mark
+   turns up in several places and should not carry a page's name around. */
+.green {
+  color: var(--green);
+}
+
+.red {
+  color: var(--red);
+}
+
+.yellow {
+  color: var(--yellow);
+}
+
+.ink {
+  color: var(--ink);
+}
+
+/*
+ * Decoration breathes. Six seconds, a couple of degrees and a few pixels —
+ * slow and small enough to read as a drawing that is alive rather than as
+ * something demanding attention, which is the line a booth screen has to hold
+ * while a customer is trying to read a price.
+ *
+ * The global prefers-reduced-motion rule above collapses this to a single 1ms
+ * pass, so it disappears entirely for anyone who has asked for that.
+ */
+@keyframes drift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(3deg);
+  }
+}
+
+.page-doodle,
+.delivery-doodle {
+  animation: drift 6s ease-in-out infinite;
+}
+
 .packages {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   gap: var(--s-4);
+}
+
+/*
+ * The price list, in colour.
+ *
+ * Four identical cream rectangles is a table, and a table is what the booth
+ * should least resemble on the one screen where somebody decides to spend
+ * money. Cycling the palette makes each package a distinct object to point at
+ * — "the pink one" is how a pair standing at a booth actually chooses.
+ *
+ * Strictly the five tokens at the top of this file. A fifth package restarts
+ * the cycle rather than introducing a sixth colour, because inventing a tint to
+ * fill a gap is how a limited palette stops being one.
+ */
+.package:nth-child(4n + 1) {
+  background: var(--pink);
+}
+
+.package:nth-child(4n + 2) {
+  background: var(--accent-2);
+}
+
+.package:nth-child(4n + 3) {
+  background: var(--yellow);
+}
+
+/* The muted caption is warm grey against cream, which disappears on a saturated
+   fill. On a coloured card it is ink at reduced weight instead — the same
+   hierarchy, held by weight rather than by lightness. */
+.package .muted {
+  color: var(--ink);
+  opacity: 0.72;
 }
 
 .package {
@@ -803,12 +904,27 @@ p {
   font-weight: 600;
 }
 
-/* The one decorative mark on the thank-you screen. Emerald on cream, sized so
-   it reads as a flourish above the heading rather than as an illustration
-   competing with it. */
+/* The flourish above the thank-you heading. Sized to read as a flourish rather
+   than as an illustration competing with it. */
 .done-doodle {
-  width: clamp(64px, 9vw, 104px);
-  color: var(--green);
+  width: clamp(56px, 8vw, 88px);
+}
+
+/* The outer two sit lower and lean outwards, so the trio reads as a scattered
+   handful rather than as three icons in a row. */
+.done-marks {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: var(--s-5);
+}
+
+.done-marks > :first-child {
+  transform: translateY(12px) rotate(-14deg);
+}
+
+.done-marks > :last-child {
+  transform: translateY(12px) rotate(14deg);
 }
 
 .thumb {
