@@ -156,6 +156,26 @@ would put that check after the customer. The preview is checkered, so a hole
 filled with white — the usual export mistake — reads as artwork rather than as a
 hole.
 
+### The catalogue is also a subcommand
+
+The console is the tool for this, but its login is the same OTP flow customers
+use — and on a box with no delivery configured, which is the deployed state,
+nobody can sign in at all. So the catalogue is reachable from a shell too, the
+same way `bykami-agent media` is:
+
+```bash
+bykami -db /var/lib/bykami/bykami.db frames list
+bykami -db … frames import strip-4.png "Klasik Empat" klasik
+bykami -db … frames publish klasik-empat
+bykami -db … frames season ramadan-2027 2027-02-08 2027-03-09
+```
+
+`import` prints the detected slots so they can be checked, and leaves the frame
+unpublished — the same rule the console follows, for the same reason.
+
+This is preferable to switching the development OTP sender on to get a login: a
+one-time code in a log file is a one-time code in whatever reads that log.
+
 **Seasons are dates, not a switch somebody flips.** A Ramadan frame that has to
 be turned off by hand is one that is still on the booth in August, and the
 person who notices is a customer. The form asks for the last day it runs,

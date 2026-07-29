@@ -47,14 +47,44 @@ func main() {
 	// answer is a seed script that becomes a way to grant admin. Empty means
 	// nobody, which is the safe default and the deployed one.
 	adminPhones := flag.String("admin-phones", "", "comma-separated operator phone numbers allowed into the admin console")
+	flag.Usage = usage
 	flag.Parse()
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	// Subcommands come after the flags so that -db applies to them, which is the
+	// only flag they need.
+	if args := flag.Args(); len(args) > 0 {
+		if args[0] != "frames" {
+			log.Error("unknown command", "command", args[0])
+			usage()
+			os.Exit(2)
+		}
+		if err := frameCmd(*dsn, args[1:]); err != nil {
+			log.Error("frames", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := run(*addr, *dsn, *otpDelivery, *adminPhones, log); err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
 	}
+}
+
+func usage() {
+	out := flag.CommandLine.Output()
+	fmt.Fprintln(out, "bykami — the platform monolith and operator console.")
+	fmt.Fprintln(out, "\nRun the server:")
+	fmt.Fprintln(out, "  bykami -addr 127.0.0.1:8080 -db /var/lib/bykami/bykami.db")
+	fmt.Fprintln(out, "\nManage the frame catalogue (also in the console, when a login is possible):")
+	fmt.Fprintln(out, "  bykami -db … frames list")
+	fmt.Fprintln(out, "  bykami -db … frames import strip-4.png \"Klasik Empat\" klasik")
+	fmt.Fprintln(out, "  bykami -db … frames publish klasik-empat")
+	fmt.Fprintln(out, "  bykami -db … frames season ramadan-2027 2027-02-08 2027-03-09")
+	fmt.Fprintln(out, "\nFlags:")
+	flag.PrintDefaults()
 }
 
 func run(addr, dsn, otpDelivery, adminPhones string, log *slog.Logger) error {
