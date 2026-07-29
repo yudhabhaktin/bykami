@@ -2,6 +2,7 @@ package admin_test
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/bhaktiyudha/bykami/api/internal/admin"
+	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
@@ -47,6 +49,7 @@ type fixture struct {
 	sender *capturingSender
 	ident  *identity.Service
 	ledger *loyalty.Ledger
+	db     *sql.DB
 }
 
 func newFixture(t *testing.T, authEnabled bool, staff ...string) fixture {
@@ -63,11 +66,11 @@ func newFixture(t *testing.T, authEnabled bool, staff ...string) fixture {
 	ledger := loyalty.New(db)
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	c, err := admin.New(ident, ledger, log, staff, authEnabled)
+	c, err := admin.New(ident, ledger, frames.New(db), log, staff, authEnabled)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
-	return fixture{h: c.Handler(), sender: sender, ident: ident, ledger: ledger}
+	return fixture{h: c.Handler(), sender: sender, ident: ident, ledger: ledger, db: db}
 }
 
 func (f fixture) get(t *testing.T, path, cookie string) *httptest.ResponseRecorder {
@@ -305,7 +308,7 @@ func TestRevokingAnOperatorEndsAccessImmediately(t *testing.T) {
 	// Same identity service and the same live session, a console that no longer
 	// lists that number.
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	revoked, err := admin.New(f.ident, f.ledger, log, nil, true)
+	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), log, nil, true)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
@@ -493,7 +496,7 @@ func TestUnparseableStaffNumberIsAStartupError(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	_, err = admin.New(identity.New(db, &capturingSender{}), loyalty.New(db), log,
+	_, err = admin.New(identity.New(db, &capturingSender{}), loyalty.New(db), frames.New(db), log,
 		[]string{"not-a-phone-number"}, true)
 	if err == nil {
 		t.Fatal("an unparseable operator number was accepted")

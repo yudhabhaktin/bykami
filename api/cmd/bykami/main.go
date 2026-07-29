@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/api/internal/admin"
+	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
@@ -72,10 +73,22 @@ func run(addr, dsn, otpDelivery, adminPhones string, log *slog.Logger) error {
 	// parameters, which is what keeps the boundaries real rather than aspirational.
 	ident := identity.New(db, sender)
 	ledger := loyalty.New(db)
+	catalogue := frames.New(db)
 
-	api := httpapi.New(ident, ledger, db.PingContext, log, authEnabled)
+	// The booth sync secret, from the environment rather than a flag. A token
+	// in argv is readable by every process on the box through ps; an
+	// EnvironmentFile can be mode 0600. The agent reads its half of this pair
+	// the same way, for the same reason.
+	//
+	// Empty leaves /v1/booth/* answering 503, which is the default and means a
+	// deployment that was never given a secret serves no catalogue rather than
+	// serving it to anyone.
+	boothToken := os.Getenv("BYKAMI_BOOTH_TOKEN")
+	log.Info("booth sync configured", "enabled", boothToken != "")
 
-	console, err := admin.New(ident, ledger, log, splitPhones(adminPhones), authEnabled)
+	api := httpapi.New(ident, ledger, catalogue, db.PingContext, log, authEnabled, boothToken)
+
+	console, err := admin.New(ident, ledger, catalogue, log, splitPhones(adminPhones), authEnabled)
 	if err != nil {
 		return fmt.Errorf("admin console: %w", err)
 	}

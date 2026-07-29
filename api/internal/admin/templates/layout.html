@@ -90,6 +90,42 @@ th { font-weight: 600; color: var(--muted); }
 td.reason { white-space: normal; min-width: 14rem; }
 form.inline { display: inline; }
 form.inline button { width: auto; min-height: 0; padding: 0.25rem 0.75rem; font-size: 14px; }
+nav a { color: inherit; text-decoration: none; font-size: 14px; font-weight: 600; padding: 0 0.5rem; }
+nav a[aria-current] { text-decoration: underline; text-underline-offset: 4px; }
+
+/* Frame catalogue */
+.frames { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+.frame { padding: 1rem; }
+.frame-name { font-weight: 600; margin: 0.75rem 0 0.125rem; }
+/*
+ * The preview is checkered so that a transparent hole reads as a hole rather
+ * than as white artwork — which is exactly the mistake the operator is here to
+ * catch, since a white-filled "hole" prints as a white box over the photo.
+ */
+.preview {
+  position: relative; width: 100%; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--line);
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #e7e5e4 25%, transparent 25%, transparent 75%, #e7e5e4 75%),
+    linear-gradient(45deg, #e7e5e4 25%, transparent 25%, transparent 75%, #e7e5e4 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+.preview img { display: block; width: 100%; height: auto; }
+/* Drawn from the cells the booth composes with, so what is checked here is what
+   the printer does. */
+.slot {
+  position: absolute; display: flex; align-items: center; justify-content: center;
+  outline: 2px dashed rgba(159, 18, 57, 0.75); outline-offset: -2px;
+  color: var(--bad); font-size: 13px; font-weight: 700;
+}
+.state { font-size: 13px; font-weight: 600; margin: 0 0 0.5rem; }
+.state.on { color: var(--good); }
+.state.off { color: var(--muted); }
+button.danger { background: var(--bad); border-color: var(--bad); }
+details { margin-top: 0.75rem; }
+summary { cursor: pointer; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -97,6 +133,10 @@ form.inline button { width: auto; min-height: 0; padding: 0.25rem 0.75rem; font-
   <div class="wrap">
     <span class="brand">bykami · admin</span>
     {{if .Operator}}
+      <nav>
+        <a href="/customers">Pelanggan</a>
+        <a href="/frames">Frame</a>
+      </nav>
       <span class="small muted tabular">{{.Operator}}
         <form class="inline" method="post" action="/logout">
           <button class="secondary" type="submit">Keluar</button>

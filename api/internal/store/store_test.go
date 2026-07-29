@@ -1,6 +1,7 @@
 package store
 
 import (
+	"io/fs"
 	"path/filepath"
 	"testing"
 )
@@ -9,6 +10,18 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 	// Every deploy runs migrations on a database that has already had them. If
 	// the second run is not a no-op, the first restart after a deploy fails.
 	path := filepath.Join(t.TempDir(), "bykami.db")
+
+	// Counted from the embedded files rather than written down, so that adding
+	// a migration does not require editing this test — which is an edit that
+	// would be made without thinking and would hide a real regression.
+	files, err := fs.Glob(migrations, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := len(files)
+	if want == 0 {
+		t.Fatal("no migrations are embedded")
+	}
 
 	for i := range 3 {
 		db, err := Open(path)
@@ -19,8 +32,8 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 		if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 			t.Fatalf("count migrations: %v", err)
 		}
-		if applied != 1 {
-			t.Errorf("open %d: %d migrations recorded, want 1", i, applied)
+		if applied != want {
+			t.Errorf("open %d: %d migrations recorded, want %d", i, applied, want)
 		}
 		db.Close()
 	}

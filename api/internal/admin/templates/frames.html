@@ -1,0 +1,114 @@
+{{define "frames.html"}}
+{{template "head" .}}
+
+<h1>Frame</h1>
+
+{{template "messages" .}}
+
+<div class="card">
+  <p class="small muted">
+    Unggah PNG-nya saja. Ukuran lembar dibaca dari dimensi file, dan posisi foto
+    dibaca dari area transparannya — jadi tidak ada koordinat yang perlu diketik,
+    dan tidak ada yang bisa beda dengan gambarnya.
+  </p>
+  <form method="post" action="/frames" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="field">
+      <label for="art">File frame (PNG transparan)</label>
+      <input id="art" name="art" type="file" accept="image/png" required>
+      <p class="small muted" style="margin:.375rem 0 0">Kanvas: {{.Sheets}}.</p>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="name">Nama</label>
+        <input id="name" name="name" required placeholder="mis. Wisuda 2026">
+      </div>
+      <div class="field">
+        <label for="group">Grup</label>
+        <input id="group" name="group" list="groups" placeholder="mis. wisuda">
+        <datalist id="groups">
+          {{range .Frames}}{{if .Group}}<option value="{{.Group}}">{{end}}{{end}}
+        </datalist>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="active_from">Mulai tayang (opsional)</label>
+        <input id="active_from" name="active_from" type="date">
+      </div>
+      <div class="field">
+        <label for="active_until">Hari terakhir (opsional)</label>
+        <input id="active_until" name="active_until" type="date">
+      </div>
+    </div>
+    <button type="submit">Unggah</button>
+  </form>
+</div>
+
+<h2>Katalog <span class="muted small tabular">({{len .Frames}})</span></h2>
+
+{{if not .Frames}}
+  <p class="muted">Belum ada frame yang diunggah. Booth masih memakai desain bawaan.</p>
+{{end}}
+
+<div class="frames">
+{{range .Frames}}
+  <div class="card frame">
+    <div class="preview" style="aspect-ratio: {{.Width}} / {{.Height}}">
+      <img src="/frames/{{.ID}}/art.png" alt="Frame {{.Name}}" loading="lazy">
+      {{$w := .Width}}{{$h := .Height}}
+      {{range $i, $c := .Cells}}
+        <span class="slot" style="{{slot $c $w $h}}">{{inc $i}}</span>
+      {{end}}
+    </div>
+
+    <p class="frame-name">{{.Name}}</p>
+    <p class="small muted" style="margin:0 0 .75rem">
+      {{if .Group}}{{.Group}} · {{end}}{{.Layout}} · {{len .Cells}} foto · {{kb .Bytes}} KB
+      <br>{{season .}}
+    </p>
+
+    {{if .Published}}
+      <p class="state on">Tayang di booth</p>
+    {{else}}
+      <p class="state off">Draf — belum di booth</p>
+    {{end}}
+
+    <form method="post" action="/frames/{{.ID}}/publish">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      {{if .Published}}
+        <input type="hidden" name="publish" value="0">
+        <button class="secondary" type="submit">Tarik dari booth</button>
+      {{else}}
+        <input type="hidden" name="publish" value="1">
+        <button type="submit">Terbitkan</button>
+      {{end}}
+    </form>
+
+    <details>
+      <summary class="small">Musim &amp; hapus</summary>
+      <form method="post" action="/frames/{{.ID}}/season" style="margin-top:.75rem">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <div class="row">
+          <div class="field">
+            <label for="from-{{.ID}}">Mulai</label>
+            <input id="from-{{.ID}}" name="active_from" type="date" value="{{day .ActiveFrom false}}">
+          </div>
+          <div class="field">
+            <label for="until-{{.ID}}">Hari terakhir</label>
+            <input id="until-{{.ID}}" name="active_until" type="date" value="{{day .ActiveUntil true}}">
+          </div>
+        </div>
+        <button class="secondary" type="submit">Simpan musim</button>
+      </form>
+      <form method="post" action="/frames/{{.ID}}/delete" style="margin-top:.75rem">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <button class="danger" type="submit">Hapus frame</button>
+      </form>
+    </details>
+  </div>
+{{end}}
+</div>
+
+{{template "foot" .}}
+{{end}}
