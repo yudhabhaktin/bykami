@@ -86,7 +86,9 @@
 
     - name: Write the environment file
       ansible.builtin.copy:
-        content: "BYKAMI_ACCESS_TOKEN={{ booth_access_token }}\n"
+        content: |
+          BYKAMI_ACCESS_TOKEN={{ booth_access_token }}
+          BYKAMI_BOOTH_TOKEN={{ booth_token }}
         dest: /etc/bykami-agent.env
         owner: root
         group: root

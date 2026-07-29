@@ -36,6 +36,15 @@ app_otp_delivery: ""
 # audit trail a role column in the database would not have given.
 app_admin_phones: ""
 
+# The shared secret booths present to pull published frames, and it must match
+# booth_token in the booth role. Empty leaves /v1/booth/* answering 503, which
+# is the deployed default: a box nobody configured serves no catalogue.
+#
+# Environment rather than a flag, for the same reason as the booth's own token —
+# argv is readable by every local user through ps. Pass it from a vars file:
+#   ansible-playbook site.yml --tags app -e @app.vars.yml
+app_booth_token: ""
+
 app_backup_dir: /var/backups/bykami
 app_backup_keep: 7
 app_backup_oncalendar: "*-*-* 03:30:00"

@@ -37,6 +37,14 @@ these are auth results and personal data, and Cloudflare sits in front.
 | `DELETE` | `/v1/auth/session` | Ends this session. Idempotent |
 | `GET` | `/v1/me` | The authenticated user |
 | `GET` | `/v1/me/loyalty` | `{"balance","entries"}` — balance is `SUM(points)` |
+| `GET` | `/v1/booth/frames` | Booth sync: manifest of published, in-season frames |
+| `GET` | `/v1/booth/frames/{id}` | The frame's PNG. `ETag`, so an unchanged poll is a 304 |
+
+**A booth is not a user.** It has no phone and cannot receive a one-time code,
+so `/v1/booth/*` authenticates with a shared secret from `BYKAMI_BOOTH_TOKEN`
+rather than a session — a different trust level, given a deliberately tiny,
+read-only surface. Unset leaves those routes answering 503, which is the same
+shape as the auth gate below: a box nobody configured serves no catalogue.
 
 Authentication is `Authorization: Bearer <token>`, never a cookie. Two reasons,
 and either alone would decide it:
@@ -129,6 +137,36 @@ keep correct so that staff can look up a phone number.
 | `POST /login` `POST /verify` | The same OTP flow customers use |
 | `GET /customers?phone=` | Balance and ledger history for one customer |
 | `POST /customers/{id}/adjust` | Writes a compensating entry |
+| `GET /frames` | The frame catalogue, with detected slots drawn over each one |
+| `POST /frames` | Upload a PNG. Everything else is read out of the file |
+| `POST /frames/{id}/publish` | Put it on the booths, or take it off |
+| `POST /frames/{id}/season` | Set or clear the date window |
+| `POST /frames/{id}/delete` | Remove it |
+
+**A frame is a PNG and nothing else is typed in.** The sheet size comes from its
+dimensions and the photo cells from its transparent regions — flood-filled, then
+filtered by size and rectangularity so a decorative cut-out does not become a
+slot a customer is asked to fill with their face. A rectangle typed next to a
+picture that already contains it is a chance to disagree with the picture, and
+the symptom is a face printed off its slot, found on paper.
+
+Uploads land **unpublished**. Detection is inference, and the check on inference
+is a person looking at the slots drawn over the frame; publishing on upload
+would put that check after the customer. The preview is checkered, so a hole
+filled with white — the usual export mistake — reads as artwork rather than as a
+hole.
+
+**Seasons are dates, not a switch somebody flips.** A Ramadan frame that has to
+be turned off by hand is one that is still on the booth in August, and the
+person who notices is a customer. The form asks for the last day it runs,
+because that is how a person thinks about a season; the catalogue stores the
+instant it stops.
+
+Artwork is a `BLOB`. A full catalogue is single-digit megabytes — smaller than
+the ledger will be within a year — and object storage would add a bucket, a
+credential to rotate and a second thing that can be down while the database is
+up. In the database the bytes share a backup and a transaction with the row
+describing them, so a restore cannot produce a frame with no picture.
 
 **Who is an operator is configuration, not data.** `-admin-phones` is a
 comma-separated allow-list, checked against the *currently verified* session on
@@ -168,3 +206,6 @@ actor column and an anonymous adjustment cannot be defended later.
 - **Booking**, blocked on the bookable-resource count.
 - **A real OTP sender.** WhatsApp is intended and needs a provider account. It
   is the single thing blocking the console from being usable.
+- **No per-booth identity.** One shared secret admits every booth, so a single
+  booth cannot be revoked without rotating all of them. Worth fixing when there
+  is a second outlet, not before.

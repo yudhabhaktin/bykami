@@ -17,8 +17,9 @@ Group={{ booth_user }}
 # takes the API down with it — and the API is the thing that actually matters.
 Environment=GOMEMLIMIT={{ booth_gomemlimit }}
 
-# The access token, out of the unit file and out of ps. Anything in ExecStart is
-# readable by every local user; this file is 0600 and owned by root.
+# The access token and the frame-sync token, out of the unit file and out of ps.
+# Anything in ExecStart is readable by every local user; this file is 0600 and
+# owned by root.
 EnvironmentFile=/etc/bykami-agent.env
 
 WorkingDirectory={{ booth_data_dir }}
@@ -31,6 +32,10 @@ ExecStart={{ booth_install_path }} \
   -sim-auto-settle {{ booth_auto_settle }} \
   -sim-print-speed {{ booth_print_speed }} \
   -retention {{ booth_retention }} \
+{% if booth_frame_sync %}
+  -frame-sync {{ booth_frame_sync }} \
+  -frame-sync-every {{ booth_frame_sync_every }} \
+{% endif %}
   -public-host {{ booth_public_host }}
 
 Restart=on-failure
