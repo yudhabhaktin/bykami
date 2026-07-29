@@ -182,7 +182,8 @@ there until the relay hardware in `design/kiosk.md` exists.
 | `POST` | `/api/print` | Compose a sheet and queue it. Carries the template and the filter |
 | `POST` | `/api/delivery` | Phone number plus two separate consents. Optional |
 | `GET` | `/g/{token}` | The customer's download page. No booth token — see below |
-| `GET` | `/g/{token}/p/{id}` | One photo. `?dl=1` sends it as an attachment |
+| `GET` | `/g/{token}/p/{id}` | One photo, unframed. `?dl=1` sends it as an attachment |
+| `GET` | `/g/{token}/s/{job}` | One composed sheet — the framed version, as printed |
 
 ## Things that are easy to get wrong and are therefore tested
 
@@ -253,10 +254,11 @@ anything on that machine can read it.
 **`/g/…` is exempt, and has to be.** That token is the *booth's* — it opens
 `/api/capture` and `/api/print` — so handing it to a customer to collect their
 photographs would hand them the booth. The download gallery carries its own,
-much narrower secret instead; see below. The exemption matches the two gallery
+much narrower secret instead; see below. The exemption matches the gallery
 routes exactly rather than the `/g/` prefix, because anything the mux cannot
 route falls through to the kiosk UI, and a prefix test served that UI
 unauthenticated to `/g/`, `/g/x/y/z` and every other near-miss. There is a test.
+Adding a fourth `/g/` route means teaching `isGalleryPath` about it too.
 
 `ansible/roles/booth` deploys this behind the tunnel; it is off unless
 `booth_enabled` is true, and the token comes from a mode-0600 `EnvironmentFile`
@@ -280,8 +282,28 @@ of an `UPDATE` here is a well-meaning fix for "the counter looks wrong".
 ## The download, and why the booth serves it
 
 `GET /g/{token}` is the page the delivery QR points at: one session's photos, as
-a phone can save them. `GET /g/{token}/p/{id}` serves a frame, and `?dl=1` adds
-a `Content-Disposition` so iOS Safari saves rather than displays it.
+a phone can save them. `?dl=1` on either file route adds a `Content-Disposition`
+so iOS Safari saves rather than displays it.
+
+**Both versions are offered, because they are different pictures.** `/p/{id}` is
+the frame as the camera saw it. `/s/{job}` is the composed sheet — the customer's
+photos inside the template they picked, with their filter, at 300 dpi. A booth
+that handed back only the loose frames would be giving less than the print they
+are holding, and one that handed back only the sheet would have cropped every
+photo to fit a cell and thrown the rest away.
+
+The sheet is the file that went to the printer rather than a fresh composition.
+Recomposing here would need the template, the filter and the chosen frames
+stored somewhere, and would still quietly diverge from the print the moment any
+of the three changed. It also happens to be the right file already: composed
+from the originals, and re-encoded by `compose`, which writes no EXIF and so
+carries no camera serial into whatever group chat the link reaches.
+
+A reprint composes the same picture again under a new filename, so the page
+deduplicates by content — most packages include more than one print and most
+customers use them, which makes the identical strip appearing twice the ordinary
+case rather than the exotic one. Two prints that genuinely differ, a second
+template or another filter, both survive. Both behaviours are tested.
 
 **The booth serves this itself, rather than R2 behind `gallery.bykami.id`.** The
 cloud version in `design/kiosk.md` remains the right answer for a fleet, and it
@@ -302,11 +324,13 @@ survives it. What makes it defensible is that the capability is narrow and
 expires on its own:
 
 - Read-only. Nothing under `/g/` accepts a body.
-- One session. The token names a session, the path names a photo, and the two
-  are compared — without that a single valid token would open every photograph
-  the booth has ever taken. Tested.
+- One session. The token names a session, the path names a photo or a print job,
+  and the two are compared — without that a single valid token would open
+  everything the booth has ever taken or composed. Tested for both.
 - Nothing but pictures. Not the phone number, not the price, not the consent. A
-  link forwarded to a group must not carry the customer's number into it.
+  link forwarded to a group must not carry the customer's number into it. Print
+  jobs are read for their sheets alone — not their state, their copies, or what
+  they cost the media roll.
 - `default-src 'none'` with `img-src 'self'`, and the inline stylesheet is
   hashed into the CSP at startup so the two cannot drift. A photo gallery is
   exactly the page somebody later adds a lightbox to; this is what makes that
