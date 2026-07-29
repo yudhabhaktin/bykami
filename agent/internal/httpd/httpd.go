@@ -332,6 +332,7 @@ type stateResponse struct {
 	Source    Source            `json:"source"`
 	Packages  []catalog.Package `json:"packages"`
 	Templates []templateView    `json:"templates"`
+	Filters   []compose.Filter  `json:"filters"`
 	Session   *sessionView      `json:"session"`
 	Payment   *paymentView      `json:"payment"`
 	Media     mediaView         `json:"media"`
@@ -422,6 +423,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		Source:    s.Source,
 		Packages:  packages,
 		Templates: views,
+		Filters:   compose.Filters,
 		Consent:   consentView{Version: ConsentVersion, RetentionDays: 30},
 		Flags: map[string]bool{
 			"payments_enabled":   s.Payments.Enabled(),
@@ -909,6 +911,9 @@ func (s *Server) print(w http.ResponseWriter, r *http.Request) {
 		TemplateID string   `json:"template_id"`
 		PhotoIDs   []string `json:"photo_ids"`
 		Copies     int      `json:"copies"`
+		// Filter travels with the print request, like the template, so
+		// changing your mind at review stays free until the sheet is composed.
+		Filter string `json:"filter"`
 	}
 	if !s.decode(w, r, &req) {
 		return
@@ -985,7 +990,7 @@ func (s *Server) print(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sheet := filepath.Join(s.Root, "sheets", sess.ID, fmt.Sprintf("%s-%d.jpg", tpl.ID, time.Now().UnixNano()))
-	if _, err := tpl.Sheet(paths, sheet); err != nil {
+	if _, err := tpl.Sheet(paths, compose.FilterByID(req.Filter), sheet); err != nil {
 		s.fail(w, "compose sheet", err)
 		return
 	}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ScreenProps } from "../App";
 import { api, ApiError, type Photo, type Template } from "../api";
+import { filterCSS, FilterPicker } from "../Filters";
 import { record, type Timings } from "../perf";
 import { SheetPreview } from "../SheetPreview";
 
@@ -24,10 +25,14 @@ export function Review({
   onPrinted,
   templateId,
   setTemplateId,
+  filter,
+  setFilter,
 }: ScreenProps & {
   onPrinted: (photos: Photo[]) => void;
   templateId: string;
   setTemplateId: (id: string) => void;
+  filter: string;
+  setFilter: (id: string) => void;
 }) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [chosen, setChosen] = useState<string[]>([]);
@@ -109,7 +114,7 @@ export function Review({
     setBusy(true);
     setError("");
     try {
-      const { job } = await api.print(template.id, chosen, 1);
+      const { job } = await api.print(template.id, chosen, 1, filter);
       setJob({ id: job.id, state: job.state });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal mencetak.");
@@ -164,7 +169,7 @@ export function Review({
   return (
     <div className="review">
       <div className="preview">
-        {template && <SheetPreview template={template} chosen={chosenPhotos} />}
+        {template && <SheetPreview template={template} chosen={chosenPhotos} filter={filter} />}
       </div>
 
       <div className="picker">
@@ -192,6 +197,18 @@ export function Review({
         ))}
       </div>
 
+      {/*
+        Below the layouts and above the filmstrip: the filter changes the sheet
+        in the preview beside it, so the choice is made against the thing being
+        bought rather than against a name.
+      */}
+      <FilterPicker
+        filters={state.filters}
+        value={filter}
+        onChange={setFilter}
+        sample={photos[0] ? api.photoURL(photos[0].id) : undefined}
+      />
+
       <div className="filmstrip">
         {photos.map((p) => {
           const index = chosen.indexOf(p.id);
@@ -202,7 +219,12 @@ export function Review({
               aria-pressed={index >= 0}
               onClick={() => toggle(p.id)}
             >
-              <img src={api.photoURL(p.id)} alt="" onLoad={() => onThumbLoaded(photos.length)} />
+              <img
+                src={api.photoURL(p.id)}
+                alt=""
+                style={{ filter: filterCSS(filter) }}
+                onLoad={() => onThumbLoaded(photos.length)}
+              />
               {index >= 0 && <span className="order">{index + 1}</span>}
               {/*
                 The resolution argument made visible. A frame that would print

@@ -209,7 +209,10 @@ func (t Template) validate() error {
 // photos are paths to the ORIGINALS. Composing from the delivered derivative
 // would hand back exactly what full-resolution capture bought — see the
 // resolution table in design/kiosk.md.
-func (t Template) Sheet(photos []string, dest string) (image.Point, error) {
+//
+// filter is applied to each photo after it is drawn into its cell, so it
+// colours the customer's photograph and not the frame the designer drew.
+func (t Template) Sheet(photos []string, filter Filter, dest string) (image.Point, error) {
 	if len(photos) != len(t.Cells) {
 		return image.Point{}, fmt.Errorf("%w: %d photos for %d cells", ErrCellCount, len(photos), len(t.Cells))
 	}
@@ -238,7 +241,9 @@ func (t Template) Sheet(photos []string, dest string) (image.Point, error) {
 		if err != nil {
 			return image.Point{}, err
 		}
-		drawCover(sheet, t.Cells[i], img)
+		c := t.Cells[i]
+		drawCover(sheet, c, img)
+		filter.apply(sheet, image.Rect(c.X, c.Y, c.X+c.W, c.Y+c.H))
 	}
 
 	if t.Overlay != "" {

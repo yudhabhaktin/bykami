@@ -95,7 +95,7 @@ func TestSheetComposesAtPrintResolution(t *testing.T) {
 	}
 
 	dest := filepath.Join(dir, "sheet.jpg")
-	size, err := strip.Sheet(photos, dest)
+	size, err := strip.Sheet(photos, compose.Filter{}, dest)
 	if err != nil {
 		t.Fatalf("sheet: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestPhotosFillTheirCell(t *testing.T) {
 
 	photo := frame(t, dir, "wide.jpg", 3000, 2000, color.RGBA{R: 200, G: 40, B: 40, A: 255})
 	dest := filepath.Join(dir, "sheet.jpg")
-	if _, err := tpl.Sheet([]string{photo}, dest); err != nil {
+	if _, err := tpl.Sheet([]string{photo}, compose.Filter{}, dest); err != nil {
 		t.Fatalf("sheet: %v", err)
 	}
 
@@ -203,7 +203,7 @@ func TestOverlayIsDrawnOverThePhotos(t *testing.T) {
 
 	photo := frame(t, dir, "p.jpg", 1200, 1800, color.RGBA{R: 255, G: 255, B: 255, A: 255})
 	dest := filepath.Join(dir, "sheet.jpg")
-	if _, err := tpl.Sheet([]string{photo}, dest); err != nil {
+	if _, err := tpl.Sheet([]string{photo}, compose.Filter{}, dest); err != nil {
 		t.Fatalf("sheet: %v", err)
 	}
 
@@ -267,7 +267,7 @@ func TestWrongPhotoCountIsRejected(t *testing.T) {
 
 	dir := t.TempDir()
 	one := frame(t, dir, "a.jpg", 1200, 800, color.RGBA{A: 255})
-	if _, err := strip.Sheet([]string{one}, filepath.Join(dir, "out.jpg")); err == nil {
+	if _, err := strip.Sheet([]string{one}, compose.Filter{}, filepath.Join(dir, "out.jpg")); err == nil {
 		t.Fatal("composed a three-cell strip from one photo")
 	}
 }
@@ -300,7 +300,7 @@ func TestOverlayCannotEscapeTheTemplateDirectory(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	photo := frame(t, root, "p.jpg", 1200, 1800, color.RGBA{A: 255})
-	if _, err := tpl.Sheet([]string{photo}, filepath.Join(root, "out.jpg")); err == nil {
+	if _, err := tpl.Sheet([]string{photo}, compose.Filter{}, filepath.Join(root, "out.jpg")); err == nil {
 		t.Fatal("read a file from outside the template directory")
 	}
 }
