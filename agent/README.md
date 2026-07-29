@@ -52,6 +52,19 @@ rather than by two crop implementations being kept in step by hand.
 that takes seconds, and a customer taps between templates; the file the printer
 receives is composed once, when they commit.
 
+**The live camera preview is masked to the same cell.** A webcam hands over 16:9
+and a frame's holes are usually taller than they are wide, so `drawCover` throws
+the sides away — and a preview showing the whole sensor is a preview showing
+pixels that will never be printed. People frame themselves against the edges
+they can see and then find the print cropped into their shoulders. The preview
+box takes its aspect ratio from the template's first cell and the video fills it
+with `object-fit: cover`, which is the same crop; the ink letterbox around it is
+that crop, drawn. The filmstrip thumbnails follow the same rule.
+
+Nothing is discarded at *capture* — the file on disk is still the full frame, so
+switching frame at review re-crops from everything the camera saw rather than
+from an already-cropped copy.
+
 `print_dpi` follows the template being looked at rather than the one the package
 opened on. A 4R cell is 1200×1800 where a strip cell is 540×360, so the same
 frame is 300 dpi in one and 266 in the other — reading the package's template

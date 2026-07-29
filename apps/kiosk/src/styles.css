@@ -599,6 +599,35 @@ p {
   object-fit: contain;
 }
 
+/*
+ * The live preview, masked to the shape of the frame's photo hole.
+ *
+ * Sized the way .sheet is, and for the same reason: the aspect ratio is set
+ * inline from the template's own geometry, so the box needs one axis pinned and
+ * the other derived. Height first, width from the ratio, then clamped so a very
+ * wide cell on a tall screen cannot overflow.
+ *
+ * The ink letterbox around it is not wasted space — it is the crop, drawn.
+ * Everything outside this box is what the printer will discard.
+ */
+.shot {
+  position: relative;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+/* cover, not contain: this is the CSS equivalent of compose.drawCover, which is
+   what makes the preview and the print the same picture. contain here would
+   letterbox inside the mask and quietly reintroduce the mismatch. */
+.shot video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 /* Mirrored, because a preview that is not mirrored makes people lean the wrong
    way. The captured frame is not mirrored — that would print back to front. */
 .stage video {
@@ -929,6 +958,9 @@ p {
 
 .thumb {
   position: relative;
+  /* Overridden inline with the chosen frame's own cell shape, so the filmstrip
+     shows the crop that will actually print. This 4:3 is the fallback for the
+     moment before a template is known. */
   aspect-ratio: 4 / 3;
   border-radius: var(--r-img);
   overflow: hidden;
