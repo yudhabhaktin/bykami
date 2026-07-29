@@ -28,6 +28,7 @@ import (
 	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
 	"github.com/bhaktiyudha/bykami/agent/internal/compose"
 	"github.com/bhaktiyudha/bykami/agent/internal/derive"
+	"github.com/bhaktiyudha/bykami/agent/internal/framesync"
 	"github.com/bhaktiyudha/bykami/agent/internal/httpd"
 	"github.com/bhaktiyudha/bykami/agent/internal/ingest"
 	"github.com/bhaktiyudha/bykami/agent/internal/payment"
@@ -47,6 +48,8 @@ type config struct {
 	payments   string
 	printerKit string
 	templates  string
+	frameSync  string
+	syncEvery  time.Duration
 	retention  time.Duration
 	autoSettle time.Duration
 	speed      float64
@@ -75,6 +78,12 @@ func main() {
 	flag.StringVar(&c.payments, "payments", "", `payment provider: "" (disabled) or "sim" (development only — takes no money)`)
 	flag.StringVar(&c.printerKit, "printer", "sim", `print backend: "sim" (development). The DNP driver is not built yet`)
 	flag.StringVar(&c.templates, "templates", "", "extra template directory; the built-in designs are always available")
+
+	// Where the operator console's frame catalogue lives. Empty disables
+	// syncing entirely, which is the state of a booth nobody has enrolled — it
+	// starts and sells photos with the designs it has.
+	flag.StringVar(&c.frameSync, "frame-sync", "", "base URL of the cloud API to pull published frames from, e.g. https://app.bykami.id")
+	flag.DurationVar(&c.syncEvery, "frame-sync-every", framesync.DefaultInterval, "how often to poll the cloud for new frames")
 	flag.DurationVar(&c.retention, "retention", purge.DefaultAge, "how long originals stay on this PC")
 	flag.DurationVar(&c.autoSettle, "sim-auto-settle", 0, "with -payments=sim, settle a charge after this long with nobody pressing anything")
 	flag.Float64Var(&c.speed, "sim-print-speed", 1, "with -printer=sim, divide the manufacturer's print time by this")
@@ -164,10 +173,17 @@ func run(c config, log *slog.Logger) error {
 
 	watcher := ingest.New(c.hotFolder, root, photos, sessions, log)
 
-	templates, err := loadTemplates(c.templates, log)
+	// Synced frames land here, under the booth's own root: it is state the
+	// booth maintains, like the database and the sheets, not something an
+	// operator edits.
+	syncDir := filepath.Join(root, "frames")
+
+	templates, err := loadTemplates(syncDir, c.templates, log)
 	if err != nil {
 		return err
 	}
+	live := compose.NewSet(templates)
+
 	packages, err := catalog.All()
 	if err != nil {
 		return err
@@ -182,9 +198,23 @@ func run(c config, log *slog.Logger) error {
 		token = os.Getenv("BYKAMI_ACCESS_TOKEN")
 	}
 
+	// The booth's credential for the cloud catalogue. Environment only — there
+	// is no flag — for the same reason the access token prefers one: argv is
+	// world-readable through ps.
+	frameSync := framesync.New(c.frameSync, os.Getenv("BYKAMI_BOOTH_TOKEN"), syncDir, c.syncEvery,
+		func() error {
+			ts, err := loadTemplates(syncDir, c.templates, log)
+			if err != nil {
+				return err
+			}
+			live.Store(ts)
+			log.Info("templates reloaded", "templates", len(ts))
+			return nil
+		}, log)
+
 	srv, err := httpd.New(httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
-		Ingest: watcher, Templates: templates, Packages: packages,
+		Ingest: watcher, Templates: live, Packages: packages,
 		Root: root, Source: source, OutletID: c.outlet,
 		Simulated: simulated, PublicHost: c.publicHost, AccessToken: token,
 		Log: log,
@@ -230,6 +260,12 @@ func run(c config, log *slog.Logger) error {
 	})
 	background("purge", purge.New(photos, root, c.retention, log).Run)
 
+	if frameSync != nil {
+		background("framesync", frameSync.Run)
+	} else {
+		log.Info("frame sync is off; this booth offers only the designs already installed")
+	}
+
 	// The review screen is the one the customer taps through, and without this
 	// it paints full-resolution originals into thumbnails — 24 MP each on the
 	// tethered path. Background rather than inline in the capture handler: the
@@ -252,7 +288,7 @@ func run(c config, log *slog.Logger) error {
 		log.Info("booth listening",
 			"addr", c.addr, "root", root, "source", source,
 			"hot_folder", c.hotFolder, "outlet", c.outlet,
-			"templates", len(templates), "packages", len(packages),
+			"templates", live.Len(), "packages", len(packages),
 			"payments", providerName(provider), "printer", backend.Name())
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
@@ -320,43 +356,57 @@ func newPrintBackend(c config, log *slog.Logger) (printer.Backend, error) {
 	}
 }
 
-// loadTemplates returns the built-in designs plus anything in dir.
+// loadTemplates returns the designs this booth can offer, in order of
+// increasing authority: the built-ins, then whatever the cloud catalogue has
+// been synced into syncDir, then a local directory an operator pointed at.
 //
-// A broken design in dir is reported and skipped rather than fatal: a booth
-// that will not start because somebody dropped in a bad template.json is worse
-// than one that starts with the designs that work.
-func loadTemplates(dir string, log *slog.Logger) ([]compose.Template, error) {
+// Local last on purpose. The cloud is the franchise's shared catalogue and
+// should override a stale built-in, but somebody standing at the booth with a
+// file is making a deliberate, specific decision about that machine, and their
+// copy should not be silently replaced by the next poll.
+//
+// A broken design is reported and skipped rather than fatal: a booth that will
+// not start because somebody dropped in a bad template.json is worse than one
+// that starts with the designs that work.
+func loadTemplates(syncDir, localDir string, log *slog.Logger) ([]compose.Template, error) {
 	builtin, err := compose.Builtin()
 	if err != nil {
 		return nil, fmt.Errorf("built-in templates: %w", err)
 	}
 
-	extra, err := compose.LoadDir(dir)
-	if err != nil {
-		log.Error("template directory has a problem; the designs that loaded are still available",
-			"dir", dir, "err", err)
-	}
+	out := make([]compose.Template, 0, len(builtin))
+	out = append(out, builtin...)
 
-	seen := make(map[string]bool, len(builtin))
-	out := make([]compose.Template, 0, len(builtin)+len(extra))
-	for _, t := range builtin {
-		seen[t.ID] = true
-		out = append(out, t)
-	}
-	for _, t := range extra {
-		if seen[t.ID] {
-			// An outlet's own design wins over a built-in with the same name,
-			// which is the only reason to give one the same name.
-			for i := range out {
-				if out[i].ID == t.ID {
-					out[i] = t
-				}
-			}
+	for _, dir := range []string{syncDir, localDir} {
+		if dir == "" {
 			continue
 		}
-		out = append(out, t)
+		extra, err := compose.LoadDir(dir)
+		if err != nil {
+			log.Error("template directory has a problem; the designs that loaded are still available",
+				"dir", dir, "err", err)
+		}
+		out = overlay(out, extra)
 	}
 	return out, nil
+}
+
+// overlay adds ts to out, replacing any design already there with the same id.
+func overlay(out, ts []compose.Template) []compose.Template {
+	for _, t := range ts {
+		replaced := false
+		for i := range out {
+			if out[i].ID == t.ID {
+				out[i] = t
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func providerName(p payment.Provider) string {

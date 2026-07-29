@@ -156,6 +156,20 @@
     # a compromised process to persistent root.
     mode: "0755"
 
+- name: Write the environment file
+  # The booth sync secret only. Everything else the app needs is a flag, because
+  # only this one is a credential.
+  ansible.builtin.copy:
+    content: "BYKAMI_BOOTH_TOKEN={{ app_booth_token }}\n"
+    dest: /etc/bykami.env
+    owner: root
+    group: root
+    # 0600. The unit file is 0644 and world-readable; this is why the token is
+    # not in it.
+    mode: "0600"
+  no_log: true
+  notify: Restart app
+
 - name: Install the systemd units
   ansible.builtin.template:
     src: "{{ item.src }}"

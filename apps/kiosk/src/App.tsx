@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError, type Photo, type State } from "./api";
+import { FilterDefs, NO_FILTER } from "./Filters";
 import { initPerf, labels, perfEnabled, type Timings } from "./perf";
 import { Attract } from "./screens/Attract";
 import { Capture } from "./screens/Capture";
@@ -45,6 +46,10 @@ export function App() {
   // Chosen on the frame screen and still changeable at review, so it outlives
   // both. Seeded from the package, which is the frame the price list sold.
   const [templateId, setTemplateId] = useState("");
+  // Like the template, the filter travels with the print request rather than
+  // being committed at capture — so changing your mind at review is free, and
+  // the originals on disk stay unfiltered.
+  const [filter, setFilter] = useState(NO_FILTER);
   const [timings, setTimings] = useState<Timings>({});
   const [perf] = useState(initPerf);
 
@@ -109,6 +114,9 @@ export function App() {
         </span>
       </header>
 
+      {/* Mounted once, for every screen that previews a photo. */}
+      <FilterDefs filters={state.filters} />
+
       {error && <p className="error">{error}</p>}
 
       {/*
@@ -135,6 +143,8 @@ export function App() {
           {...common}
           templateId={templateId}
           setTemplateId={setTemplateId}
+          filter={filter}
+          setFilter={setFilter}
           onPrinted={(photos) => { setSelected(photos); setStep("delivery"); }}
         />
       )}

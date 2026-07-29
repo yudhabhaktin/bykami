@@ -20,11 +20,14 @@ convenient they look.
 single cell is the whole sheet, so any overlay would cover the photograph.
 Giving 4R a frame means a **new template** with a smaller cell.
 
-These are the house frames, not the catalogue. `design/kiosk.md` is explicit
-that 99+ templates versus six is the actual gap against the incumbent, that
-importing beats building an authoring tool, and that the studio's existing
-*"free desain frame"* files are flat artwork that already exists. Importing
-those is still content work and still worth doing.
+These are the house frames, not the catalogue. The catalogue is at
+`app.bykami.id` — an operator uploads a PNG, the cells are read out of its
+transparent regions, and the booth pulls what is published into
+`<root>/frames`. See `api/internal/frames` and `agent/internal/framesync`.
+
+These three stay compiled in because a booth with no internet on its first
+morning still has to be able to complete a session. A synced frame with the
+same id replaces one of these; a local `-templates` directory replaces either.
 
 ## Adding one
 
@@ -57,6 +60,9 @@ Photos **fill** their cell and are centre-cropped. A letterboxed photo inside a
 designed frame reads as a mistake, and the customer framed the shot expecting
 the whole cell.
 
+A chosen filter is applied to each cell after the photo is drawn into it, so it
+colours the photograph and never this artwork. See `filter.go`.
+
 Templates in this directory are compiled into the binary — one artifact, one
 version, the same rule the embedded kiosk UI follows. An outlet can add its own
 without a rebuild by pointing `-templates` at a folder on the booth PC.
@@ -71,3 +77,9 @@ reasonable rather than a measurement against a printed sheet, and the ink ring
 around each cell is exactly the kind of detail a few millimetres of cut drift
 would ruin. **Print one and measure it** before anyone draws forty designs
 against these numbers.
+
+This got more expensive, not less, now that frames are uploaded rather than
+committed. Every design an operator draws inherits whatever margin convention
+these three set, and a correction after forty of them exist is forty files to
+redraw — so the measurement is worth taking before the catalogue fills up, not
+after.

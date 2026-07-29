@@ -67,7 +67,7 @@ func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 
 	deps := httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
-		Ingest: watcher, Templates: templates, Packages: packages,
+		Ingest: watcher, Templates: compose.NewSet(templates), Packages: packages,
 		Root: root, Source: httpd.SourceWebcam, OutletID: "jajag",
 		Simulated: sim, Log: log,
 	}

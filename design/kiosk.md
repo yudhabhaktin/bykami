@@ -531,6 +531,27 @@ Frame artwork already exists — booth packages advertise "free desain frame" �
 so **import the existing flat files rather than building an authoring tool**.
 That also sidesteps the logo-vector blocker in `assets-needed.md`.
 
+**Built, as a catalogue rather than an editor.** An operator uploads a PNG at
+`app.bykami.id`; the sheet size comes from its dimensions and the photo cells
+come from its transparent regions, so nothing about a frame is typed in twice.
+A rectangle typed next to a picture that already contains it is a chance to
+disagree with the picture, and the symptom is a face printed off its slot,
+discovered on paper.
+
+Detection is checked against the two house frames, whose cells are written down
+independently in their manifests, and it recovers them exactly.
+
+Uploads land unpublished, because inference from a picture needs a person to
+look at it — the console draws the detected slots over a checkered preview, so a
+hole filled with white reads as artwork rather than as a hole. Booths pull the
+published set every five minutes and hot-reload.
+
+**Seasons are dates, not a switch.** A Ramadan frame that has to be turned off
+by hand is one that is still on the booth in August, and the person who notices
+is a customer. Groups (wisuda, wedding, ulang tahun) are the always-on label
+alongside them. Windows are resolved on the server: a shop PC's clock is the
+least trusted in the system.
+
 Of the original Phase 3, what survives is what is nearly free:
 
 | Feature | Verdict |
@@ -540,6 +561,14 @@ Of the original Phase 3, what survives is what is nearly free:
 | Beauty filter | Bilateral filter + landmarks gets most of it. **Defer** |
 | Background removal | Genuinely browser-capable. **Deferred** — and it partly cannibalises backdrop choice, which `direction.md` records as a selling point |
 | Anime / "Pixar" portrait | **Dropped.** Needs diffusion — tens of seconds on a PC with no GPU — and *Pixar* is Disney's trademark, which is a live exposure on software that gets franchised |
+
+**Colour filters shipped, and they are not AI.** Six looks, each a 4×5 colour
+matrix. The matrix is applied in `compose` at 300 dpi from the originals, and
+the same numbers are served to the browser for `feColorMatrix` — so the screen
+and the paper run one arithmetic on one set of numbers rather than two
+approximations. A CSS-only filter would print an unfiltered photo, which the
+customer discovers after paying. It is applied per cell, so it never tints the
+frame the designer drew.
 
 **Check the weights' licence, not the code's.** U²-Net is Apache 2.0; BRIA's
 RMBG-1.4, the model everyone reaches for first, is CC BY-NC — non-commercial,
@@ -653,7 +682,23 @@ webcam is the longest single wait in the flow and it belongs to the driver;
 giving it a separate route would mean opening the camera twice and paying that
 cost twice. It has three states — opening, live, failed — and `failed` is
 distinct on purpose: a booth that says "preparing…" forever reads as a slow
-machine rather than a broken one, and nobody calls staff.
+machine rather than a broken one, and nobody calls staff. It is reached by a
+timeout as well as by a rejection, because `getUserMedia` with no device
+attached does not always fail — it simply never settles.
+
+**The photo session runs itself.** One tap starts it and the booth fills the
+whole strip: countdown, shutter, a hold long enough to change pose, repeat, then
+straight to review. A tap per frame requires somebody within reach of the
+screen, which is the opposite of standing where the camera can see them — and it
+is not what the format has ever done. The first countdown is 5 s and the rest
+are 3 s: only the first is spent walking back into frame, and five seconds
+between every shot is a queue forming behind them.
+
+It stops on the first failure rather than carrying on, because firing three more
+times into a camera that just refused produces three more errors. "Berhenti" is
+reachable throughout, and the waits are polled in slices so it lands within a
+tick rather than at the end of a countdown. The tethered path keeps its
+single-shot button: there is no shutter to drive there yet.
 
 Against the customer-facing flow the owner specified, what is **not** built is
 `download QR` and `reprint`. The QR has nothing behind it until upload and the

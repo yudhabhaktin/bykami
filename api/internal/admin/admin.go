@@ -46,6 +46,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/phone"
@@ -68,6 +69,7 @@ var verticals = []string{"studio", "booth", "dimsamcong"}
 type Console struct {
 	identity *identity.Service
 	loyalty  *loyalty.Ledger
+	frameCat *frames.Catalogue
 	log      *slog.Logger
 	tmpl     *template.Template
 
@@ -89,10 +91,15 @@ type Console struct {
 // New returns the console. staffPhones are raw numbers in any Indonesian form;
 // they are normalised here and an unparseable one is an error rather than a
 // silently ignored entry.
-func New(ident *identity.Service, ledger *loyalty.Ledger, log *slog.Logger, staffPhones []string, authEnabled bool) (*Console, error) {
+func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, log *slog.Logger, staffPhones []string, authEnabled bool) (*Console, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"points": formatPoints,
 		"time":   func(t time.Time) string { return t.Format("2006-01-02 15:04") },
+		"season": seasonText,
+		"day":    dayValue,
+		"slot":   slotStyle,
+		"kb":     func(n int) string { return strconv.Itoa((n + 512) / 1024) },
+		"inc":    func(n int) int { return n + 1 },
 	}).ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return nil, err
@@ -114,6 +121,7 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, log *slog.Logger, staf
 	return &Console{
 		identity:    ident,
 		loyalty:     ledger,
+		frameCat:    cat,
 		log:         log,
 		tmpl:        tmpl,
 		staff:       staff,
@@ -132,6 +140,12 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("POST /logout", c.logout)
 	mux.HandleFunc("GET /customers", c.staffOnly(c.customers))
 	mux.HandleFunc("POST /customers/{id}/adjust", c.staffOnly(c.adjust))
+	mux.HandleFunc("GET /frames", c.staffOnly(c.frameIndex))
+	mux.HandleFunc("POST /frames", c.staffOnly(c.frameUpload))
+	mux.HandleFunc("GET /frames/{id}/art.png", c.staffOnly(c.frameArt))
+	mux.HandleFunc("POST /frames/{id}/publish", c.staffOnly(c.framePublish))
+	mux.HandleFunc("POST /frames/{id}/season", c.staffOnly(c.frameSeason))
+	mux.HandleFunc("POST /frames/{id}/delete", c.staffOnly(c.frameDelete))
 	return mux
 }
 
@@ -157,6 +171,10 @@ type page struct {
 	Balance  int64
 	Entries  []loyalty.Entry
 	Searched bool
+
+	// Frame catalogue
+	Frames []frames.Frame
+	Sheets string
 }
 
 func (c *Console) index(w http.ResponseWriter, r *http.Request) {
@@ -467,8 +485,12 @@ func (c *Console) render(w http.ResponseWriter, _ *http.Request, status int, nam
 	// No inline script, no external anything. Declared rather than assumed, so
 	// that adding a script tag later fails visibly instead of silently widening
 	// what a template injection could do.
+	// img-src is for the frame previews, which are served by this same origin
+	// from the database. data: is not permitted: an <img> is the one element
+	// here whose source is operator-supplied, and allowing data: would make an
+	// injected src a way to render arbitrary bytes from this origin.
 	h.Set("Content-Security-Policy",
-		"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+		"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 	h.Set("Referrer-Policy", "same-origin")
 
 	w.WriteHeader(status)

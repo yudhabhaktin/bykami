@@ -19,6 +19,12 @@ Group={{ app_user }}
 # OOM kill for a different OOM kill.
 Environment=GOMEMLIMIT={{ app_gomemlimit }}
 
+# The booth sync secret, out of the unit file and out of ps. Anything in
+# ExecStart is readable by every local user; this file is 0600 and owned by
+# root. The "-" prefix makes a missing file not an error: a box that was never
+# given a secret correctly serves no catalogue.
+EnvironmentFile=-/etc/bykami.env
+
 WorkingDirectory={{ app_data_dir }}
 {#
   Flags are appended only when set, so the unit of a default deployment carries

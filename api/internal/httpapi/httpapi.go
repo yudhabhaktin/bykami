@@ -17,6 +17,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -24,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/phone"
@@ -45,8 +47,14 @@ const historyLimit = 50
 type API struct {
 	identity *identity.Service
 	loyalty  *loyalty.Ledger
+	frames   *frames.Catalogue
 	health   HealthFunc
 	log      *slog.Logger
+
+	// boothToken is the SHA-256 of the shared secret a booth presents, or nil
+	// when none is configured. The hash rather than the secret so that a heap
+	// dump or a stray log of this struct does not carry the token itself.
+	boothToken []byte
 
 	// authEnabled gates every auth route. False is the safe default and the
 	// production setting today: infrastructure.md holds the trial box to
@@ -63,8 +71,18 @@ type HealthFunc func(ctx context.Context) error
 
 // New returns the router. authEnabled false leaves /healthz working and every
 // auth route answering 503, which is the deployed configuration today.
-func New(ident *identity.Service, ledger *loyalty.Ledger, health HealthFunc, log *slog.Logger, authEnabled bool) http.Handler {
-	a := &API{identity: ident, loyalty: ledger, health: health, log: log, authEnabled: authEnabled}
+// boothToken is the shared secret booths present, in plain text. Empty leaves
+// the sync routes answering 503 — the same shape as authEnabled, so a box
+// nobody configured cannot serve a catalogue.
+func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, health HealthFunc, log *slog.Logger, authEnabled bool, boothToken string) http.Handler {
+	a := &API{
+		identity: ident, loyalty: ledger, frames: cat,
+		health: health, log: log, authEnabled: authEnabled,
+	}
+	if boothToken != "" {
+		sum := sha256.Sum256([]byte(boothToken))
+		a.boothToken = sum[:]
+	}
 
 	mux := http.NewServeMux()
 
@@ -81,6 +99,11 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, health HealthFunc, log
 
 	mux.HandleFunc("GET /v1/me", a.authenticated(a.me))
 	mux.HandleFunc("GET /v1/me/loyalty", a.authenticated(a.statement))
+
+	// The booth sync surface. Read-only, and gated by a shared secret rather
+	// than a session — see booth.go for why a booth is not a user.
+	mux.HandleFunc("GET /v1/booth/frames", a.booth(a.boothFrames))
+	mux.HandleFunc("GET /v1/booth/frames/{id}", a.booth(a.boothArtwork))
 
 	return mux
 }

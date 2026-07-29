@@ -556,9 +556,103 @@ p {
   }
 }
 
+/*
+ * Between shots in an automatic run. It has to read from where the customer is
+ * standing — several feet back, mid-pose — so it is the count and one
+ * instruction, at a size that survives that distance.
+ */
+.shot-taken {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  color: #fff;
+  text-shadow: 0 4px 40px rgba(0, 0, 0, 0.6);
+  font-weight: 700;
+  font-size: clamp(48px, 12vw, 128px);
+  pointer-events: none;
+}
+
+.shot-taken .small {
+  font-size: clamp(16px, 3.5vw, 28px);
+  font-weight: 600;
+}
+
 .counter {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+}
+
+/*
+ * The filter row.
+ *
+ * Swatches rather than names alone: nobody standing at a booth knows what
+ * "Pudar" looks like, and the swatch is their own photograph with the filter
+ * on it. Scrolls sideways on a narrow screen rather than wrapping into a block
+ * that pushes the filmstrip off the bottom.
+ */
+.filters {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.filter {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--muted);
+}
+
+.filter-swatch {
+  display: block;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 10px;
+  overflow: hidden;
+  border: var(--stroke) solid var(--line);
+  background: var(--accent);
+}
+
+.filter-swatch img,
+.filter-blank {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Something to filter when there is no photo yet: a warm mid-tone, so every
+   swatch still differs from its neighbours. */
+.filter-blank {
+  background: linear-gradient(135deg, #d8a07a, #8c6f5a);
+}
+
+.filter-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.filter[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.filter[aria-pressed="true"] .filter-swatch {
+  border-color: var(--ink);
+  border-width: var(--stroke-thick);
+  box-shadow: var(--shadow);
 }
 
 /* Review */

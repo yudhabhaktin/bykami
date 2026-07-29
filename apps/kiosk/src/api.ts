@@ -38,6 +38,22 @@ export interface Template {
   background: string;
 }
 
+/**
+ * A colour matrix, in feColorMatrix order: four rows of five.
+ *
+ * Served by the agent rather than written down here, and that is the point.
+ * The printed sheet is filtered in Go at compose time; if the browser had its
+ * own copy of these numbers the screen and the paper could disagree, and the
+ * customer would find out after paying. There is one copy, in
+ * agent/internal/compose/filter.go, and the browser is handed it.
+ */
+export interface Filter {
+  id: string;
+  name: string;
+  /** Absent on the identity filter, which is the default. */
+  matrix?: number[];
+}
+
 export interface Session {
   id: string;
   state: "awaiting_payment" | "open" | "closed" | "abandoned";
@@ -82,6 +98,7 @@ export interface State {
   source: Source;
   packages: Package[];
   templates: Template[];
+  filters: Filter[];
   session: Session | null;
   payment: Payment | null;
   media: { sheets_remaining: number; low: boolean };
@@ -157,10 +174,10 @@ export const api = {
 
   photoURL: (id: string) => `/api/photos/${id}/file`,
 
-  print: (templateId: string, photoIds: string[], copies: number) =>
+  print: (templateId: string, photoIds: string[], copies: number, filter: string) =>
     request<{ job: PrintJob }>("/api/print", {
       method: "POST",
-      body: JSON.stringify({ template_id: templateId, photo_ids: photoIds, copies }),
+      body: JSON.stringify({ template_id: templateId, photo_ids: photoIds, copies, filter }),
     }),
 
   printStatus: (id: string) => request<{ job: PrintJob }>(`/api/print/${id}`),

@@ -134,9 +134,19 @@ route that skips paying.
 ## The flow
 
 ```
-pilih paket → QR → (settle) → countdown → capture → pilih foto → cetak → nomor → selesai
-                 ↑ shutter locked here
+pilih paket → QR → (settle) → pilih frame → sesi foto → pilih foto + filter → cetak → nomor → selesai
+                 ↑ shutter locked here      ↑ automatic, one countdown per frame
 ```
+
+**The photo session runs itself.** One tap starts it; the booth counts down,
+fires, holds the shot long enough to change pose, and repeats until the strip
+is full, then goes to the review screen on its own. A tap per frame would mean
+somebody standing within reach of the screen, which is the opposite of standing
+where the camera can see them. The first countdown is longer than the rest
+because it is the only one spent walking back into frame.
+
+The tethered path keeps a single-shot button. There is no shutter to drive
+there until the relay hardware in `design/kiosk.md` exists.
 
 | | | |
 |---|---|---|
@@ -147,7 +157,7 @@ pilih paket → QR → (settle) → countdown → capture → pilih foto → cet
 | `GET` | `/api/payment` | Poll for settlement. Opens the shutter when it lands |
 | `POST` | `/api/capture` | Fire the shutter, or accept a webcam frame |
 | `GET` | `/api/photos` | This session's frames, in capture order, with print dpi |
-| `POST` | `/api/print` | Compose a sheet and queue it |
+| `POST` | `/api/print` | Compose a sheet and queue it. Carries the template and the filter |
 | `POST` | `/api/delivery` | Phone number plus two separate consents |
 
 ## Things that are easy to get wrong and are therefore tested
@@ -168,6 +178,12 @@ pilih paket → QR → (settle) → countdown → capture → pilih foto → cet
   rescan repairs. The other order leaves a row pointing at nothing.
 - **The same bytes twice.** Content-addressed, so a rescan cannot duplicate and a
   duplicate frame is reported rather than silently counted as a take.
+- **A filter that only exists on screen.** The obvious build is a CSS filter on
+  the preview, which prints an unfiltered photo — the customer finds out on
+  paper. `compose` applies it, from the originals, and a test composes a real
+  sheet and reads its pixels.
+- **A filter that colours the frame too.** The matrix is applied per cell, not to
+  the sheet, so the designer's artwork keeps the colours they chose.
 
 ```bash
 go vet ./...
@@ -240,6 +256,28 @@ The photo rows stay. They are how the agent knows not to re-ingest bytes it has
 already seen, and how a question asked three weeks later is answerable once the
 pixels are gone.
 
+## Frames come from the cloud
+
+The catalogue lives at `app.bykami.id` (`api/internal/frames`): an operator
+uploads a PNG, the console reads its cells out of the transparent regions, and
+publishing it puts it on every booth. `-frame-sync https://app.bykami.id` plus
+`BYKAMI_BOOTH_TOKEN` turns the pull on; the worker polls every five minutes and
+writes designs into `<root>/frames`, swapping the live template set without a
+restart.
+
+**It is a cache, not a dependency.** A failed sync leaves the booth offering the
+frames it already has — the alternative is a photobooth that stops selling when
+a server in Singapore does. A booth with no `-frame-sync` never polls and runs
+on the designs compiled into the binary.
+
+Precedence is built-in, then synced, then `-templates`. The local directory wins
+last: somebody standing at the booth with a file is making a deliberate decision
+about that machine, and the next poll should not undo it.
+
+One shared secret for every booth, not one each. Per-booth tokens would be a
+table, an enrolment flow and a revocation story for a fleet that does not exist;
+when there is a second outlet, that becomes worth having.
+
 ## Not here yet
 
 - **Nothing leaves the booth PC.** R2 upload, the gallery renderer and the QR
@@ -253,3 +291,5 @@ pixels are gone.
 - **No liveness heartbeat to `api/`**, so nothing knows the booth is down.
 - **No OTA updates.** Releases are published by CI and installed by whoever is
   standing at the booth.
+- **No per-booth identity.** Frame sync authenticates with one shared secret, so
+  a booth cannot be revoked without rotating every booth's token.

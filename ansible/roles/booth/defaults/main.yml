@@ -48,6 +48,25 @@ booth_public_host: booth-test.bykami.id
 #   ansible-playbook site.yml --tags booth -e @booth.vars.yml
 booth_access_token: ""
 
+# Where the frame catalogue lives. Empty disables syncing, and the booth then
+# offers only the designs compiled into the binary.
+#
+# On this box it points at the operator console on the same host, which is what
+# makes the whole loop testable: upload a frame at app.bykami.id, publish it,
+# and it appears on booth-test.bykami.id a few minutes later.
+booth_frame_sync: "https://app.bykami.id"
+booth_frame_sync_every: 5m
+
+# The booth's credential for that catalogue, and it must match app_booth_token
+# in the app role — they are two halves of one shared secret. Empty on both
+# sides means the sync surface answers 503 and the booth never polls, which is
+# a working configuration rather than a broken one.
+#
+# Pass it from the same vars file as the access token, never on the command
+# line:
+#   ansible-playbook site.yml --tags booth -e @booth.vars.yml
+booth_token: ""
+
 # Simulated, both of them, and neither can become real by accident. There is no
 # printer on this box and no payment provider anywhere yet.
 #
