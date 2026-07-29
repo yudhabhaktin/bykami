@@ -21,6 +21,7 @@ import (
 	"github.com/bhaktiyudha/bykami/agent/internal/payment"
 	"github.com/bhaktiyudha/bykami/agent/internal/photo"
 	"github.com/bhaktiyudha/bykami/agent/internal/printer"
+	"github.com/bhaktiyudha/bykami/agent/internal/purge"
 	"github.com/bhaktiyudha/bykami/agent/internal/session"
 	"github.com/bhaktiyudha/bykami/agent/internal/store"
 )
@@ -29,6 +30,7 @@ type fixture struct {
 	srv       http.Handler
 	simulated *payment.Simulated
 	sessions  *session.Store
+	photos    *photo.Store
 	printer   *printer.Queue
 	root      string
 }
@@ -84,7 +86,10 @@ func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 		t.Fatalf("load roll: %v", err)
 	}
 
-	return &fixture{srv: srv.Handler(), simulated: sim, sessions: sessions, printer: prints, root: root}
+	return &fixture{
+		srv: srv.Handler(), simulated: sim, sessions: sessions, photos: photos,
+		printer: prints, root: root,
+	}
 }
 
 func (f *fixture) do(t *testing.T, method, path string, body any) *httptest.ResponseRecorder {
@@ -681,8 +686,11 @@ func TestStateDescribesTheBooth(t *testing.T) {
 		t.Fatalf("media = %d, want a full roll", got.Media.SheetsRemaining)
 	case got.Consent.Version != httpd.ConsentVersion:
 		t.Fatalf("consent version = %q", got.Consent.Version)
-	case got.Consent.RetentionDays != 30:
-		t.Fatalf("retention = %d days", got.Consent.RetentionDays)
+	// The number the customer is promised, which has to be the number the purge
+	// actually enforces. This asserted 30 while purge.DefaultAge was 7, so the
+	// delivery screen offered every customer three weeks that did not exist.
+	case got.Consent.RetentionDays != int(purge.DefaultAge/(24*time.Hour)):
+		t.Fatalf("retention = %d days, want the purge window", got.Consent.RetentionDays)
 	case !got.Flags["payments_enabled"]:
 		t.Fatal("payments reported disabled")
 	case !got.Flags["payments_simulated"]:

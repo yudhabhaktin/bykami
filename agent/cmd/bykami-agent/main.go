@@ -217,7 +217,8 @@ func run(c config, log *slog.Logger) error {
 		Ingest: watcher, Templates: live, Packages: packages,
 		Root: root, Source: source, OutletID: c.outlet,
 		Simulated: simulated, PublicHost: c.publicHost, AccessToken: token,
-		Log: log,
+		Retention: c.retention,
+		Log:       log,
 	})
 	if err != nil {
 		return err

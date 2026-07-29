@@ -159,6 +159,8 @@ there until the relay hardware in `design/kiosk.md` exists.
 | `GET` | `/api/photos` | This session's frames, in capture order, with print dpi |
 | `POST` | `/api/print` | Compose a sheet and queue it. Carries the template and the filter |
 | `POST` | `/api/delivery` | Phone number plus two separate consents |
+| `GET` | `/g/{token}` | The customer's download page. No booth token — see below |
+| `GET` | `/g/{token}/p/{id}` | One photo. `?dl=1` sends it as an attachment |
 
 ## Things that are easy to get wrong and are therefore tested
 
@@ -226,6 +228,14 @@ cookie so it stops appearing in the address bar. Requests arriving over
 localhost still need no token — demanding one there would be theatre, since
 anything on that machine can read it.
 
+**`/g/…` is exempt, and has to be.** That token is the *booth's* — it opens
+`/api/capture` and `/api/print` — so handing it to a customer to collect their
+photographs would hand them the booth. The download gallery carries its own,
+much narrower secret instead; see below. The exemption matches the two gallery
+routes exactly rather than the `/g/` prefix, because anything the mux cannot
+route falls through to the kiosk UI, and a prefix test served that UI
+unauthenticated to `/g/`, `/g/x/y/z` and every other near-miss. There is a test.
+
 `ansible/roles/booth` deploys this behind the tunnel; it is off unless
 `booth_enabled` is true, and the token comes from a mode-0600 `EnvironmentFile`
 rather than the unit file, which is world-readable.
@@ -245,6 +255,42 @@ An adjustment without a reason is refused. The ledger is append-only, exactly as
 the loyalty ledger in `api/` is, and for the same reason: the most likely author
 of an `UPDATE` here is a well-meaning fix for "the counter looks wrong".
 
+## The download, and why the booth serves it
+
+`GET /g/{token}` is the page the delivery QR points at: one session's photos, as
+a phone can save them. `GET /g/{token}/p/{id}` serves a frame, and `?dl=1` adds
+a `Content-Disposition` so iOS Safari saves rather than displays it.
+
+**The booth serves this itself, rather than R2 behind `gallery.bykami.id`.** The
+cloud version in `design/kiosk.md` remains the right answer for a fleet, and it
+is blocked on the residency fork — meanwhile the booth already holds the
+photographs, already derives them to 2048px with EXIF stripped, and already
+deletes them after seven days. Serving them from here needs no upload, no
+bucket, no credential to rotate, and no decision about which country the files
+sit in. It is the version that works now.
+
+It needs `-public-host`, because a phone on mobile data cannot reach a booth PC
+on a shop's wifi. Without one, `share_url` is empty and the delivery screen
+offers WhatsApp alone instead of an unscannable square — which is every booth
+that has no tunnel in front of it.
+
+**What guards it is the unguessable URL, and deliberately nothing else.**
+Customers paste these links into group chats; that is wanted, and no control
+survives it. What makes it defensible is that the capability is narrow and
+expires on its own:
+
+- Read-only. Nothing under `/g/` accepts a body.
+- One session. The token names a session, the path names a photo, and the two
+  are compared — without that a single valid token would open every photograph
+  the booth has ever taken. Tested.
+- Nothing but pictures. Not the phone number, not the price, not the consent. A
+  link forwarded to a group must not carry the customer's number into it.
+- `default-src 'none'` with `img-src 'self'`, and the inline stylesheet is
+  hashed into the CSP at startup so the two cannot drift. A photo gallery is
+  exactly the page somebody later adds a lightbox to; this is what makes that
+  fail loudly.
+- `noindex`, `no-referrer`, `same-origin` CORP.
+
 ## Retention
 
 Seven days, and it does not depend on anyone remembering. Originals, delivered
@@ -255,6 +301,12 @@ full-resolution copy of every customer on the machine indefinitely.
 The photo rows stay. They are how the agent knows not to re-ingest bytes it has
 already seen, and how a question asked three weeks later is answerable once the
 pixels are gone.
+
+It is also the download's expiry. There is no second mechanism and no separate
+clock: the link stops working because the photos behind it are gone. `-retention`
+sets the window, and the number the delivery screen promises is read from the
+same value rather than typed into the UI — it said 30 days for a while, beside a
+purge that had always deleted at 7.
 
 ## Frames come from the cloud
 

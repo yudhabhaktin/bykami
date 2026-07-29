@@ -96,6 +96,11 @@ type Session struct {
 	ConsentVersion   string
 	ConsentedAt      time.Time
 	MarketingConsent bool
+
+	// ShareToken is the secret in the download URL, minted at Start so the QR
+	// can be on screen before anyone asks for it. Holding it is permission to
+	// see this session's photos, so it never appears in a log line.
+	ShareToken string
 }
 
 // Live reports whether this session holds the booth.
@@ -137,20 +142,21 @@ func (s *Store) Start(ctx context.Context, outletID string, pkg Package) (Sessio
 	}
 	now := s.now()
 	sess := Session{
-		ID:        newID(),
-		OutletID:  outletID,
-		State:     AwaitingPayment,
-		Package:   pkg,
-		TakeLimit: takeLimit,
-		OpenedAt:  now,
+		ID:         newID(),
+		OutletID:   outletID,
+		State:      AwaitingPayment,
+		Package:    pkg,
+		TakeLimit:  takeLimit,
+		OpenedAt:   now,
+		ShareToken: newToken(),
 	}
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sessions
-		   (id, outlet_id, state, package_id, package_name, price_idr, template_id, print_copies, take_limit, opened_at)
-		 VALUES (?, ?, 'awaiting_payment', ?, ?, ?, ?, ?, ?, ?)`,
+		   (id, outlet_id, state, package_id, package_name, price_idr, template_id, print_copies, take_limit, opened_at, share_token)
+		 VALUES (?, ?, 'awaiting_payment', ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID, outletID, pkg.ID, pkg.Name, pkg.PriceIDR, pkg.TemplateID, pkg.PrintCopies,
-		takeLimit, now.Unix(),
+		takeLimit, now.Unix(), sess.ShareToken,
 	)
 	switch {
 	case store.IsConstraint(err):
@@ -367,7 +373,22 @@ func (s *Store) RecordDelivery(ctx context.Context, id, e164, consentVersion str
 
 const columns = `id, outlet_id, state, package_id, package_name, price_idr, template_id,
 	print_copies, take_limit, opened_at, paid_at, closed_at,
-	phone, consent_version, consented_at, marketing_consent`
+	phone, consent_version, consented_at, marketing_consent, share_token`
+
+// ByShareToken finds the session a download link points at.
+//
+// Any state, including closed: the link is handed out at the end of a session
+// and is meant to keep working for the week afterwards. It is the purge, not
+// this lookup, that eventually empties it.
+func (s *Store) ByShareToken(ctx context.Context, token string) (Session, error) {
+	if token == "" {
+		// Every session before the share-token migration has NULL here, and
+		// SQLite would happily match an empty string against nothing — but a
+		// caller reaching this with "" has a bug, not a missing session.
+		return Session{}, ErrNotFound
+	}
+	return s.scanOne(ctx, `SELECT `+columns+` FROM sessions WHERE share_token = ?`, token)
+}
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -378,13 +399,14 @@ func scan(row scanner) (Session, error) {
 		s                             Session
 		paidAt, closedAt, consentedAt sql.NullInt64
 		phone, consentVersion         sql.NullString
+		shareToken                    sql.NullString
 		openedAt, marketing           int64
 	)
 	if err := row.Scan(
 		&s.ID, &s.OutletID, &s.State,
 		&s.Package.ID, &s.Package.Name, &s.Package.PriceIDR, &s.Package.TemplateID, &s.Package.PrintCopies,
 		&s.TakeLimit, &openedAt, &paidAt, &closedAt,
-		&phone, &consentVersion, &consentedAt, &marketing,
+		&phone, &consentVersion, &consentedAt, &marketing, &shareToken,
 	); err != nil {
 		return Session{}, err
 	}
@@ -402,6 +424,10 @@ func scan(row scanner) (Session, error) {
 	s.Phone = phone.String
 	s.ConsentVersion = consentVersion.String
 	s.MarketingConsent = marketing == 1
+	// NULL for every session opened before the share-link migration. Those
+	// keep working; they simply have no download link, which is what they had
+	// when they were created.
+	s.ShareToken = shareToken.String
 	return s, nil
 }
 
@@ -422,6 +448,11 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
+
+// newToken mints a share token. Same entropy as an id and deliberately not
+// derived from one: an id is written to logs and stamped on print jobs, and
+// anything derivable from it would make those log lines a way in.
+func newToken() string { return newID() }
 
 func newID() string {
 	var b [16]byte
