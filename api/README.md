@@ -145,10 +145,16 @@ keep correct so that staff can look up a phone number.
 
 **A frame is a PNG and nothing else is typed in.** The sheet size comes from its
 dimensions and the photo cells from its transparent regions — flood-filled, then
-filtered by size and rectangularity so a decorative cut-out does not become a
-slot a customer is asked to fill with their face. A rectangle typed next to a
-picture that already contains it is a chance to disagree with the picture, and
-the symptom is a face printed off its slot, found on paper.
+filtered by size so a decorative cut-out does not become a slot a customer is
+asked to fill with their face. A rectangle typed next to a picture that already
+contains it is a chance to disagree with the picture, and the symptom is a face
+printed off its slot, found on paper.
+
+A hole does not have to be a rectangle. The photo fills the hole's bounding box
+and the artwork, drawn over it, masks the photo back to whatever shape was cut,
+so round and heart-shaped slots print correctly. What is rejected is a region
+nowhere near its own bounding box — a border with a transparent middle, which
+would otherwise be read as one slot the size of the sheet.
 
 Uploads land **unpublished**. Detection is inference, and the check on inference
 is a person looking at the slots drawn over the frame; publishing on upload

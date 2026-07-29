@@ -88,7 +88,7 @@ func Detect(data []byte) (width, height int, cells []Cell, err error) {
 }
 
 // regions finds connected transparent areas and returns the bounding boxes of
-// those large and rectangular enough to be photo slots, in reading order.
+// those big and compact enough to be photo slots, in reading order.
 func regions(hole []bool, w, h int) []Cell {
 	seen := make([]bool, len(hole))
 	stack := make([]int, 0, 4096)

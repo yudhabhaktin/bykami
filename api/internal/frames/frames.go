@@ -46,8 +46,8 @@ var (
 	// ErrOpaque means the PNG has no transparency at all, so there is nowhere
 	// for a photo to show through.
 	ErrOpaque = errors.New("frames: the artwork has no transparent area")
-	// ErrNoCells means it has transparency, but nothing large and rectangular
-	// enough to be a photo slot.
+	// ErrNoCells means it has transparency, but nothing large enough — or
+	// anything like compact enough — to be a photo slot.
 	ErrNoCells = errors.New("frames: no photo slots found in the artwork")
 	// ErrSheetSize means the image is not one of the printable sheet sizes.
 	ErrSheetSize = errors.New("frames: not a printable sheet size")

@@ -131,8 +131,8 @@ func frameImport(ctx context.Context, cat *frames.Catalogue, path, name, group s
 			return fmt.Errorf("%s has no transparent area: the photo holes must be "+
 				"transparent, not white", filepath.Base(path))
 		case errors.Is(err, frames.ErrNoCells):
-			return fmt.Errorf("%s has no photo holes big enough to read: they must be "+
-				"rectangular and at least 1%% of the sheet", filepath.Base(path))
+			return fmt.Errorf("%s has no photo holes big enough to read: a hole may be "+
+				"any shape, but must cover at least 1%% of the sheet", filepath.Base(path))
 		case errors.Is(err, frames.ErrSheetSize):
 			return fmt.Errorf("%w — printable sizes are %s", err, frames.SheetSizes())
 		}

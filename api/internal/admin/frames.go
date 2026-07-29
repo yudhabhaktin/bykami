@@ -132,7 +132,7 @@ func uploadMessage(err error) string {
 	case errors.Is(err, frames.ErrOpaque):
 		return "PNG ini tidak punya area transparan. Lubang tempat foto harus benar-benar transparan, bukan putih."
 	case errors.Is(err, frames.ErrNoCells):
-		return "Tidak ada lubang foto yang terbaca. Lubangnya harus persegi dan cukup besar."
+		return "Tidak ada lubang foto yang terbaca. Lubangnya boleh berbentuk apa saja — kotak, bulat, hati — tapi harus cukup besar, minimal 1% dari kanvas."
 	case errors.Is(err, frames.ErrSheetSize):
 		return "Ukuran kanvas tidak cocok. Yang bisa dicetak: " + frames.SheetSizes() + "."
 	case errors.Is(err, frames.ErrBadWindow):
