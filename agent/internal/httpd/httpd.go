@@ -98,7 +98,9 @@ type Deps struct {
 	Printer  *printer.Queue
 	Ingest   *ingest.Watcher
 
-	Templates []compose.Template
+	// Templates is the live set, not a snapshot: the frame sync worker
+	// replaces it while the booth is serving.
+	Templates *compose.Set
 	Packages  []catalog.Package
 
 	// Root is where session directories and composed sheets live.
@@ -399,8 +401,9 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		packages = []catalog.Package{}
 	}
 
-	views := make([]templateView, 0, len(s.Templates))
-	for _, t := range s.Templates {
+	templates := s.Templates.All()
+	views := make([]templateView, 0, len(templates))
+	for _, t := range templates {
 		w, h, err := compose.SheetSize(t.Layout)
 		if err != nil {
 			continue
@@ -813,10 +816,8 @@ func (s *Server) listPhotos(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cellSize(templateID string) (int, int) {
-	for _, t := range s.Templates {
-		if t.ID == templateID && len(t.Cells) > 0 {
-			return t.Cells[0].W, t.Cells[0].H
-		}
+	if t, ok := s.Templates.ByID(templateID); ok && len(t.Cells) > 0 {
+		return t.Cells[0].W, t.Cells[0].H
 	}
 	return 0, 0
 }
@@ -1087,12 +1088,7 @@ func (s *Server) delivery(w http.ResponseWriter, r *http.Request) {
 // ---- plumbing ----
 
 func (s *Server) template(id string) (compose.Template, bool) {
-	for _, t := range s.Templates {
-		if t.ID == id {
-			return t, true
-		}
-	}
-	return compose.Template{}, false
+	return s.Templates.ByID(id)
 }
 
 func (s *Server) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
