@@ -154,4 +154,5 @@
         msg: >-
           Booth agent up. Open https://{{ booth_public_host }}/?t=<token> —
           the token is in /etc/bykami-agent.env on this host. Payments are
-          simulated and settle themselves; nothing here takes money.
+          simulated and nothing here takes money: press "Simulasikan
+          pembayaran" on the QR screen to release the shutter.
