@@ -44,18 +44,31 @@
       become: false
       when: booth_binary_src | length > 0
 
-    - name: Require a binary
+    - name: Check whether the box already has a binary
+      ansible.builtin.stat:
+        path: "{{ booth_install_path }}"
+      register: booth_installed_stat
+
+    - name: Require a binary from somewhere
       ansible.builtin.assert:
         that:
-          - booth_binary_src | length > 0
-          - booth_binary_stat.stat.exists | default(false)
+          - booth_binary_src | length > 0 or booth_installed_stat.stat.exists or booth_update_enabled
         fail_msg: >-
-          No binary at booth_binary_src. Build one with ./scripts/build-linux.sh
-          — it builds the kiosk bundle first, and skipping that embeds an empty
-          UI in a binary that compiles perfectly well. There is no pull-based
-          updater for the agent: this deployment is temporary and should not
-          acquire one.
+          No binary to run. Either build one with ./scripts/build-linux.sh and
+          point booth_binary_src at dist/bykami-agent-linux — it builds the
+          kiosk bundle first, and skipping that embeds an empty UI in a binary
+          that compiles perfectly well — or set booth_update_enabled=true and
+          let the box pull agent-* releases itself. This role never builds on
+          the host.
         quiet: true
+
+    - name: Require the pushed binary to be present
+      ansible.builtin.assert:
+        that:
+          - booth_binary_stat.stat.exists
+        fail_msg: "No file at {{ booth_binary_src }} on the control machine."
+        quiet: true
+      when: booth_binary_src | length > 0
 
     - name: Create the service user
       ansible.builtin.user:
@@ -75,12 +88,17 @@
         mode: "0750"
 
     - name: Install the binary
+      # Skipped entirely when nothing was pushed, which is the normal case once
+      # the updater is running — otherwise every play run would fight the
+      # pulled version and reinstall whatever the operator last built locally,
+      # which is a deploy that silently goes backwards.
       ansible.builtin.copy:
         src: "{{ booth_binary_src }}"
         dest: "{{ booth_install_path }}"
         owner: root
         group: root
         mode: "0755"
+      when: booth_binary_src | length > 0
       notify: Restart booth agent
 
     - name: Write the environment file
@@ -105,6 +123,52 @@
         group: root
         mode: "0644"
       notify: Restart booth agent
+
+    - name: Install the update script
+      ansible.builtin.template:
+        src: bykami-agent-update.sh.j2
+        dest: "/usr/local/bin/{{ booth_name }}-update"
+        owner: root
+        group: root
+        # Not writable by the service user. A compromised agent process should
+        # not be able to rewrite the script that runs as root and installs its
+        # next binary.
+        mode: "0755"
+
+    - name: Install the update units
+      ansible.builtin.template:
+        src: "{{ item.src }}"
+        dest: "/etc/systemd/system/{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - { src: bykami-agent-update.service.j2, dest: "{{ booth_name }}-update.service" }
+        - { src: bykami-agent-update.timer.j2, dest: "{{ booth_name }}-update.timer" }
+
+    - name: Pull a binary now if the box has none
+      # Only when the box has nothing installed and nothing was pushed. Without
+      # this the play would start a unit whose ExecStart does not exist and then
+      # wait for a health check that can never pass — the first timer tick is up
+      # to ten minutes away, so the deploy would look broken rather than
+      # pending.
+      ansible.builtin.command:
+        cmd: "/usr/local/bin/{{ booth_name }}-update"
+      when:
+        - booth_update_enabled
+        - not booth_installed_stat.stat.exists
+        - booth_binary_src | length == 0
+      changed_when: true
+
+    - name: Set the update timer to match booth_update_enabled
+      # Both states, not just the enabled one: turning the flag off has to stop
+      # the timer, or a box keeps pulling releases after someone decided it
+      # should not.
+      ansible.builtin.systemd_service:
+        name: "{{ booth_name }}-update.timer"
+        enabled: "{{ booth_update_enabled }}"
+        state: "{{ 'started' if booth_update_enabled else 'stopped' }}"
+        daemon_reload: true
 
     - name: Enable and start the booth agent
       ansible.builtin.systemd_service:

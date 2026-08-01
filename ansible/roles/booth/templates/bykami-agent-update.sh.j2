@@ -1,0 +1,176 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Local edits are overwritten. Change roles/booth/templates/ instead.
+#
+# Pull-based deploy for the test booth. CI publishes a GitHub Release tagged
+# agent-<sha>; this reads it and installs. Nothing reaches into the box, which
+# is why it has no inbound rule to open and no CI credential to leak.
+#
+# The same shape as bykami-update for the API, with one difference that is the
+# whole reason this is a separate script: the API is a stateless request
+# handler and can be restarted at any moment, and this thing has a customer
+# standing in front of it who has already paid.
+set -euo pipefail
+
+REPO="{{ booth_release_repo }}"
+BIN="{{ booth_install_path }}"
+PREV="{{ booth_install_path }}.previous"
+VERSION_FILE="{{ booth_data_dir }}/.deployed-version"
+DEFER_FILE="{{ booth_data_dir }}/.update-deferred-since"
+STATE="http://{{ booth_listen_addr }}/api/state"
+SERVICE="{{ booth_name }}"
+MAX_DEFER={{ booth_update_max_defer_minutes }}
+
+log() { echo "[bykami-agent-update] $*"; }
+
+asset="bykami-agent-linux-amd64"
+
+# The most recent agent-* release that actually carries a linux binary.
+#
+# Not /releases/latest: that returns the newest release of any kind, and api-*
+# releases are published to this same repository — so the first API release
+# after an agent one would start feeding this script a binary that is not even
+# the same program.
+#
+# The asset filter is what makes this safe to enable before the first release
+# built by the updated workflow. Every agent-* release published before then
+# holds only the Windows .exe, and asking for a URL that returns 404 would fail
+# the unit every ten minutes over a repository that is in a perfectly ordinary
+# state. No linux asset is "nothing to install", not an error.
+#
+# The explicit sort is not decoration. GitHub's list endpoint does not reliably
+# return releases newest-first — confirmed on this repository, where an api-*
+# release is returned ahead of the agent-* one published a minute later — so
+# taking the first match would install a stale binary or appear to sit on the
+# current version forever.
+tag=$(curl -fsSL --max-time 30 \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/$REPO/releases?per_page=100" \
+      | ASSET="$asset" python3 -c '
+import json, os, sys
+want = os.environ["ASSET"]
+rs = [r for r in json.load(sys.stdin)
+      if r["tag_name"].startswith("agent-") and not r["draft"] and not r["prerelease"]
+      and any(a["name"] == want for a in r.get("assets", []))]
+rs.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True)
+if rs:
+    print(rs[0]["tag_name"])
+')
+
+if [ -z "$tag" ]; then
+    log "no agent-* release carrying $asset; nothing to do"
+    exit 0
+fi
+
+current=$(cat "$VERSION_FILE" 2>/dev/null || echo "none")
+if [ "$tag" = "$current" ]; then
+    log "already on $tag"
+    exit 0
+fi
+
+log "current=$current available=$tag"
+
+# Never restart out from under a customer.
+#
+# A restart mid-session is not a dropped request that a browser retries: it is
+# somebody who has paid, is standing at the machine, and whose camera page dies
+# between the shutter and the print. The kiosk resumes from server state on
+# reload, so the session survives — but the person does not know that, and a
+# booth that goes black is a booth they walk away from.
+#
+# Bounded, because the wait is not guaranteed to end. Nothing sweeps abandoned
+# sessions: a customer who opens the QR screen and leaves without paying leaves
+# a row in awaiting_payment indefinitely, and an unbounded check would defer
+# every release from then on while reporting success. So the first deferral is
+# timestamped and after MAX_DEFER minutes the update goes ahead regardless.
+#
+# A booth that cannot be asked is treated as busy. If /api/state does not
+# answer, this script cannot tell an idle booth from an occupied one, and the
+# safe reading of "no answer" is not "go ahead and restart it".
+if state=$(curl -fsS --max-time 5 "$STATE" 2>/dev/null); then
+    busy=$(printf '%s' "$state" | python3 -c '
+import json, sys
+try:
+    print("yes" if json.load(sys.stdin).get("session") else "no")
+except Exception:
+    print("yes")
+')
+else
+    log "no answer from $STATE — treating the booth as busy"
+    busy=yes
+fi
+
+if [ "$busy" = "yes" ]; then
+    now=$(date +%s)
+    since=$(cat "$DEFER_FILE" 2>/dev/null || echo "")
+    case "$since" in
+        ''|*[!0-9]*) since=$now; echo "$now" > "$DEFER_FILE" ;;
+    esac
+
+    waited=$(( (now - since) / 60 ))
+    if [ "$waited" -lt "$MAX_DEFER" ]; then
+        log "booth is in a session; deferring $tag (${waited}m of ${MAX_DEFER}m)"
+        exit 0
+    fi
+    log "booth has been busy ${waited}m, past the ${MAX_DEFER}m limit — installing anyway"
+fi
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+base="https://github.com/$REPO/releases/download/$tag"
+curl -fsSL --max-time 180 -o "$tmp/$asset"        "$base/$asset"
+curl -fsSL --max-time 30  -o "$tmp/$asset.sha256" "$base/$asset.sha256"
+
+# Verify before anything touches the running system. The checksum proves the
+# download is intact, not that it is trustworthy — anyone who can push to main
+# can publish a release, which is the same trust boundary as any CI deploy.
+# Signing would close that; it is not done here.
+cd "$tmp"
+if ! sha256sum -c "$asset.sha256" >/dev/null 2>&1; then
+    log "CHECKSUM MISMATCH for $tag — refusing to install"
+    exit 1
+fi
+cd - >/dev/null
+
+chmod 0755 "$tmp/$asset"
+
+# Keep the outgoing binary so a failed health check has something to go back
+# to. cp, not mv: if this is the first install there is nothing to preserve.
+[ -f "$BIN" ] && cp -a "$BIN" "$PREV"
+
+# Same filesystem, so this is atomic — no window where the path exists but is
+# half-written, which is what a plain cp onto a running binary would risk.
+mv "$tmp/$asset" "$BIN"
+
+log "installed $tag, restarting $SERVICE"
+systemctl restart "$SERVICE"
+
+# The gate. /api/state opens the database and reads the catalogue and the media
+# ledger, so a 200 means the new binary can reach its own storage — not merely
+# that the process survived exec.
+for i in $(seq 1 15); do
+    if curl -fsS --max-time 3 "$STATE" >/dev/null 2>&1; then
+        echo "$tag" > "$VERSION_FILE"
+        rm -f "$DEFER_FILE"
+        log "healthy on $tag"
+        exit 0
+    fi
+    sleep 2
+done
+
+log "UNHEALTHY after installing $tag"
+
+if [ -f "$PREV" ]; then
+    log "rolling back to the previous binary"
+    mv "$PREV" "$BIN"
+    systemctl restart "$SERVICE"
+    # Deliberately not written to VERSION_FILE: the rollback restores the
+    # binary but the file still names the last version that passed, so the next
+    # run retries rather than treating the bad release as installed.
+    log "rolled back"
+else
+    log "no previous binary to roll back to"
+fi
+
+exit 1

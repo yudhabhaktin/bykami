@@ -272,15 +272,61 @@ cookie stops being recognised, everyone else's keeps working. With one shared
 secret that operation costs everybody their access, which is why it never
 happens.
 
-Three things this role refuses to do:
+Two things this role refuses to do:
 
 - **Start without an access token.** The agent enforces it too; the assert here
   only moves the failure earlier and names it. Every route the agent serves is
   unauthenticated by design, and `/api/capture` takes a 16 MB upload.
 - **Put the token in the unit file.** `/etc/systemd/system` is world-readable and
   `ExecStart` is visible in `ps`. It goes in a mode-0600 `EnvironmentFile`.
-- **Pull its own updates.** `app` has a release poller; this deliberately does
-  not. A temporary surface should not acquire a supply chain.
+
+### Auto-deploy
+
+`booth_update_enabled: true` puts the same release poller on the booth that
+`app` has. CI publishes `agent-<sha>` with a linux/amd64 binary alongside the
+Windows one; the box checks every ten minutes, verifies the checksum, installs,
+restarts, and rolls back if `/api/state` does not come up.
+
+Set it in the vars file **and clear `booth_binary_src`**. With both set, every
+play run reinstalls the local build over whatever the timer pulled, which is a
+deploy that silently goes backwards.
+
+```yaml
+booth_update_enabled: true
+booth_binary_src: ""
+```
+
+This role's third refusal used to be pulling its own updates — *a temporary
+surface should not acquire a supply chain*. What that argument was really
+against was building a delivery mechanism nobody had asked for. Deploying by
+hand turned out to mean deploying rarely, from a laptop, with the binary path
+and the SSH firewall hole both going stale between runs; the supply chain was a
+laptop either way, and a worse one.
+
+The security property that mattered is untouched: **the box pulls, CI reaches
+into nothing.** No inbound rule to open, no deploy credential in GitHub. What
+the checksum does *not* buy is trust — anyone who can push to `main` can publish
+a release, which is the same boundary as any CI deploy. Signing would close
+that, and is not done here.
+
+One difference from `app`, and the reason the script is not shared: the API is
+a stateless request handler and can restart at any moment. The booth has a
+customer standing in front of it who has already paid. So the updater **defers
+while a session is live**, and treats a booth that will not answer `/api/state`
+as busy rather than idle.
+
+That wait is bounded at `booth_update_max_defer_minutes` (2h). Nothing sweeps
+abandoned sessions — somebody who opens the QR screen and walks off leaves a row
+in `awaiting_payment` forever — so an unbounded check would defer every release
+from that moment on while still reporting success.
+
+Watch it work:
+
+```bash
+systemctl list-timers bykami-agent-update.timer
+journalctl -u bykami-agent-update -n 50
+cat /var/lib/bykami-agent/.deployed-version
+```
 
 `GOMEMLIMIT` is 350MiB against the app's 1400MiB. The box is 2 GiB, the agent
 decodes and rescales full-size frames, and without a limit of its own one 24 MP
