@@ -75,8 +75,14 @@ colours the photograph and never this artwork. See `filter.go`.
 
 Templates in this directory are compiled into the binary — one artifact, one
 version, the same rule the embedded kiosk UI follows. An outlet can add its own
-without a rebuild by pointing `-templates` at a folder on the booth PC, and a
-synced frame with the same id replaces one of these.
+without a rebuild by pointing `-templates` at a folder on the booth PC.
+
+The three sources are **added together**, not chosen between: `cmd/bykami-agent`
+appends `-templates` and the synced catalogue onto these, and a frame only
+displaces one of them by carrying the same id. So changing this directory never
+removes a design from a booth — replacing what a customer is offered means
+editing here *and* running `bykami frames unpublish` against the catalogue. The
+failure is quiet, because a booth showing too many frames still works.
 
 ## These are one outlet's frames
 

@@ -181,6 +181,23 @@ unpublished — the same rule the console follows, for the same reason.
 This is preferable to switching the development OTP sender on to get a login: a
 one-time code in a log file is a one-time code in whatever reads that log.
 
+**A booth's frames are the built-ins *plus* whatever is published here.**
+`agent/cmd/bykami-agent` appends the synced set onto `compose.Builtin()` rather
+than choosing between them — a catalogue frame only displaces a built-in when it
+carries the same id. So shipping a binary with new house frames does not
+withdraw anything from the catalogue, and a request to "replace all the frames"
+is two jobs: the release, and then
+
+```bash
+bykami -db … frames unpublish <id>     # booths drop it within five minutes
+```
+
+This is worth stating because it fails quietly in the direction of more. Nobody
+notices the extra designs in a test — the booth still works, every frame still
+prints — and the tell arrives as a customer picking artwork that was supposed to
+be gone. Unpublish is the reversible half of the pair; `delete` is for artwork
+that was wrong rather than artwork that is finished.
+
 **Seasons are dates, not a switch somebody flips.** A Ramadan frame that has to
 be turned off by hand is one that is still on the booth in August, and the
 person who notices is a customer. The form asks for the last day it runs,
