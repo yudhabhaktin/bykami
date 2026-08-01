@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
+	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/compose"
 	"github.com/bhaktiyudha/bykami/agent/internal/httpd"
 	"github.com/bhaktiyudha/bykami/agent/internal/ingest"
@@ -31,6 +32,7 @@ type fixture struct {
 	simulated *payment.Simulated
 	sessions  *session.Store
 	photos    *photo.Store
+	clips     *clip.Store
 	printer   *printer.Queue
 	root      string
 }
@@ -52,6 +54,7 @@ func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 	root := t.TempDir()
 
 	photos := photo.New(db)
+	clips := clip.New(db)
 	sessions := session.New(db)
 	sim := payment.NewSimulated(log, 0)
 	payments := payment.New(db, sim)
@@ -69,6 +72,7 @@ func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 
 	deps := httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
+		Clips:  clips,
 		Ingest: watcher, Templates: compose.NewSet(templates), Packages: packages,
 		Root: root, Source: httpd.SourceWebcam, OutletID: "jajag",
 		Simulated: sim, Log: log,
@@ -88,7 +92,7 @@ func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 
 	return &fixture{
 		srv: srv.Handler(), simulated: sim, sessions: sessions, photos: photos,
-		printer: prints, root: root,
+		clips: clips, printer: prints, root: root,
 	}
 }
 

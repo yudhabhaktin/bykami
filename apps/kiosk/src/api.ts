@@ -135,7 +135,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
     headers: {
-      ...(init?.body instanceof Blob ? {} : { "Content-Type": "application/json" }),
+      // FormData carries a generated multipart boundary, so the browser has to
+      // write the header itself. Setting it here would name a boundary that is
+      // not in the body, and the server would find no parts at all.
+      ...(init?.body instanceof Blob || init?.body instanceof FormData
+        ? {}
+        : { "Content-Type": "application/json" }),
       ...init?.headers,
     },
   });
@@ -194,6 +199,20 @@ export const api = {
       body: frame,
       headers: { "Content-Type": "image/jpeg" },
     }),
+
+  /**
+   * The seconds of camera around one shutter, which become the frame's moving
+   * version on the download page.
+   *
+   * A separate request from the frame it belongs to, and posted after it. This
+   * is twenty times the bytes, and /api/capture is on the shutter path — the
+   * one place in the booth where latency is the product.
+   */
+  clip: (photoId: string, frames: Blob[]) => {
+    const body = new FormData();
+    frames.forEach((f, i) => body.append("frame", f, `${i}.jpg`));
+    return request<{ ok: true }>(`/api/capture/${photoId}/clip`, { method: "POST", body });
+  },
 
   /**
    * This session's frames. The template decides each frame's print_dpi, because

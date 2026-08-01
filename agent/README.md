@@ -18,7 +18,8 @@ normalisation rather than sharing it.
 | `internal/compose` | Frames → a printable sheet at 300 dpi |
 | `internal/printer` | The print queue and the media ledger |
 | `internal/derive` | The delivered file: long edge 2048, EXIF stripped. A background worker builds one per frame |
-| `internal/purge` | The 7-day deletion of originals and sheets |
+| `internal/clip` | The moving version of a frame: five seconds of camera, rendered to an animated GIF by a background worker |
+| `internal/purge` | The 7-day deletion of originals, sheets and clips |
 | `internal/catalog` | What the customer can buy |
 | `internal/httpd` | The local API, and the embedded kiosk UI |
 
@@ -353,6 +354,40 @@ expires on its own:
   fail loudly.
 - `noindex`, `no-referrer`, `same-origin` CORP.
 
+### The moving version
+
+Every frame also keeps the five seconds of camera behind it, delivered as an
+animated GIF at `/g/{token}/m/{clip}` and offered as a badge on the still.
+
+**The buffer rolls; it does not start with each countdown.** The first countdown
+is five seconds and the ones after it are three, so a recorder started at each
+countdown would hand out clips of two different lengths. A ring buffer running
+for the length of a strip gives every shot the same five seconds — and on the
+later shots it catches the tail of the one before, which is people reacting to
+the frame they just took and is the best footage in the session.
+
+**GIF, and it is a considered choice.** This page has no JavaScript and a
+`default-src 'none'` policy, so an animated GIF is the only moving format that
+needs neither a script nor a wider CSP. It is also the only one a phone reliably
+saves: long-pressing an animation the browser is *displaying* offers "Add to
+Photos". That is why this is the one file route with no `?dl=1` — a
+`Content-Disposition` would put it in the downloads folder and break the single
+gesture the feature exists for. An MP4 would be a tenth of the size and cannot
+be produced here: the binary is cross-compiled with `GOOS=windows`, so cgo is
+unavailable and with it every H.264 encoder worth having.
+
+**The frames are not photos, and that is load-bearing.** Fifty frames a shot
+through `ingest` would fill the review screen with near-identical thumbnails and
+exhaust a fifteen-take session on the second shot, because `MayFire` counts rows
+in `photos` against `take_limit`. Clips live in their own table and their own
+tree. The burst is also posted *after* the frame rather than with it — it is
+twenty times the bytes, and `/api/capture` is on the shutter path.
+
+Rendering is the heaviest background job on the booth, two to three seconds of
+one core per clip, so the worker takes one per pass. That still keeps pace with
+capture, since a shot costs about five seconds of countdown and hold before the
+next one arrives.
+
 **The console error on this page is the policy working.** Cloudflare Web
 Analytics is on for the zone, so the edge injects its beacon into every HTML
 response and the CSP refuses to run it — which is the right outcome on a page
@@ -363,9 +398,14 @@ bytes, so nothing here can stop it being added; only the CSP stops it running.
 ## Retention
 
 Seven days, and it does not depend on anyone remembering. Originals, delivered
-derivatives **and composed sheets** — the sheets hold the same faces, laid out
-for the printer, so retention that covered only the originals would leave a
-full-resolution copy of every customer on the machine indefinitely.
+derivatives, **composed sheets and clips** — the sheets hold the same faces, laid
+out for the printer, and a clip is that face in motion, which is more
+identifying rather than less. Retention that covered only the originals would
+leave a full-resolution copy of every customer on the machine indefinitely.
+
+Clips are deleted through their row rather than by file age, unlike sheets: a
+clip belongs to exactly one photo, so it inherits that photo's deadline exactly
+instead of approximating it from a modification time.
 
 The photo rows stay. They are how the agent knows not to re-ingest bytes it has
 already seen, and how a question asked three weeks later is answerable once the

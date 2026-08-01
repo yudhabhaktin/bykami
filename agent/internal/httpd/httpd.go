@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
+	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/compose"
 	"github.com/bhaktiyudha/bykami/agent/internal/ingest"
 	"github.com/bhaktiyudha/bykami/agent/internal/payment"
@@ -97,6 +98,13 @@ type Deps struct {
 	Payments *payment.Store
 	Printer  *printer.Queue
 	Ingest   *ingest.Watcher
+
+	// Clips is the moving version of a frame, and nil turns motion off.
+	//
+	// Nil rather than a flag because there is nothing to configure: a booth
+	// with no clip store accepts no bursts and shows no animations, and every
+	// other thing it does is unchanged. The kiosk finds out by being refused.
+	Clips *clip.Store
 
 	// Templates is the live set, not a snapshot: the frame sync worker
 	// replaces it while the booth is serving.
@@ -184,6 +192,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/payment/simulate", s.simulatePayment)
 	s.mux.HandleFunc("POST /api/reprint", s.startReprint)
 	s.mux.HandleFunc("POST /api/capture", s.capture)
+	s.mux.HandleFunc("POST /api/capture/{photo}/clip", s.captureClip)
 	s.mux.HandleFunc("GET /api/photos", s.listPhotos)
 	s.mux.HandleFunc("GET /api/photos/{id}/file", s.servePhoto)
 	s.mux.HandleFunc("GET /api/templates/{id}/{kind}", s.templateAsset)
@@ -197,6 +206,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /g/{token}", s.gallery)
 	s.mux.HandleFunc("GET /g/{token}/p/{photo}", s.galleryPhoto)
 	s.mux.HandleFunc("GET /g/{token}/s/{sheet}", s.galleryPrint)
+	s.mux.HandleFunc("GET /g/{token}/m/{clip}", s.galleryClip)
 
 	// The one thing the download page loads that is not a photo. Registered as
 	// its own route rather than left to the fall-through below, because the
