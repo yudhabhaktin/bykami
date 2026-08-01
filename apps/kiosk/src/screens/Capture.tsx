@@ -31,6 +31,44 @@ const HOLD_MS = 1400;
 const WEBCAM_QUALITY = 0.92;
 
 /**
+ * How many seconds of camera each photo keeps behind it.
+ *
+ * Five, which is the first countdown exactly — but the buffer rolls rather than
+ * starting with each countdown, so every shot gets the same five seconds and
+ * not three for the ones with the shorter count. What that buys on the later
+ * shots is the tail of the one before: people reacting to the frame they just
+ * took, which is the best footage in the session and is over before anybody
+ * thinks to pose for it.
+ */
+const CLIP_SECONDS = 5;
+
+/**
+ * Frames a second in the clip.
+ *
+ * Matches clip.FPS in the agent, which encodes the GIF. It must divide 100:
+ * GIF measures delay in hundredths of a second, and a rate that does not divide
+ * cleanly plays at a length nobody chose.
+ */
+const CLIP_FPS = 10;
+
+/**
+ * The long edge of a clip frame, and it matches clip.LongEdge in the agent.
+ *
+ * Grabbed at the size it will be delivered at, so the agent has nothing to
+ * rescale — this is fifty frames per shot travelling to a phone over mobile
+ * data, and every pixel is paid for fifty times. Sending 1080p here would cost
+ * the booth PC the encode, the network the upload, and the customer nothing
+ * they could see in a 256-colour animation.
+ */
+const CLIP_LONG_EDGE = 400;
+
+/** Quality for a clip frame. Lower than a photograph's: it is about to be
+ *  quantised to 256 colours and dithered, which hides far more than this does. */
+const CLIP_QUALITY = 0.7;
+
+const CLIP_FRAMES = CLIP_SECONDS * CLIP_FPS;
+
+/**
  * How long the camera may take to open before the booth calls it broken.
  *
  * getUserMedia does not always fail when there is nothing to open: with no
@@ -96,6 +134,16 @@ export function Capture({
   // sequence is a running async function, and it has to see the change on its
   // next tick rather than on the next render.
   const stopped = useRef(false);
+
+  // The last CLIP_SECONDS of camera, oldest first — a ring buffer that runs for
+  // as long as a strip is being shot. Refs rather than state throughout: it
+  // changes ten times a second and nothing on screen draws from it, so putting
+  // it in state would re-render the countdown at 10 Hz for no reason.
+  const moment = useRef<Blob[]>([]);
+  const rolling = useRef<number | null>(null);
+  // Skips a tick rather than queueing behind a slow encode. On a tired booth PC
+  // an unguarded interval piles up grabs faster than the canvas retires them.
+  const grabbing = useRef(false);
 
   const session = state.session;
   const takes = session?.takes ?? 0;
@@ -198,6 +246,48 @@ export function Capture({
     if (takes > 0) setStep("review");
   }, [expired, takes, setStep]);
 
+  /**
+   * Starts keeping the last few seconds of camera.
+   *
+   * Runs for the length of a strip rather than the length of the session: a
+   * booth waiting at the "Mulai" button has nothing worth remembering, and an
+   * interval encoding JPEGs at 10 Hz for five idle minutes is a booth PC's fan
+   * for no reason.
+   */
+  const startRolling = useCallback(() => {
+    if (!webcam || rolling.current !== null) return;
+
+    moment.current = [];
+    rolling.current = window.setInterval(() => {
+      if (grabbing.current) return;
+      grabbing.current = true;
+
+      grabFrame(video.current, CLIP_LONG_EDGE, CLIP_QUALITY)
+        .then((f) => {
+          moment.current.push(f);
+          if (moment.current.length > CLIP_FRAMES) moment.current.shift();
+        })
+        // A dropped frame is a hundredth of a second missing from a clip that
+        // is a bonus on top of the photograph. It must never reach the screen
+        // as an error, and it must never stop the strip being shot.
+        .catch(() => {})
+        .finally(() => {
+          grabbing.current = false;
+        });
+    }, 1000 / CLIP_FPS);
+  }, [webcam]);
+
+  const stopRolling = useCallback(() => {
+    if (rolling.current === null) return;
+    clearInterval(rolling.current);
+    rolling.current = null;
+    moment.current = [];
+  }, []);
+
+  // An interval outlives the component that started it. Without this, walking
+  // off the camera screen mid-run leaves the webcam being encoded forever.
+  useEffect(() => stopRolling, [stopRolling]);
+
   /** Fires the shutter once. Reports whether a frame was actually captured. */
   const shoot = useCallback(async (): Promise<boolean> => {
     setFlash(true);
@@ -209,8 +299,15 @@ export function Capture({
     try {
       if (webcam) {
         const frame = await timed(t, "encode", () => grabFrame(video.current));
+
+        // Taken now, not after the upload. The buffer keeps filling while the
+        // frame is in flight, so a snapshot read later is five seconds that
+        // begin after the shutter rather than end at it.
+        const clip = moment.current.slice();
+
         record(t, "bytes", frame.size);
-        await timed(t, "upload", () => api.capture(frame));
+        const { photo } = await timed(t, "upload", () => api.capture(frame));
+        sendClip(photo.id, clip);
       } else {
         // The tethered path. How a tap reaches a Canon's shutter is the last
         // open question in the capture design — a USB relay into the RS-60E3
@@ -244,39 +341,49 @@ export function Capture({
     stopped.current = false;
     setError("");
 
-    // The strip is the target; the session's take limit is the ceiling. A
-    // session resumed halfway counts what it already has, so a run after
-    // "Foto lagi" tops the strip up rather than starting from nothing — and a
-    // run after "Ulangi" shoots another strip's worth on top.
-    const target = stripTarget(takes, need, limit);
-    setTarget(target);
-    let done = takes;
+    // Started with the run, so the first countdown fills the buffer and the
+    // first shot has its five seconds by the time the shutter fires. Stopped in
+    // the finally below, which is what every early return here goes through.
+    startRolling();
 
-    for (let shot = 0; done < target; shot++) {
-      setPhase("counting");
-      for (let c = shot === 0 ? FIRST_COUNTDOWN : NEXT_COUNTDOWN; c > 0; c--) {
-        setCount(c);
-        if (await pause(1000, stopped)) return setPhase("idle");
+    try {
+      // The strip is the target; the session's take limit is the ceiling. A
+      // session resumed halfway counts what it already has, so a run after
+      // "Foto lagi" tops the strip up rather than starting from nothing — and a
+      // run after "Ulangi" shoots another strip's worth on top.
+      const target = stripTarget(takes, need, limit);
+      setTarget(target);
+      let done = takes;
+
+      for (let shot = 0; done < target; shot++) {
+        setPhase("counting");
+        for (let c = shot === 0 ? FIRST_COUNTDOWN : NEXT_COUNTDOWN; c > 0; c--) {
+          setCount(c);
+          if (await pause(1000, stopped)) return setPhase("idle");
+        }
+        setCount(0);
+
+        setPhase("shooting");
+        if (!(await shoot())) return setPhase("idle");
+        done++;
+        if (stopped.current) return setPhase("idle");
+
+        if (done < target) {
+          setPhase("holding");
+          if (await pause(HOLD_MS, stopped)) return setPhase("idle");
+        }
       }
-      setCount(0);
 
-      setPhase("shooting");
-      if (!(await shoot())) return setPhase("idle");
-      done++;
-      if (stopped.current) return setPhase("idle");
-
-      if (done < target) {
-        setPhase("holding");
-        if (await pause(HOLD_MS, stopped)) return setPhase("idle");
-      }
+      // Stops here rather than going straight on to choosing. The strip is
+      // full, and the moment a customer knows whether they liked it is now,
+      // while they are still standing in front of the camera — "Ulangi" from
+      // the review screen is a walk back into frame after they have already sat
+      // down.
+      setPhase("done");
+    } finally {
+      stopRolling();
     }
-
-    // Stops here rather than going straight on to choosing. The strip is full,
-    // and the moment a customer knows whether they liked it is now, while they
-    // are still standing in front of the camera — "Ulangi" from the review
-    // screen is a walk back into frame after they have already sat down.
-    setPhase("done");
-  }, [need, limit, takes, shoot, setError]);
+  }, [need, limit, takes, shoot, setError, startRolling, stopRolling]);
 
   const running = phase !== "idle" && phase !== "done";
   // The tethered path has no shutter to drive, so the sequence is a webcam
@@ -451,23 +558,57 @@ function pause(ms: number, stopped: { current: boolean }): Promise<boolean> {
  * Also deliberately unfiltered. The filter is applied when the sheet is
  * composed, so the original on disk is the frame the camera saw and a customer
  * who changes their mind at review has not lost anything.
+ *
+ * longEdge scales the grab down on the way out, which is how a clip frame costs
+ * a fraction of a photograph. Zero means the sensor's own size, which is what
+ * the printed frame needs and the only thing that should ever ask for it.
  */
-async function grabFrame(el: HTMLVideoElement | null): Promise<Blob> {
+async function grabFrame(
+  el: HTMLVideoElement | null,
+  longEdge = 0,
+  quality = WEBCAM_QUALITY,
+): Promise<Blob> {
   if (!el || !el.videoWidth) throw new Error("kamera belum siap");
 
+  let { videoWidth: w, videoHeight: h } = el;
+  if (longEdge > 0 && Math.max(w, h) > longEdge) {
+    const scale = longEdge / Math.max(w, h);
+    // Rounded up off zero: a dimension of zero is a canvas that throws.
+    w = Math.max(1, Math.round(w * scale));
+    h = Math.max(1, Math.round(h * scale));
+  }
+
   const canvas = document.createElement("canvas");
-  canvas.width = el.videoWidth;
-  canvas.height = el.videoHeight;
+  canvas.width = w;
+  canvas.height = h;
 
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas tidak tersedia");
-  ctx.drawImage(el, 0, 0);
+  ctx.drawImage(el, 0, 0, w, h);
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new Error("gagal encode frame"))),
       "image/jpeg",
-      WEBCAM_QUALITY,
+      quality,
     );
   });
+}
+
+/**
+ * Sends a photo's seconds of motion, and does not wait for the answer.
+ *
+ * Fire-and-forget on purpose. This is twenty times the bytes of the frame it
+ * belongs to, and the next countdown starts immediately — awaiting it would put
+ * a customer's pose behind an upload nobody is waiting for. Nothing downstream
+ * needs the result: the agent renders the animation on its own schedule, and
+ * the download page shows whichever ones are ready.
+ *
+ * Failures are swallowed for the same reason they are on the frame sync: a clip
+ * is a bonus on top of the photographs, and no part of it may ever put an error
+ * in front of a paying customer or interrupt a strip being shot.
+ */
+function sendClip(photoId: string, frames: Blob[]): void {
+  if (frames.length < 2) return;
+  void api.clip(photoId, frames).catch(() => {});
 }

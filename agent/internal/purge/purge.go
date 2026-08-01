@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/photo"
 )
 
@@ -33,16 +34,21 @@ const DefaultInterval = time.Hour
 
 type Purger struct {
 	photos *photo.Store
-	root   string
-	age    time.Duration
-	log    *slog.Logger
+	// clips is the moving version of those frames, and may be nil on a booth
+	// that does not record them. A clip is the same face at the same moment —
+	// arguably more identifying than the still, since it carries how somebody
+	// moves — so it dies on exactly the same schedule.
+	clips *clip.Store
+	root  string
+	age   time.Duration
+	log   *slog.Logger
 }
 
-func New(photos *photo.Store, root string, age time.Duration, log *slog.Logger) *Purger {
+func New(photos *photo.Store, clips *clip.Store, root string, age time.Duration, log *slog.Logger) *Purger {
 	if age <= 0 {
 		age = DefaultAge
 	}
-	return &Purger{photos: photos, root: root, age: age, log: log}
+	return &Purger{photos: photos, clips: clips, root: root, age: age, log: log}
 }
 
 // Run sweeps on a ticker until ctx is cancelled, starting immediately.
@@ -103,6 +109,8 @@ func (p *Purger) Sweep(ctx context.Context) (int, error) {
 			}
 		}
 
+		p.removeClip(ctx, ph.ID)
+
 		if err := p.photos.MarkPurged(ctx, ph.ID); err != nil {
 			return n, err
 		}
@@ -123,6 +131,53 @@ func (p *Purger) Sweep(ctx context.Context) (int, error) {
 		p.pruneEmptyDirs()
 	}
 	return n, nil
+}
+
+// removeClip deletes a frame's moving version along with the frame itself.
+//
+// Through the row rather than by file age, unlike the sheets below: a clip
+// belongs to exactly one photo, so it inherits that photo's deadline precisely
+// instead of approximating it from a modification time.
+//
+// Every failure here is logged and swallowed. The still is already gone by the
+// time this runs, and stopping the sweep over a clip would leave every later
+// customer's originals on the disk — which is the outcome this package exists
+// to prevent.
+func (p *Purger) removeClip(ctx context.Context, photoID string) {
+	if p.clips == nil {
+		return
+	}
+
+	c, err := p.clips.ByPhoto(ctx, photoID)
+	switch {
+	case errors.Is(err, clip.ErrNotFound):
+		return
+	case err != nil:
+		p.log.Error("purge: find clip", "photo", photoID, "err", err)
+		return
+	}
+	if !c.PurgedAt.IsZero() {
+		return
+	}
+
+	// RemoveAll rather than a file at a time: the frames are the reason a clip
+	// gets a directory of its own, and fifty names reconstructed from a count
+	// is fifty chances to leave one behind.
+	if err := os.RemoveAll(filepath.Join(p.root, filepath.FromSlash(c.Dir))); err != nil {
+		p.log.Error("purge: remove clip frames", "clip", c.ID, "dir", c.Dir, "err", err)
+	}
+	if c.GIFPath != "" {
+		gif := filepath.Join(p.root, filepath.FromSlash(c.GIFPath))
+		if err := os.Remove(gif); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			p.log.Error("purge: remove clip animation", "clip", c.ID, "path", c.GIFPath, "err", err)
+		}
+	}
+
+	// The mark is what stops the download page listing an animation whose file
+	// is gone, and what stops the render worker reconsidering it forever.
+	if err := p.clips.MarkPurged(ctx, c.ID); err != nil {
+		p.log.Error("purge: mark clip purged", "clip", c.ID, "err", err)
+	}
 }
 
 func (p *Purger) sweepSheets() int {
@@ -164,8 +219,11 @@ func (p *Purger) sweepSheets() int {
 func (p *Purger) pruneEmptyDirs() {
 	// "derived" is one level deep like the other two — see derive.DerivedPath,
 	// which files derivatives flat under a session directory precisely so this
-	// prune reaches them without a recursive walk.
-	for _, dir := range []string{"sessions", "sheets", "derived"} {
+	// prune reaches them without a recursive walk. "clips" is one level deep in
+	// the same sense: a clip's own directory sits inside the session's, and
+	// removeClip takes the whole thing, so what is left here is the empty
+	// session directory around it.
+	for _, dir := range []string{"sessions", "sheets", "derived", "clips"} {
 		root := filepath.Join(p.root, dir)
 		entries, err := os.ReadDir(root)
 		if err != nil {

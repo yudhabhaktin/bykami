@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/photo"
 	"github.com/bhaktiyudha/bykami/agent/internal/purge"
 	"github.com/bhaktiyudha/bykami/agent/internal/store"
@@ -60,7 +61,7 @@ func TestSweepDeletesOriginalsPastRetention(t *testing.T) {
 		t.Fatalf("record new: %v", err)
 	}
 
-	p := purge.New(photos, root, purge.DefaultAge, slog.New(slog.DiscardHandler))
+	p := purge.New(photos, nil, root, purge.DefaultAge, slog.New(slog.DiscardHandler))
 	n, err := p.Sweep(context.Background())
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
@@ -116,7 +117,7 @@ func TestSweepToleratesAMissingFile(t *testing.T) {
 	}
 	now = now.Add(8 * 24 * time.Hour)
 
-	p := purge.New(photos, t.TempDir(), purge.DefaultAge, slog.New(slog.DiscardHandler))
+	p := purge.New(photos, nil, t.TempDir(), purge.DefaultAge, slog.New(slog.DiscardHandler))
 	if n, err := p.Sweep(context.Background()); err != nil || n != 1 {
 		t.Fatalf("sweep: n=%d err=%v", n, err)
 	}
@@ -150,7 +151,7 @@ func TestSweepDeletesOldComposedSheets(t *testing.T) {
 		t.Fatalf("chtimes: %v", err)
 	}
 
-	p := purge.New(photo.New(db), root, purge.DefaultAge, slog.New(slog.DiscardHandler))
+	p := purge.New(photo.New(db), nil, root, purge.DefaultAge, slog.New(slog.DiscardHandler))
 	if _, err := p.Sweep(context.Background()); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
@@ -160,5 +161,80 @@ func TestSweepDeletesOldComposedSheets(t *testing.T) {
 	}
 	if _, err := os.Stat(recent); err != nil {
 		t.Fatal("a sheet inside the retention window was deleted")
+	}
+}
+
+// A clip is the same face at the same moment as the frame it belongs to —
+// arguably more identifying, since it carries how somebody moves. It must not
+// outlive the still by so much as a sweep.
+func TestSweepDeletesTheClipWithItsPhoto(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	ctx := context.Background()
+	now := time.Date(2026, 7, 27, 10, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	photos := photo.NewWithClock(db, clock)
+	clips := clip.NewWithClock(db, clock)
+
+	root := t.TempDir()
+	ph, err := photos.Record(ctx, photo.Photo{
+		ContentHash: "one", Path: "unassigned/one.jpg", Bytes: 6, Width: 100, Height: 100,
+		Source: photo.Webcam, CapturedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("record photo: %v", err)
+	}
+
+	// The state an upload and a render leave behind: a directory of frames, and
+	// a GIF beside it.
+	dir := clip.DirFor("", ph.ID)
+	frames := filepath.Join(root, filepath.FromSlash(dir))
+	if err := os.MkdirAll(frames, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(frames, clip.FrameName(0)), []byte("pixels"), 0o644); err != nil {
+		t.Fatalf("write frame: %v", err)
+	}
+
+	gifRel := clip.GIFPathFor("", ph.ID)
+	gifPath := filepath.Join(root, filepath.FromSlash(gifRel))
+	if err := os.WriteFile(gifPath, []byte("animation"), 0o644); err != nil {
+		t.Fatalf("write gif: %v", err)
+	}
+
+	c, err := clips.Record(ctx, clip.Clip{PhotoID: ph.ID, Dir: dir, Frames: 1, CapturedAt: now})
+	if err != nil {
+		t.Fatalf("record clip: %v", err)
+	}
+	if err := clips.SetGIF(ctx, c.ID, gifRel); err != nil {
+		t.Fatalf("set gif: %v", err)
+	}
+
+	now = now.Add(8 * 24 * time.Hour)
+
+	p := purge.New(photos, clips, root, purge.DefaultAge, slog.New(slog.DiscardHandler))
+	if _, err := p.Sweep(ctx); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+
+	if _, err := os.Stat(frames); err == nil {
+		t.Fatal("a clip's frames outlived the photo they belong to")
+	}
+	if _, err := os.Stat(gifPath); err == nil {
+		t.Fatal("a clip's animation outlived the photo it belongs to")
+	}
+
+	// The mark is what stops the download page listing an animation whose file
+	// is gone, and what stops the render worker reconsidering it forever.
+	got, err := clips.Get(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("get clip: %v", err)
+	}
+	if got.PurgedAt.IsZero() {
+		t.Fatal("the clip row was not marked purged")
 	}
 }

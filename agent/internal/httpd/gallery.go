@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/photo"
 	"github.com/bhaktiyudha/bykami/agent/internal/printer"
 	"github.com/bhaktiyudha/bykami/agent/internal/session"
@@ -65,6 +66,12 @@ type galleryPage struct {
 	Photos []galleryPhoto
 	Token  string
 
+	// Moving is whether any frame on this page has an animation, and it exists
+	// only so the instruction for saving one is not printed on a page where
+	// there is nothing to save. Rendering happens in the background, so the
+	// honest answer changes over the first minute of a link's life.
+	Moving bool
+
 	// ExpiresText is the date the photos go, already worded for a customer.
 	// Formatted in Go rather than in the template because the month names are
 	// Indonesian and html/template has no locale.
@@ -85,6 +92,12 @@ type galleryPage struct {
 type galleryPhoto struct {
 	ID  string
 	Num int
+
+	// GIF is the clip id of this frame's moving version, empty when it has none
+	// — the render is still queued, motion is off on this booth, or the burst
+	// never arrived. The still is shown either way: the animation is an extra
+	// on top of the photograph, never a replacement for it.
+	GIF string
 }
 
 type gallerySheet struct {
@@ -125,12 +138,28 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 		StyleCSS:      template.CSS(galleryStyle),
 		LogoPath:      brandLogoPath,
 	}
+	// Only the finished ones, and a failure here costs the animations rather
+	// than the page. The frames are what the customer scanned the code for.
+	moving := map[string]clip.Clip{}
+	if s.Clips != nil {
+		moving, err = s.Clips.Rendered(r.Context(), sess.ID)
+		if err != nil {
+			s.Log.Error("httpd: gallery clips", "session", sess.ID, "err", err)
+			moving = map[string]clip.Clip{}
+		}
+	}
+
 	for _, p := range photos {
 		if !p.PurgedAt.IsZero() {
 			continue
 		}
-		page.Photos = append(page.Photos, galleryPhoto{ID: p.ID, Num: len(page.Photos) + 1})
+		page.Photos = append(page.Photos, galleryPhoto{
+			ID:  p.ID,
+			Num: len(page.Photos) + 1,
+			GIF: moving[p.ID].ID,
+		})
 	}
+	page.Moving = len(moving) > 0
 
 	galleryHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -248,6 +277,56 @@ func (s *Server) galleryPrint(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", `attachment; filename="bykami-frame-`+job.ID[:8]+`.jpg"`)
 	}
 	http.ServeFile(w, r, path)
+}
+
+// galleryClip serves one frame's moving version.
+//
+// No `dl` parameter, unlike the two routes above, and that is the point rather
+// than an omission. Content-Disposition puts a file in the phone's downloads;
+// what a customer wants is the animation in their camera roll, and the way
+// there on iOS is to long-press an image the browser is *displaying* and choose
+// "Add to Photos". Sending this as an attachment would break the one gesture
+// this whole feature exists to enable.
+func (s *Server) galleryClip(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.sessionByToken(w, r)
+	if !ok {
+		return
+	}
+	if s.Clips == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	c, err := s.Clips.Get(r.Context(), r.PathValue("clip"))
+	switch {
+	case errors.Is(err, clip.ErrNotFound):
+		http.NotFound(w, r)
+		return
+	case err != nil:
+		s.fail(w, "gallery clip", err)
+		return
+	}
+
+	// The same check the other two rest on, for the same reason, and not found
+	// for the same reason: a 403 would confirm the clip exists.
+	if c.SessionID != sess.ID {
+		http.NotFound(w, r)
+		return
+	}
+	if !c.PurgedAt.IsZero() {
+		http.Error(w, "this photo has been deleted", http.StatusGone)
+		return
+	}
+	if c.GIFPath == "" {
+		// Recorded but not rendered yet. The page does not link these, so
+		// reaching one means a customer reloaded into a race — and a 404 sends
+		// them back to a page that will have it in a moment.
+		http.NotFound(w, r)
+		return
+	}
+
+	galleryHeaders(w)
+	http.ServeFile(w, r, filepath.Join(s.Root, filepath.FromSlash(c.GIFPath)))
 }
 
 // sheets lists a session's composed prints, newest first.
@@ -371,10 +450,10 @@ func isGalleryPath(p string) bool {
 	if !nested {
 		return true // GET /g/{token}
 	}
-	// GET /g/{token}/p/{photo} and /g/{token}/s/{sheet}, and nothing below
-	// either of them.
+	// GET /g/{token}/p/{photo}, /g/{token}/s/{sheet} and /g/{token}/m/{clip},
+	// and nothing below any of them.
 	kind, id, ok := strings.Cut(sub, "/")
-	return ok && (kind == "p" || kind == "s") && id != "" && !strings.Contains(id, "/")
+	return ok && (kind == "p" || kind == "s" || kind == "m") && id != "" && !strings.Contains(id, "/")
 }
 
 // brandLogoPath is where the download page finds the wordmark. Public, static,
@@ -468,11 +547,22 @@ p { margin: 0 0 4px; color: #6b6257 }
 .sheet-strip { aspect-ratio: 1/3 }
 .sheet-6x8 { aspect-ratio: 3/4 }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 12px; margin-top: 12px }
-.grid a {
-  display: block; border: 2px solid #1a1a1a; border-radius: 14px;
+.grid .cell {
+  position: relative; border: 2px solid #1a1a1a; border-radius: 14px;
   overflow: hidden; background: #fffcf7; box-shadow: 3px 3px 0 #1a1a1a;
 }
+.grid .cell > a { display: block }
 .grid img { display: block; width: 100%; height: 100%; aspect-ratio: 4/3; object-fit: cover }
+/* The badge on a frame that moves. A link of its own rather than the whole
+   thumbnail, because the thumbnail is the still and the still must stay one
+   tap away — and because an <img> pointing at the animation would pull a
+   megabyte and a half per frame before anybody asked for it. */
+.gif {
+  position: absolute; right: 8px; bottom: 8px;
+  padding: 1px 9px; border: 2px solid #1a1a1a; border-radius: 999px;
+  background: #e7b23f; color: #1a1a1a; text-decoration: none;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px;
+}
 .note { margin-top: 32px; padding: 12px 16px; border: 2px solid #1a1a1a; border-radius: 12px; background: #dcebe1; color: #1a1a1a }
 .gone { margin-top: 24px; padding: 16px; border: 2px solid #1a1a1a; border-radius: 12px; background: #e7b23f }
 `
@@ -514,9 +604,18 @@ var galleryTmpl = template.Must(template.New("gallery").Parse(`<!doctype html>
 {{end}}
   <h2>Foto asli</h2>
   <p>Tanpa bingkai, satu per satu — {{len .Photos}} foto.</p>
+{{if .Moving}}
+  <p>Yang bertanda <strong>GIF</strong> juga punya versi bergerak. Buka, lalu
+  tekan lama gambarnya untuk menyimpannya.</p>
+{{end}}
   <div class="grid">
 {{range .Photos}}
-    <a href="/g/{{$.Token}}/p/{{.ID}}?dl=1"><img src="/g/{{$.Token}}/p/{{.ID}}" alt="Foto {{.Num}}" loading="lazy"></a>
+    <div class="cell">
+      <a href="/g/{{$.Token}}/p/{{.ID}}?dl=1"><img src="/g/{{$.Token}}/p/{{.ID}}" alt="Foto {{.Num}}" loading="lazy"></a>
+{{if .GIF}}
+      <a class="gif" href="/g/{{$.Token}}/m/{{.GIF}}">GIF</a>
+{{end}}
+    </div>
 {{end}}
   </div>
   <div class="note">

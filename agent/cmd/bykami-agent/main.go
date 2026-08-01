@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
+	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/compose"
 	"github.com/bhaktiyudha/bykami/agent/internal/derive"
 	"github.com/bhaktiyudha/bykami/agent/internal/framesync"
@@ -158,6 +159,7 @@ func run(c config, log *slog.Logger) error {
 	defer db.Close()
 
 	photos := photo.New(db)
+	clips := clip.New(db)
 	sessions := session.New(db)
 
 	provider, simulated, err := newPaymentProvider(c, log)
@@ -216,6 +218,7 @@ func run(c config, log *slog.Logger) error {
 
 	srv, err := httpd.New(httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
+		Clips:  clips,
 		Ingest: watcher, Templates: live, Packages: packages,
 		Root: root, Source: source, OutletID: c.outlet,
 		Simulated: simulated, PublicHost: c.publicHost, AccessTokens: tokens,
@@ -261,7 +264,7 @@ func run(c config, log *slog.Logger) error {
 			return filepath.Join(root, filepath.FromSlash(j.SheetPath)), nil
 		})
 	})
-	background("purge", purge.New(photos, root, c.retention, log).Run)
+	background("purge", purge.New(photos, clips, root, c.retention, log).Run)
 
 	if frameSync != nil {
 		background("framesync", frameSync.Run)
@@ -274,6 +277,12 @@ func run(c config, log *slog.Logger) error {
 	// tethered path. Background rather than inline in the capture handler: the
 	// shutter path is where latency is the product.
 	background("derive", derive.NewWorker(photos, root, log).Run)
+
+	// The moving version of each frame — the seconds of camera before the
+	// shutter, rendered to a GIF for the download page. Heavier than derive by
+	// an order of magnitude and wanted later, so it takes one clip per pass;
+	// see clip.DefaultBatch.
+	background("clip", clip.NewWorker(clips, root, log).Run)
 
 	httpSrv := &http.Server{
 		Addr:    c.addr,
