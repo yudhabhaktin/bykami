@@ -19,11 +19,12 @@ booth_name: bykami-agent
 # Path on the CONTROL machine to a linux/amd64 binary. Same rule as the app
 # role: never build on the VPS.
 #
-#   cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-#     go build -trimpath -ldflags="-s -w" -o /tmp/bykami-agent ./cmd/bykami-agent
+#   ./scripts/build-linux.sh
 #
-# The kiosk bundle must be built first or the binary embeds an empty UI:
-#   pnpm --filter @bykami/kiosk build
+# It builds the kiosk bundle first — skip that and the binary embeds an empty
+# UI — and leaves dist/bykami-agent-linux, which is what a vars file should
+# point this at. A temp directory also works, right up until it is emptied and
+# the play stops on a missing binary having done nothing.
 booth_binary_src: ""
 
 booth_user: bykami-agent
