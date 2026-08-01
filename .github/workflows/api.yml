@@ -14,7 +14,8 @@ name: API
 # Zero Trust organization and an API token carrying Access permissions, neither
 # of which exists yet. Until then deploys run from a workstation:
 #
-#   ansible-playbook site.yml --tags app -e app_binary_src=/tmp/bykami
+#   ./scripts/build-linux.sh
+#   cd ansible && ansible-playbook site.yml --tags app -e @booth.vars.yml
 on:
   push:
     branches: [main]

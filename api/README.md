@@ -116,9 +116,8 @@ the tunnel exists. See `ansible/README.md`.
 From a workstation, pushing rather than waiting for a pull:
 
 ```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-  go build -trimpath -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami
-cd ../ansible && ansible-playbook site.yml --tags app -e app_binary_src=/tmp/bykami
+./scripts/build-linux.sh                   # leaves dist/bykami-linux
+cd ansible && ansible-playbook site.yml --tags app -e @booth.vars.yml
 ```
 
 `copy` compares checksums, so redeploying an unchanged binary fires no handler
