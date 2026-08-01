@@ -414,7 +414,11 @@ when there is a second outlet, that becomes worth having.
   jack — the last open question in the capture design.
 - **No DNP backend.** `-printer=sim` is the only one that exists.
 - **No liveness heartbeat to `api/`**, so nothing knows the booth is down.
-- **No OTA updates.** Releases are published by CI and installed by whoever is
-  standing at the booth.
+- **No OTA updates on the booth PC.** The shop machine is Windows with no
+  inbound anything, so its release is still installed by whoever is standing at
+  it. The linux/amd64 build published alongside it *does* update itself — see
+  `booth_update_enabled` in `ansible/README.md` — but that is the test VPS, and
+  a box reachable through a tunnel it dialled out to is not the problem the shop
+  PC has.
 - **No per-booth identity.** Frame sync authenticates with one shared secret, so
   a booth cannot be revoked without rotating every booth's token.

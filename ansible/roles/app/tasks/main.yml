@@ -22,10 +22,8 @@
     that:
       - app_binary_src | length > 0 or app_installed_stat.stat.exists or app_update_enabled
     fail_msg: >-
-      No binary to run. Either push one with
-      -e app_binary_src=/path/to/linux-amd64-binary (build it with
-      cd api && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath
-      -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami), or set
+      No binary to run. Either build one with ./scripts/build-linux.sh and
+      point app_binary_src at dist/bykami-linux, or set
       app_update_enabled=true to let the box pull the latest release itself.
       This role never builds on the host.
     quiet: true

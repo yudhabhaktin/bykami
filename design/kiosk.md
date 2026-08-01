@@ -93,6 +93,13 @@ Two consequences:
 - **UI changes are agent releases.** Fine at one booth, and at N outlets binary
   OTA is needed regardless — so one update mechanism gets built, not two.
 
+  Half of it now exists. The test VPS polls `agent-*` releases and installs the
+  linux build itself, checksum-verified and rolled back if the new binary does
+  not answer `/api/state` (`booth_update_enabled`, `ansible/README.md`). A shop
+  PC is the harder half and still unsolved: Windows, no inbound anything, and a
+  restart that must not land mid-session — the linux updater defers on a live
+  session for exactly that reason, which is the part worth carrying over.
+
 ### The couplings that remain real
 
 | Coupling | Mechanism |
