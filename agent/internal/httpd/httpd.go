@@ -182,6 +182,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/session/close", s.closeSession)
 	s.mux.HandleFunc("GET /api/payment", s.pollPayment)
 	s.mux.HandleFunc("POST /api/payment/simulate", s.simulatePayment)
+	s.mux.HandleFunc("POST /api/reprint", s.startReprint)
 	s.mux.HandleFunc("POST /api/capture", s.capture)
 	s.mux.HandleFunc("GET /api/photos", s.listPhotos)
 	s.mux.HandleFunc("GET /api/photos/{id}/file", s.servePhoto)
@@ -196,6 +197,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /g/{token}", s.gallery)
 	s.mux.HandleFunc("GET /g/{token}/p/{photo}", s.galleryPhoto)
 	s.mux.HandleFunc("GET /g/{token}/s/{sheet}", s.galleryPrint)
+
+	// The one thing the download page loads that is not a photo. Registered as
+	// its own route rather than left to the fall-through below, because the
+	// guard lets it past the access token: a path that matches nothing is
+	// served the kiosk UI, so an exemption for a path that might not exist is
+	// an exemption for the booth's own interface.
+	s.mux.HandleFunc("GET "+brandLogoPath, s.brandLogo)
 
 	s.mux.Handle("GET /", s.ui())
 }
@@ -239,7 +247,10 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		// booth's — it opens the capture and print routes — so handing it to a
 		// customer to collect their photos would hand them the booth. The
 		// gallery carries its own, narrower secret in the path instead.
-		if public && !isGalleryPath(r.URL.Path) && !s.admit(w, r) {
+		// The logo the gallery renders is exempt for the same reason and on the
+		// same terms: it is public by nature, it carries no session, and it is
+		// matched exactly rather than by prefix.
+		if public && !isGalleryPath(r.URL.Path) && r.URL.Path != brandLogoPath && !s.admit(w, r) {
 			http.Error(w, "this test booth needs its access token", http.StatusUnauthorized)
 			return
 		}
@@ -381,6 +392,12 @@ type stateResponse struct {
 	Media     mediaView         `json:"media"`
 	Consent   consentView       `json:"consent"`
 	Flags     map[string]bool   `json:"flags"`
+
+	// ReprintIDR is what the review screen puts on the "cetak lagi" button.
+	// Served rather than written into the UI for the same reason the retention
+	// window is: a price on the screen that the charge does not match is worse
+	// than no price at all.
+	ReprintIDR int64 `json:"reprint_idr"`
 }
 
 type templateView struct {
@@ -405,7 +422,11 @@ type sessionView struct {
 	PackageName string `json:"package_name"`
 	PriceIDR    int64  `json:"price_idr"`
 	TemplateID  string `json:"template_id"`
-	PrintCopies int    `json:"print_copies"`
+	// PrintCopies is what this session may take away in total: the one print the
+	// session includes, plus one for every reprint that has actually settled.
+	// The package's own number alone would be wrong the moment a customer buys
+	// another sheet, and it is this figure the print route enforces.
+	PrintCopies int `json:"print_copies"`
 	// PrintsDone is how many of PrintCopies have been claimed. Served rather
 	// than counted in the browser so that a refresh mid-session cannot hand a
 	// customer their allowance a second time.
@@ -473,11 +494,12 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := stateResponse{
-		Source:    s.Source,
-		Packages:  packages,
-		Templates: views,
-		Filters:   compose.Filters,
-		Consent:   consentView{Version: ConsentVersion, RetentionDays: s.RetentionDays()},
+		Source:     s.Source,
+		Packages:   packages,
+		Templates:  views,
+		Filters:    compose.Filters,
+		Consent:    consentView{Version: ConsentVersion, RetentionDays: s.RetentionDays()},
+		ReprintIDR: catalog.ReprintIDR,
 		Flags: map[string]bool{
 			"payments_enabled":   s.Payments.Enabled(),
 			"payments_simulated": s.Simulated != nil,
@@ -525,6 +547,10 @@ func (s *Server) sessionView(ctx context.Context, sess session.Session) (session
 	if err != nil {
 		return sessionView{}, err
 	}
+	allowed, err := s.printAllowance(ctx, sess)
+	if err != nil {
+		return sessionView{}, err
+	}
 	return sessionView{
 		ID:          sess.ID,
 		State:       string(sess.State),
@@ -532,13 +558,27 @@ func (s *Server) sessionView(ctx context.Context, sess session.Session) (session
 		PackageName: sess.Package.Name,
 		PriceIDR:    sess.Package.PriceIDR,
 		TemplateID:  sess.Package.TemplateID,
-		PrintCopies: sess.Package.PrintCopies,
+		PrintCopies: allowed,
 		PrintsDone:  printed,
 		TakeLimit:   sess.TakeLimit,
 		Takes:       takes,
 		PhoneGiven:  sess.Phone != "",
 		ShareURL:    s.shareURL(sess),
 	}, nil
+}
+
+// printAllowance is how many sheets this session may take away.
+//
+// The session's own print, plus one for every reprint the customer has paid
+// for. Derived from the ledger of settled payments rather than from a counter
+// somewhere, so a booth that crashes between the settlement and the sheet comes
+// back owing exactly what it owed.
+func (s *Server) printAllowance(ctx context.Context, sess session.Session) (int, error) {
+	extra, err := s.Payments.SettledReprints(ctx, sess.ID)
+	if err != nil {
+		return 0, err
+	}
+	return sess.Package.PrintCopies + extra, nil
 }
 
 // shareURL is the address the delivery QR encodes, or empty when this booth
@@ -572,7 +612,13 @@ func paymentViewOf(p payment.Payment) paymentView {
 	}
 }
 
-// startSession is the first tap: a package is chosen and a QR code is minted.
+// startSession is the first tap: the booth's one session, and a QR code for it.
+//
+// package_id is optional and the kiosk no longer sends one — there is a single
+// session to buy, so the screen has nothing to choose and the server does not
+// ask it to. It is still honoured when present, because the operator scripts and
+// these tests name it, and because a request that does name a package should be
+// told when the name is wrong rather than quietly sold something else.
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PackageID string `json:"package_id"`
@@ -581,7 +627,11 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pkg, err := catalog.Get(req.PackageID)
+	get := catalog.Only
+	if req.PackageID != "" {
+		get = func() (catalog.Package, error) { return catalog.Get(req.PackageID) }
+	}
+	pkg, err := get()
 	if err != nil {
 		s.reject(w, http.StatusBadRequest, "Paket tidak dikenal.")
 		return
@@ -612,7 +662,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := s.Payments.Create(ctx, sess.ID, pkg.PriceIDR)
+	p, err := s.Payments.Create(ctx, sess.ID, pkg.PriceIDR, payment.SessionKind)
 	if err != nil {
 		if aerr := s.Sessions.Abandon(ctx, sess.ID); aerr != nil {
 			s.Log.Error("httpd: abandon after failed charge", "err", aerr)
@@ -677,6 +727,78 @@ func (s *Server) pollPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.write(w, http.StatusOK, map[string]any{"session": view, "payment": paymentViewOf(refreshed)})
+}
+
+// startReprint puts a second QR code in front of a customer who wants another
+// sheet.
+//
+// The same polling path as the session charge — the kiosk already asks
+// /api/payment whether the money arrived, and [payment.Store.Latest] returns
+// this one while it is the newest. What settlement unlocks is different: the
+// shutter is already released, and this adds one to what the print route will
+// allow.
+//
+// Refused while the customer still has an unclaimed print. Selling somebody a
+// sheet they already own is the one failure here that takes money and gives
+// nothing back, and the screen offering it would be a screen the customer has
+// no reason to distrust.
+func (s *Server) startReprint(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	sess, ok, err := s.Sessions.Current(ctx)
+	if err != nil {
+		s.fail(w, "current session", err)
+		return
+	}
+	if !ok || sess.State != session.Open {
+		s.reject(w, http.StatusConflict, "Tidak ada sesi yang siap cetak.")
+		return
+	}
+
+	printed, err := s.Printer.CopiesForSession(ctx, sess.ID)
+	if err != nil {
+		s.fail(w, "copies for session", err)
+		return
+	}
+	allowed, err := s.printAllowance(ctx, sess)
+	if err != nil {
+		s.fail(w, "print allowance", err)
+		return
+	}
+	if printed < allowed {
+		s.reject(w, http.StatusConflict, "Masih ada cetakan yang belum diambil.")
+		return
+	}
+
+	if !s.Payments.Enabled() {
+		s.reject(w, http.StatusServiceUnavailable, "Pembayaran belum aktif di booth ini.")
+		return
+	}
+
+	// The QR already on screen, if there is one. Closing the dialog and opening
+	// it again is one tap, and minting a fresh charge for each would leave a
+	// trail of live QR codes against one session at the gateway — any of which
+	// a customer could still scan, and only one of which this booth is watching.
+	p, err := s.Payments.Latest(ctx, sess.ID)
+	reuse := err == nil && p.Kind == payment.Reprint && p.State == payment.Pending &&
+		time.Now().Before(p.ExpiresAt)
+	if err != nil && !errors.Is(err, payment.ErrNotFound) {
+		s.fail(w, "latest payment", err)
+		return
+	}
+	if !reuse {
+		if p, err = s.Payments.Create(ctx, sess.ID, catalog.ReprintIDR, payment.Reprint); err != nil {
+			s.fail(w, "create reprint payment", err)
+			return
+		}
+	}
+
+	view, err := s.sessionView(ctx, sess)
+	if err != nil {
+		s.fail(w, "session", err)
+		return
+	}
+	s.write(w, http.StatusCreated, map[string]any{"session": view, "payment": paymentViewOf(p)})
 }
 
 // simulatePayment is the "the customer paid" button, and it exists only while
@@ -985,6 +1107,11 @@ func (s *Server) print(w http.ResponseWriter, r *http.Request) {
 		// Filter travels with the print request, like the template, so
 		// changing your mind at review stays free until the sheet is composed.
 		Filter string `json:"filter"`
+		// Cut is the customer's choice of printer output, made before the frame.
+		// It reaches the machine on the job rather than changing the composed
+		// sheet: the same pixels come out either way, and the blade is what
+		// differs.
+		Cut bool `json:"cut"`
 	}
 	if !s.decode(w, r, &req) {
 		return
@@ -1018,22 +1145,30 @@ func (s *Server) print(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The backstop kiosk.md keeps: a stray file in the folder must never become
-	// a free print, and neither must a customer asking for more copies than the
-	// package includes.
+	// a free print, and neither must a customer asking for more copies than they
+	// have paid for.
 	//
 	// Checked against everything this session has already claimed, not against
-	// this request alone. Reprint hands the copies out one at a time, so a
-	// per-request check would let a customer with a two-print package tap "cetak
-	// lagi" indefinitely — each request passing on its own while the total ran
-	// away.
+	// this request alone. Copies are handed out one at a time, so a per-request
+	// check would let a customer tap "cetak lagi" indefinitely — each request
+	// passing on its own while the total ran away.
+	//
+	// The allowance grows only when a reprint payment settles, which is what
+	// makes this the money rule rather than a UI one: opening the reprint dialog
+	// and never scanning the QR leaves it exactly where it was.
 	printed, err := s.Printer.CopiesForSession(ctx, sess.ID)
 	if err != nil {
 		s.fail(w, "copies for session", err)
 		return
 	}
-	if printed+copies > sess.Package.PrintCopies {
-		s.reject(w, http.StatusForbidden,
-			fmt.Sprintf("Paket ini termasuk %d cetak, sudah %d.", sess.Package.PrintCopies, printed))
+	allowed, err := s.printAllowance(ctx, sess)
+	if err != nil {
+		s.fail(w, "print allowance", err)
+		return
+	}
+	if printed+copies > allowed {
+		s.reject(w, http.StatusPaymentRequired,
+			fmt.Sprintf("Sudah %d cetak dari %d yang dibayar. Bayar dulu untuk cetak lagi.", printed, allowed))
 		return
 	}
 
@@ -1072,7 +1207,7 @@ func (s *Server) print(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := s.Printer.Submit(ctx, sess.ID, tpl.Layout, copies, filepath.ToSlash(rel))
+	job, err := s.Printer.Submit(ctx, sess.ID, tpl.Layout, copies, req.Cut, filepath.ToSlash(rel))
 	if err != nil {
 		// The sheet was composed before the queue was asked, so a refusal here
 		// would otherwise leave a file of the customer's faces on disk that no

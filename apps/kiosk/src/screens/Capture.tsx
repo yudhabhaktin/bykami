@@ -4,6 +4,7 @@ import type { ScreenProps } from "../App";
 import { api, ApiError } from "../api";
 import { record, timed, type Timings } from "../perf";
 import { cellAspect } from "../shot";
+import { recall, remember } from "../stash";
 
 /**
  * The countdown before the first shot.
@@ -45,6 +46,27 @@ const CAMERA_TIMEOUT_MS = 15_000;
 
 type Phase = "idle" | "counting" | "shooting" | "holding" | "done";
 
+/**
+ * The deadline for this session's photo time, as a millisecond timestamp.
+ *
+ * Anchored the first time the camera screen opens and then remembered, so a
+ * reload does not hand out another five minutes. It is the kiosk that keeps
+ * this clock and not the agent, deliberately: the server refusing a frame on
+ * time would cut somebody off mid-pose with their money already taken, whereas
+ * a screen that has run out still lets them keep every frame they have and
+ * choose from them.
+ */
+function deadlineFor(sessionID: string, minutes: number): number {
+  const held = recall(sessionID, "deadline");
+  if (held) {
+    const at = Number(held);
+    if (Number.isFinite(at)) return at;
+  }
+  const at = Date.now() + minutes * 60_000;
+  remember(sessionID, "deadline", String(at));
+  return at;
+}
+
 export function Capture({
   state,
   refresh,
@@ -52,12 +74,17 @@ export function Capture({
   setError,
   onTimings,
   templateId,
-}: ScreenProps & { templateId: string }) {
+  minutes,
+}: ScreenProps & { templateId: string; minutes: number }) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const [count, setCount] = useState(0);
   const [phase, setPhase] = useState<Phase>("idle");
   const [flash, setFlash] = useState(false);
+  // What the run in progress is shooting towards. Fixed when the run starts
+  // rather than recomputed while it goes: takes climbs as frames land, and a
+  // target derived from it would move away from the customer as they posed.
+  const [target, setTarget] = useState(0);
   // The camera-preparation phase. Opening a webcam on a booth PC is the longest
   // single wait in the flow and it is the driver's, not ours — so it gets a
   // screen that says what is happening instead of a dead button. "failed" is
@@ -75,6 +102,19 @@ export function Capture({
   const limit = session?.take_limit ?? 0;
   const atLimit = takes >= limit;
   const webcam = state.source === "webcam";
+
+  // Seconds of photo time left. Held in state so the screen can show it, but
+  // derived from a fixed deadline rather than counted down from five minutes —
+  // a tab the browser throttled in the background would otherwise finish with
+  // time on the clock.
+  const deadline = useRef(0);
+  if (deadline.current === 0 && session) {
+    deadline.current = deadlineFor(session.id, minutes);
+  }
+  const [left, setLeft] = useState(() =>
+    Math.max(0, Math.ceil((deadline.current - Date.now()) / 1000)),
+  );
+  const expired = left === 0;
 
   // Known before the shutter, which is the point of choosing the frame first:
   // "you need four" is useless advice after the fourth photo.
@@ -136,6 +176,28 @@ export function Capture({
   const preparing = webcam && camera === "opening";
   const broken = webcam && camera === "failed";
 
+  useEffect(() => {
+    const tick = () =>
+      setLeft(Math.max(0, Math.ceil((deadline.current - Date.now()) / 1000)));
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Time up. A sequence already running is halted through the same flag
+  // "Berhenti" sets, so the loop unwinds on its next tick rather than firing
+  // one more frame into a session that has ended.
+  //
+  // Frames already taken are kept and the customer goes on to choose from them:
+  // they paid for this, and a booth that expires into an empty screen has taken
+  // money and given nothing back. With nothing shot at all there is nowhere to
+  // send them, so the screen says the time is up and waits.
+  useEffect(() => {
+    if (!expired) return;
+    stopped.current = true;
+    if (takes > 0) setStep("review");
+  }, [expired, takes, setStep]);
+
   /** Fires the shutter once. Reports whether a frame was actually captured. */
   const shoot = useCallback(async (): Promise<boolean> => {
     setFlash(true);
@@ -182,10 +244,12 @@ export function Capture({
     stopped.current = false;
     setError("");
 
-    // The strip is the target; the package's take limit is the ceiling. A
+    // The strip is the target; the session's take limit is the ceiling. A
     // session resumed halfway counts what it already has, so a run after
-    // "Foto lagi" tops the strip up rather than starting from nothing.
-    const target = stripTarget(need, limit);
+    // "Foto lagi" tops the strip up rather than starting from nothing — and a
+    // run after "Ulangi" shoots another strip's worth on top.
+    const target = stripTarget(takes, need, limit);
+    setTarget(target);
     let done = takes;
 
     for (let shot = 0; done < target; shot++) {
@@ -207,12 +271,12 @@ export function Capture({
       }
     }
 
-    // Straight through to choosing. The strip is full, and asking for one more
-    // tap to say so is a tap that means nothing — Review has a way back if they
-    // want more frames.
+    // Stops here rather than going straight on to choosing. The strip is full,
+    // and the moment a customer knows whether they liked it is now, while they
+    // are still standing in front of the camera — "Ulangi" from the review
+    // screen is a walk back into frame after they have already sat down.
     setPhase("done");
-    setStep("review");
-  }, [need, limit, takes, shoot, setError, setStep]);
+  }, [need, limit, takes, shoot, setError]);
 
   const running = phase !== "idle" && phase !== "done";
   // The tethered path has no shutter to drive, so the sequence is a webcam
@@ -227,6 +291,10 @@ export function Capture({
           {template && <span className="muted small"> · {template.name}</span>}
         </h2>
         <span className="counter">
+          {/* Under a minute is where the number starts to matter, so that is
+              where it turns red rather than from the start — a clock that has
+              been urgent for five minutes is not urgent. */}
+          <span className={left <= 60 ? "clock low" : "clock"}>{clock(left)}</span>
           {takes} / {need || limit} foto
         </span>
       </div>
@@ -259,23 +327,31 @@ export function Capture({
         {phase === "counting" && count > 0 && <div className="countdown">{count}</div>}
         {phase === "holding" && (
           <div className="shot-taken">
-            <span>{takes} / {stripTarget(need, limit)}</span>
+            <span>{takes} / {target}</span>
             <span className="small">Ganti gaya!</span>
           </div>
         )}
         {flash && <div className="flash" />}
       </div>
 
-      {atLimit ? (
+      {expired ? (
+        <p className="notice">
+          {takes === 0
+            ? "Waktu sesi habis dan belum ada foto. Panggil petugas, ya."
+            : "Waktu sesi habis. Lanjut pilih foto."}
+        </p>
+      ) : atLimit ? (
         <p className="notice">Sudah mencapai batas take. Lanjut pilih foto.</p>
       ) : (
         need > 0 && (
           <p className="notice">
             {running
               ? `Foto otomatis — ${need} kali, tidak usah pegang layar.`
-              : enough
-                ? `Cukup untuk ${template?.name}. Ambil lagi kalau mau pilihan lebih banyak.`
-                : `Frame ini butuh ${need} foto — sudah ${takes}.`}
+              : phase === "done"
+                ? "Sudah cukup! Ulangi kalau mau gaya lain, atau lanjut pilih foto."
+                : enough
+                  ? `Cukup untuk ${template?.name}. Ambil lagi kalau mau pilihan lebih banyak.`
+                  : `Frame ini butuh ${need} foto — sudah ${takes}.`}
           </p>
         )
       )}
@@ -292,9 +368,15 @@ export function Capture({
           <button
             className="btn big"
             onClick={() => void (auto ? run() : shoot())}
-            disabled={atLimit || preparing || broken}
+            disabled={atLimit || expired || preparing || broken}
           >
-            {preparing ? "Menyiapkan…" : auto ? startLabel(takes, need) : "Ambil foto"}
+            {preparing
+              ? "Menyiapkan…"
+              : !auto
+                ? "Ambil foto"
+                : phase === "done"
+                  ? "Ulangi foto"
+                  : startLabel(takes, need)}
           </button>
         )}
         <button
@@ -309,9 +391,24 @@ export function Capture({
   );
 }
 
-/** How many frames this run is trying to fill: the strip, capped by what was paid for. */
-function stripTarget(need: number, limit: number): number {
-  return Math.min(need, limit);
+/** "4:32" — the photo session's clock, as a customer reads a timer. */
+function clock(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  return `${mins}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/**
+ * How many frames this run is trying to reach.
+ *
+ * Enough to fill the strip, and a strip's worth more when it is already full —
+ * which is what "Ulangi" asks for. Without that second case a retake computes a
+ * target it has already met and the sequence ends before the countdown starts,
+ * which looks exactly like a dead button.
+ *
+ * Capped by the take limit either way: that is what was paid for.
+ */
+function stripTarget(takes: number, need: number, limit: number): number {
+  return Math.min(takes >= need ? takes + need : need, limit);
 }
 
 function startLabel(takes: number, need: number): string {

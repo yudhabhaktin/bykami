@@ -71,7 +71,10 @@ func (s *Simulated) Print(ctx context.Context, job Job, imagePath string) error 
 	}
 	d := time.Duration(float64(spec.Duration) * float64(max(sheets, 1)) / s.speed)
 
-	s.log.Info("printer: simulating", "job", job.ID, "layout", job.Layout, "for", d)
+	// cut is logged rather than acted on. There is no blade to drive here, and
+	// the whole point of recording it on the job is that the real DNP backend
+	// will have one instruction to read when it exists.
+	s.log.Info("printer: simulating", "job", job.ID, "layout", job.Layout, "cut", job.Cut, "for", d)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

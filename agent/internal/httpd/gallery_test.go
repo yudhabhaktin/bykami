@@ -53,7 +53,7 @@ func (f *fixture) photoIDs(t *testing.T) []string {
 // shotSession pays, fires n frames and returns the download token.
 func (f *fixture) shotSession(t *testing.T, n int) string {
 	t.Helper()
-	f.pay(t, "mini")
+	f.pay(t)
 	for range n {
 		if w := f.do(t, "POST", "/api/capture", frameBytes(t, 1600, 1200)); w.Code != http.StatusCreated {
 			t.Fatalf("capture: %d %s", w.Code, w.Body)
@@ -65,9 +65,9 @@ func (f *fixture) shotSession(t *testing.T, n int) string {
 // printedSession pays, fires exactly the frames the package's template needs,
 // and prints them once per entry in filters — so a caller can ask for a reprint
 // of the same picture ("" twice) or for two different ones.
-func (f *fixture) printedSession(t *testing.T, packageID string, filters ...string) string {
+func (f *fixture) printedSession(t *testing.T, filters ...string) string {
 	t.Helper()
-	start := f.pay(t, packageID)
+	start := f.pay(t)
 
 	var ids []string
 	for range f.cellCount(t, start.Session.TemplateID) {
@@ -82,7 +82,13 @@ func (f *fixture) printedSession(t *testing.T, packageID string, filters ...stri
 		}](t, w).Photo.ID)
 	}
 
-	for _, filter := range filters {
+	for i, filter := range filters {
+		// The session includes one print. Every sheet after it is bought, so a
+		// test that wants two prints has to pay for the second exactly as a
+		// customer does.
+		if i > 0 {
+			f.buyReprint(t)
+		}
 		w := f.do(t, "POST", "/api/print", map[string]any{
 			"template_id": start.Session.TemplateID,
 			"photo_ids":   ids,
@@ -174,6 +180,29 @@ func TestTheGalleryExemptionDoesNotOpenTheBooth(t *testing.T) {
 	}
 }
 
+// The download page loads one thing that is not a photo, so the guard carries a
+// second exemption for it. It has to be exactly one path: everything around it
+// falls through to the kiosk UI, which is what the token is there to keep shut.
+func TestTheLogoExemptionIsOnlyTheLogo(t *testing.T) {
+	f := publicBooth(t)
+
+	// Deliberately not asserted as 200. Whether the file is there at all
+	// depends on whether the kiosk bundle was built before `go test`, and it is
+	// the exemption that is under test — a 404 from an unbuilt bundle is still
+	// an answer given without the booth's token.
+	if w := publicGet(t, f, "/brand/logo.png", ""); w.Code == http.StatusUnauthorized {
+		t.Error("the logo demands the booth's token, so the gallery renders without one")
+	}
+
+	for _, path := range []string{
+		"/brand", "/brand/", "/brand/logo.png/x", "/brand/logo.pngx", "/brand/other.png",
+	} {
+		if w := publicGet(t, f, path, ""); w.Code != http.StatusUnauthorized {
+			t.Errorf("%s = %d, want 401 without the access token", path, w.Code)
+		}
+	}
+}
+
 // The URL is the access control, so a wrong one has to be worth nothing.
 func TestGalleryRefusesATokenItDidNotMint(t *testing.T) {
 	f := publicBooth(t)
@@ -233,7 +262,7 @@ func TestGallerySeesOnlyItsOwnSessionsPhotos(t *testing.T) {
 // the page carries both — the composed sheet and the untouched originals.
 func TestGalleryOffersBothTheFramedPrintAndTheLooseFrames(t *testing.T) {
 	f := publicBooth(t)
-	token := f.printedSession(t, "mini", "")
+	token := f.printedSession(t, "")
 
 	w := publicGet(t, f, "/g/"+token, "")
 	if w.Code != http.StatusOK {
@@ -253,7 +282,7 @@ func TestGalleryOffersBothTheFramedPrintAndTheLooseFrames(t *testing.T) {
 // page the browser tries to render.
 func TestGalleryServesTheSheetAndOffersItAsADownload(t *testing.T) {
 	f := publicBooth(t)
-	token := f.printedSession(t, "mini", "")
+	token := f.printedSession(t, "")
 
 	ids := f.sheetIDs(t)
 	if len(ids) != 1 {
@@ -285,14 +314,14 @@ func TestGalleryServesTheSheetAndOffersItAsADownload(t *testing.T) {
 func TestGallerySeesOnlyItsOwnSessionsSheets(t *testing.T) {
 	f := publicBooth(t)
 
-	f.printedSession(t, "mini", "")
+	f.printedSession(t, "")
 	first := f.shareToken(t)
 	mine := f.sheetIDs(t)
 	if w := f.do(t, "POST", "/api/session/close", nil); w.Code != http.StatusOK {
 		t.Fatalf("close: %d %s", w.Code, w.Body)
 	}
 
-	f.printedSession(t, "mini", "")
+	f.printedSession(t, "")
 	theirs := f.sheetIDs(t)
 
 	w := publicGet(t, f, "/g/"+first+"/s/"+theirs[0], "")
@@ -310,7 +339,7 @@ func TestGallerySeesOnlyItsOwnSessionsSheets(t *testing.T) {
 // and it reads as a bug.
 func TestGalleryShowsARepeatedPrintOnce(t *testing.T) {
 	f := publicBooth(t)
-	token := f.printedSession(t, "midi", "", "")
+	token := f.printedSession(t, "", "")
 
 	if got := len(f.sheetIDs(t)); got != 2 {
 		t.Fatalf("%d print jobs, want the 2 this test is about", got)
@@ -326,7 +355,7 @@ func TestGalleryShowsARepeatedPrintOnce(t *testing.T) {
 // different pictures the customer paid for, and both belong on the page.
 func TestGalleryKeepsTwoPrintsThatDiffer(t *testing.T) {
 	f := publicBooth(t)
-	token := f.printedSession(t, "midi", "", "hitam-putih")
+	token := f.printedSession(t, "", "hitam-putih")
 
 	body := publicGet(t, f, "/g/"+token, "").Body.String()
 	if n := strings.Count(body, `href="/g/`+token+`/s/`); n != 2 {
@@ -404,7 +433,7 @@ func TestGalleryIsGoneOnceThePhotosArePurged(t *testing.T) {
 // a QR code that scans to a connection error.
 func TestShareURLIsEmptyWithoutAPublicHost(t *testing.T) {
 	f := setup(t)
-	f.pay(t, "mini")
+	f.pay(t)
 
 	got := decode[struct {
 		Session struct {

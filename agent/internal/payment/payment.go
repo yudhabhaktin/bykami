@@ -64,6 +64,20 @@ const (
 	Failed  State = "failed"
 )
 
+// Kind is what a payment buys.
+//
+// One session has exactly one [Session] payment and any number of [Reprint]
+// ones. They are separated because they unlock different things: the session
+// payment releases the shutter, a reprint payment adds a single sheet to what
+// the customer may take away, and a booth that confused the two would either
+// hand out free prints or lock the camera after the first reprint expired.
+type Kind string
+
+const (
+	SessionKind Kind = "session"
+	Reprint     Kind = "reprint"
+)
+
 var (
 	ErrNotFound = errors.New("payment: not found")
 
@@ -80,6 +94,7 @@ type Payment struct {
 	ExternalID string
 	AmountIDR  int64
 	QRPayload  string
+	Kind       Kind
 	State      State
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
@@ -133,12 +148,15 @@ func New(db *sql.DB, provider Provider, opts ...Option) *Store {
 func (s *Store) Enabled() bool { return s.provider != nil }
 
 // Create mints a QR code for a session and records it as pending.
-func (s *Store) Create(ctx context.Context, sessionID string, amountIDR int64) (Payment, error) {
+func (s *Store) Create(ctx context.Context, sessionID string, amountIDR int64, kind Kind) (Payment, error) {
 	if s.provider == nil {
 		return Payment{}, ErrNotConfigured
 	}
 	if amountIDR <= 0 {
 		return Payment{}, errors.New("payment: amount must be positive")
+	}
+	if kind != SessionKind && kind != Reprint {
+		return Payment{}, fmt.Errorf("payment: unknown kind %q", kind)
 	}
 
 	charge, err := s.provider.Create(ctx, sessionID, amountIDR)
@@ -162,16 +180,17 @@ func (s *Store) Create(ctx context.Context, sessionID string, amountIDR int64) (
 		ExternalID: charge.ExternalID,
 		AmountIDR:  amountIDR,
 		QRPayload:  charge.QRPayload,
+		Kind:       kind,
 		State:      Pending,
 		CreatedAt:  now,
 		ExpiresAt:  expires,
 	}
 
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO payments (id, session_id, provider, external_id, amount_idr, qr_payload, state, created_at, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+		`INSERT INTO payments (id, session_id, provider, external_id, amount_idr, qr_payload, kind, state, created_at, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
 		p.ID, p.SessionID, p.Provider, p.ExternalID, p.AmountIDR, nullIfEmpty(p.QRPayload),
-		p.CreatedAt.Unix(), p.ExpiresAt.Unix(),
+		string(p.Kind), p.CreatedAt.Unix(), p.ExpiresAt.Unix(),
 	)
 	switch {
 	case store.IsConstraint(err):
@@ -261,13 +280,37 @@ func (s *Store) ByExternalID(ctx context.Context, externalID string) (Payment, e
 
 // Latest returns the most recent payment for a session, which is the one the
 // screen is showing.
+//
+// Ties break on rowid, which is insertion order. created_at has one-second
+// resolution and a customer buying a reprint produces a second payment against
+// a session that already has one — comfortably inside the same second when the
+// booth is quick. The previous tiebreaker was the id, which is random hex, so
+// whichever charge won was a coin toss: the screen would poll the session's
+// old settled payment, see "settled" immediately, and hand out a sheet nobody
+// had scanned a QR code for.
 func (s *Store) Latest(ctx context.Context, sessionID string) (Payment, error) {
 	return s.one(ctx,
-		`SELECT `+columns+` FROM payments WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
+		`SELECT `+columns+` FROM payments WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
 		sessionID)
 }
 
-const columns = `id, session_id, provider, external_id, amount_idr, qr_payload, state,
+// SettledReprints counts the extra prints a session has actually paid for.
+//
+// Settled only. A pending reprint is a QR code on screen that nobody has
+// scanned yet, and treating it as bought would let a customer take a sheet by
+// opening the dialog and walking away.
+func (s *Store) SettledReprints(ctx context.Context, sessionID string) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM payments WHERE session_id = ? AND kind = 'reprint' AND state = 'settled'`,
+		sessionID,
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("payment: settled reprints: %w", err)
+	}
+	return n, nil
+}
+
+const columns = `id, session_id, provider, external_id, amount_idr, qr_payload, kind, state,
 	created_at, expires_at, settled_at`
 
 func (s *Store) one(ctx context.Context, query string, args ...any) (Payment, error) {
@@ -277,10 +320,11 @@ func (s *Store) one(ctx context.Context, query string, args ...any) (Payment, er
 		settledAt sql.NullInt64
 		created   int64
 		expires   int64
+		kind      string
 		state     string
 	)
 	err := s.db.QueryRowContext(ctx, query, args...).Scan(
-		&p.ID, &p.SessionID, &p.Provider, &p.ExternalID, &p.AmountIDR, &qr, &state,
+		&p.ID, &p.SessionID, &p.Provider, &p.ExternalID, &p.AmountIDR, &qr, &kind, &state,
 		&created, &expires, &settledAt)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -288,7 +332,7 @@ func (s *Store) one(ctx context.Context, query string, args ...any) (Payment, er
 	case err != nil:
 		return Payment{}, fmt.Errorf("payment: query: %w", err)
 	}
-	p.QRPayload, p.State = qr.String, State(state)
+	p.QRPayload, p.Kind, p.State = qr.String, Kind(kind), State(state)
 	p.CreatedAt, p.ExpiresAt = time.Unix(created, 0), time.Unix(expires, 0)
 	if settledAt.Valid {
 		p.SettledAt = time.Unix(settledAt.Int64, 0)

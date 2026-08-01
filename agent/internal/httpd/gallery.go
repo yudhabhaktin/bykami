@@ -75,6 +75,11 @@ type galleryPage struct {
 	// escaping it. It is a constant in this file, never anything from a
 	// request, which is what makes that safe.
 	StyleCSS template.CSS
+
+	// LogoPath comes from the constant the route and the guard are both written
+	// against, so moving the asset cannot leave the page pointing at a path the
+	// guard no longer lets a customer fetch.
+	LogoPath string
 }
 
 type galleryPhoto struct {
@@ -118,6 +123,7 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 		ExpiresText:   indoDate(sess.OpenedAt.Add(s.retention())),
 		RetentionDays: s.RetentionDays(),
 		StyleCSS:      template.CSS(galleryStyle),
+		LogoPath:      brandLogoPath,
 	}
 	for _, p := range photos {
 		if !p.PurgedAt.IsZero() {
@@ -371,6 +377,35 @@ func isGalleryPath(p string) bool {
 	return ok && (kind == "p" || kind == "s") && id != "" && !strings.Contains(id, "/")
 }
 
+// brandLogoPath is where the download page finds the wordmark. Public, static,
+// and the only path outside "/g/" that a customer's phone may fetch.
+const brandLogoPath = "/brand/logo.png"
+
+// brandLogo serves that wordmark out of the embedded kiosk bundle.
+//
+// From the bundle rather than a copy of its own in this package: the bundle is
+// already embedded here for the booth screen, and a second copy of the logo in
+// the agent is a second file to forget the day the logo changes.
+//
+// A `data:` URI would have avoided the route and the guard exemption both, and
+// cannot be used: the page's CSP names `img-src 'self'`, and widening that to
+// `data:` to carry a logo would also widen what anything else on the page could
+// be made to render.
+func (s *Server) brandLogo(w http.ResponseWriter, r *http.Request) {
+	b, err := uiFS.ReadFile("dist/logo.png")
+	if err != nil {
+		// Only when the kiosk bundle was not built before `go build`, which
+		// ui() already reports; the page loses its logo and keeps its photos.
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+	if _, err := w.Write(b); err != nil {
+		s.Log.Debug("gallery: logo write", "err", err)
+	}
+}
+
 // galleryHeaders locks the page down to what it actually is: some text and
 // some same-origin JPEGs.
 //
@@ -418,7 +453,7 @@ body {
 main { max-width: 46rem; margin: 0 auto }
 h1 { font-size: 1.75rem; letter-spacing: -0.5px; margin: 0 0 4px }
 h2 { font-size: 1.05rem; letter-spacing: -0.2px; margin: 30px 0 2px }
-.brand { font-weight: 700; font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: #6b6257 }
+.brand { display: block; width: 150px; height: auto; margin-bottom: 10px }
 p { margin: 0 0 4px; color: #6b6257 }
 .sheets { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px }
 .sheets a {
@@ -464,7 +499,7 @@ var galleryTmpl = template.Must(template.New("gallery").Parse(`<!doctype html>
 </head>
 <body>
 <main>
-  <span class="brand">bykami · self photo studio</span>
+  <img class="brand" src="{{.LogoPath}}" alt="studio by KAMI" width="640" height="210">
   <h1>Ini foto kamu 🎉</h1>
 {{if .Photos}}
   <p>Ketuk gambar untuk menyimpannya ke HP.</p>

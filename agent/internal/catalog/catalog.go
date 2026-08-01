@@ -18,6 +18,15 @@
 // studio.ts records every price as read off a gitignored PDF and never
 // confirmed with the owner. They are copied here unchanged rather than
 // re-guessed, so there is exactly one thing to correct when they are confirmed.
+//
+// # The booth sells one thing
+//
+// studio.ts still lists four packages, because the studio still sells four at
+// the counter. The self-service booth sells one — there is no attendant to
+// explain the difference between MIDI and MAXI to somebody standing at a screen,
+// and a price list is a step between a customer and the camera that earns
+// nothing. The one entry keeps the id `mini`, which is what anchors its price to
+// studio.ts and keeps the drift guard honest; its name is what the screen says.
 package catalog
 
 import (
@@ -33,16 +42,30 @@ var packagesJSON []byte
 // ErrNotFound means the kiosk asked for a package that is not on the list.
 var ErrNotFound = errors.New("catalog: no such package")
 
+// ReprintIDR is what one extra print costs once the session's included print
+// has been claimed.
+//
+// A price, and therefore unverified in exactly the way every price in studio.ts
+// is: read off nothing, agreed with nobody, and here so that there is one place
+// to correct it. It is deliberately not in packages.json — a reprint is not a
+// session, and giving it a package id would put something on the price list
+// that cannot be bought at the start of one.
+const ReprintIDR = 20_000
+
 // Package is one purchasable session.
 type Package struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	PriceIDR int64  `json:"price_idr"`
 
-	// DurationMinutes is what the price list advertises. Not enforced by the
-	// agent: a booth that cuts a customer off mid-pose because a timer expired
-	// is a worse experience than one that runs a few minutes over, and the take
-	// limit is the real bound on a session's cost.
+	// DurationMinutes is how long the customer has in front of the camera, and
+	// the kiosk now counts it down on the capture screen.
+	//
+	// Still not enforced here. The agent refusing a frame because a timer
+	// expired would cut a customer off mid-pose with money already taken; the
+	// take limit is the hard bound on what a session can cost, and this is the
+	// pacing that stops one group holding the booth while a queue forms. The
+	// screen reads it from here so the number counted down is the number sold.
 	DurationMinutes int `json:"duration_minutes"`
 
 	// TakeLimit is enforced, at capture, because the app owns the shutter.
@@ -69,6 +92,25 @@ func All() ([]Package, error) {
 		}
 	}
 	return out, nil
+}
+
+// Only returns the single package this booth sells.
+//
+// The kiosk no longer names one. It has nothing to choose from, so asking it to
+// send an id back would be a round trip whose only possible answer is already
+// known here — and one more way for the screen and the charge to disagree.
+func Only() (Package, error) {
+	all, err := All()
+	if err != nil {
+		return Package{}, err
+	}
+	if len(all) != 1 {
+		// The booth's whole flow assumes it: there is no price list to show and
+		// no screen on which a second package could be picked, so a catalogue
+		// with two of them would silently sell whichever came first.
+		return Package{}, fmt.Errorf("catalog: the booth sells one package, the catalogue has %d", len(all))
+	}
+	return all[0], nil
 }
 
 // Get returns one package by id.

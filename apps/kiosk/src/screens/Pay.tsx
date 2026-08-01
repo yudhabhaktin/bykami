@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import QRCode from "qrcode";
+import { useEffect, useState } from "react";
 
 import type { ScreenProps } from "../App";
 import { api, ApiError, rupiah } from "../api";
+import { countdown, QRCanvas } from "../QRCanvas";
 
 /** How often the booth asks the gateway whether the money arrived. */
 const POLL_MS = 2000;
@@ -16,22 +16,8 @@ const POLL_MS = 2000;
  * screen with a paying customer in front of it.
  */
 export function Pay({ state, refresh, setStep, setError }: ScreenProps) {
-  const canvas = useRef<HTMLCanvasElement>(null);
   const [remaining, setRemaining] = useState(state.payment?.expires_in ?? 0);
   const payload = state.payment?.qr_payload ?? "";
-
-  // The QR is drawn locally from the payload the gateway returned. Nothing
-  // fetches an image: the booth has to work with the network down, and a QR
-  // code served from someone else's host is a dependency in the middle of the
-  // one screen where money changes hands.
-  useEffect(() => {
-    if (!canvas.current || !payload) return;
-    void QRCode.toCanvas(canvas.current, payload, {
-      errorCorrectionLevel: "M",
-      margin: 1,
-      width: 512,
-    }).catch(() => setError("Gagal menampilkan QR. Panggil petugas."));
-  }, [payload, setError]);
 
   // The countdown is shown because an unexplained expiry looks like a broken
   // machine rather than a code that timed out.
@@ -51,7 +37,10 @@ export function Pay({ state, refresh, setStep, setError }: ScreenProps) {
 
         if (payment.state === "settled" && session.state === "open") {
           await refresh();
-          setStep("frame");
+          // What they bought, before what it looks like: the cut decides what
+          // comes out of the machine, and the frame screen is the choice after
+          // it.
+          setStep("session");
           return;
         }
         if (payment.state === "expired" || payment.state === "failed") {
@@ -79,9 +68,6 @@ export function Pay({ state, refresh, setStep, setError }: ScreenProps) {
     setStep("attract");
   }
 
-  const mins = Math.floor(remaining / 60);
-  const secs = String(remaining % 60).padStart(2, "0");
-
   return (
     <div className="grow center">
       <h1>Scan untuk bayar</h1>
@@ -89,13 +75,9 @@ export function Pay({ state, refresh, setStep, setError }: ScreenProps) {
         {state.session?.package_name} · {rupiah(state.payment?.amount_idr ?? 0)}
       </p>
 
-      <div className="qr">
-        <canvas ref={canvas} />
-      </div>
+      <QRCanvas payload={payload} onError={setError} />
 
-      <p className="muted">
-        Berlaku {mins}:{secs}
-      </p>
+      <p className="muted">Berlaku {countdown(remaining)}</p>
 
       <div className="actions" style={{ maxWidth: "32rem", width: "100%" }}>
         <button className="btn ghost" onClick={() => void cancel()}>

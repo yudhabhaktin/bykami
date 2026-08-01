@@ -3,14 +3,15 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type Photo, type State } from "./api";
 import { FilterDefs, NO_FILTER } from "./Filters";
 import { initPerf, labels, perfEnabled, type Timings } from "./perf";
+import { recall, remember } from "./stash";
 import { Attract } from "./screens/Attract";
 import { Capture } from "./screens/Capture";
 import { Delivery } from "./screens/Delivery";
 import { Done } from "./screens/Done";
 import { Frame } from "./screens/Frame";
-import { Packages } from "./screens/Packages";
 import { Pay } from "./screens/Pay";
 import { Review } from "./screens/Review";
+import { Session } from "./screens/Session";
 
 /*
  * One state machine, held here rather than in a router.
@@ -27,7 +28,7 @@ import { Review } from "./screens/Review";
  */
 export type Step =
   | "attract"
-  | "packages"
+  | "session"
   | "pay"
   | "frame"
   | "capture"
@@ -35,21 +36,27 @@ export type Step =
   | "delivery"
   | "done";
 
-/** How long the price list may sit untouched before the booth goes back to attract. */
-const WALKAWAY_MS = 45_000;
+/** How long the photo session runs before the booth moves the customer on. */
+const DEFAULT_MINUTES = 5;
 
 export function App() {
   const [state, setState] = useState<State | null>(null);
   const [step, setStep] = useState<Step>("attract");
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Photo[]>([]);
-  // Chosen on the frame screen and still changeable at review, so it outlives
-  // both. Seeded from the package, which is the frame the price list sold.
+  // Chosen on the frame screen, and no longer changeable afterwards: review is
+  // where a customer picks which photographs go in the strip, and re-opening
+  // the layout there was a second place to answer a question already answered.
+  // Seeded from the package, which is the frame the session opens on.
   const [templateId, setTemplateId] = useState("");
   // Like the template, the filter travels with the print request rather than
   // being committed at capture — so changing your mind at review is free, and
   // the originals on disk stay unfiltered.
   const [filter, setFilter] = useState(NO_FILTER);
+  // Whether the printer's blade splits the sheet. Chosen on the session screen
+  // and read again when the sheet is queued, so it outlives both. Cut is the
+  // default because two strips is the booth format the price is named for.
+  const [cut, setCut] = useState(true);
   const [timings, setTimings] = useState<Timings>({});
   const [perf] = useState(initPerf);
 
@@ -77,21 +84,26 @@ export function App() {
       if (!next) return;
       if (!next.session) return setStep("attract");
       setTemplateId(next.session.template_id);
+      // The choice they made before the reload, not the default. Resuming a
+      // "No Cut" session with the blade armed would hand back the wrong thing.
+      setCut(recall(next.session.id, "cut") !== "no");
       if (next.session.state === "awaiting_payment") return setStep("pay");
       // Frames already taken means the frame screen has been through once;
       // sending them back to it would look like the booth forgot.
-      setStep(next.session.takes > 0 ? "capture" : "frame");
+      setStep(next.session.takes > 0 ? "capture" : "session");
     })();
   }, [refresh]);
 
-  // A customer who walks away from the price list leaves the booth showing a
-  // price list. Only before payment: a timeout that resets a paid session would
-  // take money and give nothing back.
-  useEffect(() => {
-    if (step !== "packages") return;
-    const t = setTimeout(() => setStep("attract"), WALKAWAY_MS);
-    return () => clearTimeout(t);
-  }, [step]);
+  // Persisted as it is chosen rather than when the sheet is queued: the reload
+  // this survives is the one that happens in between.
+  const chooseCut = useCallback(
+    (next: boolean) => {
+      setCut(next);
+      const id = state?.session?.id;
+      if (id) remember(id, "cut", next ? "cut" : "no");
+    },
+    [state],
+  );
 
   if (!state) {
     return (
@@ -103,10 +115,21 @@ export function App() {
 
   const common = { state, refresh, setStep, setError, onTimings };
 
+  // How long the customer has in front of the camera, taken from what was sold
+  // rather than written down here — the number counted down has to be the
+  // number the price list advertises.
+  const minutes = state.packages[0]?.duration_minutes || DEFAULT_MINUTES;
+
   return (
     <main className="screen">
       <header>
-        <span className="brand">bykami · booth</span>
+        <img
+          className="brand"
+          src="/logo.png"
+          alt="studio by KAMI"
+          width={640}
+          height={210}
+        />
         <span className="small muted">
           {state.media.low
             ? `Kertas tinggal ${state.media.sheets_remaining} lembar`
@@ -131,20 +154,24 @@ export function App() {
         </p>
       )}
 
-      {step === "attract" && <Attract {...common} />}
-      {step === "packages" && <Packages {...common} setTemplateId={setTemplateId} />}
+      {step === "attract" && <Attract {...common} setTemplateId={setTemplateId} />}
       {step === "pay" && <Pay {...common} />}
+      {step === "session" && (
+        <Session {...common} cut={cut} setCut={chooseCut} minutes={minutes} />
+      )}
       {step === "frame" && (
         <Frame {...common} templateId={templateId} setTemplateId={setTemplateId} />
       )}
-      {step === "capture" && <Capture {...common} templateId={templateId} />}
+      {step === "capture" && (
+        <Capture {...common} templateId={templateId} minutes={minutes} />
+      )}
       {step === "review" && (
         <Review
           {...common}
           templateId={templateId}
-          setTemplateId={setTemplateId}
           filter={filter}
           setFilter={setFilter}
+          cut={cut}
           onPrinted={(photos) => { setSelected(photos); setStep("delivery"); }}
         />
       )}
