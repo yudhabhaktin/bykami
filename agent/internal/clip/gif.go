@@ -71,6 +71,17 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
+// withSheetDefaults is the same, for the animation that carries every cell at
+// once and therefore needs more room. Only the bound differs — a sheet playing
+// at a different rate from the frames it is made of would be the same seconds
+// running at two speeds on one page.
+func (o Options) withSheetDefaults() Options {
+	if o.LongEdge <= 0 {
+		o.LongEdge = SheetLongEdge
+	}
+	return o.withDefaults()
+}
+
 // Render encodes frames into an animated GIF at dest.
 //
 // frames are paths to the JPEGs the kiosk posted, in playback order. Frames
@@ -85,49 +96,82 @@ func Render(frames []string, dest string, opts Options) error {
 		return ErrTooShort
 	}
 
-	out := &gif.GIF{
-		// Zero means loop forever, which is what a Live Photo does and what
-		// every phone's photo roll expects of an animation this short.
-		LoopCount: 0,
-	}
-
 	// Fixed by the first frame that decodes, and every frame after it is drawn
 	// to exactly this. Uniform by construction rather than by trusting that a
 	// camera never changes resolution mid-session: frames of differing sizes
 	// encode into a GIF that jumps.
-	var canvas image.Rectangle
+	var (
+		canvas image.Rectangle
+		scaled *image.RGBA
+	)
 
-	for _, path := range frames {
-		img, err := readFrame(path)
+	return EncodeSeq(len(frames), func(i int) (image.Image, error) {
+		img, err := readFrame(frames[i])
 		if err != nil {
-			continue
+			return nil, nil
 		}
 
 		if canvas.Empty() {
 			// Through the same rule the stills use, so a frame already smaller
 			// than the bound is not upscaled into bytes carrying no detail.
 			canvas = derive.Resize(img, opts.LongEdge).Bounds()
+			scaled = image.NewRGBA(canvas)
 		}
 
-		// Scaled, then dithered down to the palette. Floyd-Steinberg rather
-		// than nearest-colour because 256 fixed colours across a face is
-		// visible banding, and a face is the entire subject.
-		//
 		// ApproxBiLinear and not the CatmullRom the stills use: this output is
 		// about to lose all but 256 of its colours and gain dither noise, so a
 		// sharper resampler buys nothing a customer could see and costs about
 		// half a second per clip — measured, on a job that runs fifteen times a
 		// session.
 		//
-		// Both intermediates are dropped every iteration on purpose: the booth
-		// shares 2 GiB with the operator API under a GOMEMLIMIT, and holding
-		// fifty full-size frames to quantise at the end is how this feature
-		// would take the API down with it.
-		scaled := image.NewRGBA(canvas)
+		// One scratch buffer for the whole run rather than one per frame: the
+		// booth shares 2 GiB with the operator API under a GOMEMLIMIT, and
+		// holding fifty full-size frames to quantise at the end is how this
+		// feature would take the API down with it. EncodeSeq is written so
+		// that returning the same buffer every call is safe.
 		xdraw.ApproxBiLinear.Scale(scaled, canvas, img, img.Bounds(), draw.Src, nil)
+		return scaled, nil
+	}, dest, opts)
+}
 
-		p := image.NewPaletted(canvas, palette.Plan9)
-		draw.FloydSteinberg.Draw(p, canvas, scaled, canvas.Min)
+// EncodeSeq encodes n frames into an animated GIF at dest.
+//
+// at(i) returns the image for frame i, or nil to leave that frame out — which
+// is how a source that will not decode costs a hundredth of a second instead of
+// the whole animation. It may hand back the same buffer on every call: each
+// frame is dithered into a paletted image of its own before at is asked for the
+// next, and nothing here keeps a reference to what it was given.
+//
+// The two callers are a single photograph's clip and a whole sheet's, and they
+// differ in everything except this: both arrive as a run of same-sized images
+// that has to become 256 colours without banding across a face.
+func EncodeSeq(n int, at func(i int) (image.Image, error), dest string, opts Options) error {
+	opts = opts.withDefaults()
+	if n < 2 {
+		return ErrTooShort
+	}
+
+	out := &gif.GIF{
+		// Zero means loop forever, which is what a Live Photo does and what
+		// every phone's photo roll expects of an animation this short.
+		LoopCount: 0,
+	}
+
+	for i := range n {
+		img, err := at(i)
+		if err != nil {
+			return err
+		}
+		if img == nil {
+			continue
+		}
+
+		// Dithered down to the palette with Floyd-Steinberg rather than
+		// nearest-colour: 256 fixed colours across a face is visible banding,
+		// and a face is the entire subject.
+		b := img.Bounds()
+		p := image.NewPaletted(b, palette.Plan9)
+		draw.FloydSteinberg.Draw(p, b, img, b.Min)
 
 		out.Image = append(out.Image, p)
 		out.Delay = append(out.Delay, 100/opts.FPS)

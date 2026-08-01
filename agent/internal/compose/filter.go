@@ -100,14 +100,18 @@ func FilterByID(id string) Filter {
 	return Filters[0]
 }
 
-// apply runs the matrix over one rectangle of the sheet.
+// Apply runs the matrix over one rectangle of the sheet.
 //
 // The rectangle is the photo's cell, so this touches the customer's photo and
 // nothing else. Filtering the whole sheet afterwards would tint the frame
 // artwork the designer chose the colours of, and filtering the source before
 // scaling would run over every pixel of a 24-megapixel original to produce a
 // 540-pixel-wide cell.
-func (f Filter) apply(dst *image.RGBA, r image.Rectangle) {
+//
+// Exported for the animated sheet, which has to reach for the same numbers: a
+// moving version in a different colour from the print is a defect the customer
+// can hold the two up and see.
+func (f Filter) Apply(dst *image.RGBA, r image.Rectangle) {
 	if f.Matrix == nil {
 		return
 	}
@@ -118,7 +122,7 @@ func (f Filter) apply(dst *image.RGBA, r image.Rectangle) {
 		for x := r.Min.X; x < r.Max.X; x++ {
 			i := dst.PixOffset(x, y)
 			p := dst.Pix[i : i+4 : i+4]
-			// The sheet is opaque here — drawCover writes with draw.Src over a
+			// The sheet is opaque here — DrawCover writes with draw.Src over a
 			// white background — so the channels are already unassociated and
 			// no un-premultiply is needed.
 			cr, cg, cb := float64(p[0])/255, float64(p[1])/255, float64(p[2])/255

@@ -44,7 +44,7 @@ import (
 // expires on its own — one session's photographs, read-only, gone with the
 // purge.
 //
-// These three routes are therefore the only ones on this server that a stranger
+// These few routes are therefore the only ones on this server that a stranger
 // is meant to reach, and they must stay that way:
 //
 //   - No write of any kind. /api/capture accepts 16 MB uploads; nothing here
@@ -66,11 +66,13 @@ type galleryPage struct {
 	Photos []galleryPhoto
 	Token  string
 
-	// Moving is whether any frame on this page has an animation, and it exists
-	// only so the instruction for saving one is not printed on a page where
-	// there is nothing to save. Rendering happens in the background, so the
-	// honest answer changes over the first minute of a link's life.
-	Moving bool
+	// Moving is whether any single frame on this page has an animation, and
+	// MovingSheet whether any whole sheet does. Both exist only so the
+	// instruction for saving one is not printed on a page where there is
+	// nothing to save. Rendering happens in the background, so the honest
+	// answer to either changes over the first minutes of a link's life.
+	Moving      bool
+	MovingSheet bool
 
 	// ExpiresText is the date the photos go, already worded for a customer.
 	// Formatted in Go rather than in the template because the month names are
@@ -93,11 +95,12 @@ type galleryPhoto struct {
 	ID  string
 	Num int
 
-	// GIF is the clip id of this frame's moving version, empty when it has none
-	// — the render is still queued, motion is off on this booth, or the burst
-	// never arrived. The still is shown either way: the animation is an extra
-	// on top of the photograph, never a replacement for it.
-	GIF string
+	// Live is the clip id of this frame's moving version, empty when it has
+	// none — the render is still queued, motion is off on this booth, or the
+	// burst never arrived. The still is always reachable either way: the
+	// animation is an extra on top of the photograph, never a replacement for
+	// it, and both are offered for download side by side.
+	Live string
 }
 
 type gallerySheet struct {
@@ -106,6 +109,11 @@ type gallerySheet struct {
 	// reaching a file the customer has no claim to.
 	ID  string
 	Num int
+
+	// GIF is the id of this sheet's animation — the whole frame moving, every
+	// cell at once — and is empty until the render worker has built it. Not the
+	// print job's id: the animation is its own row, and one print job has one.
+	GIF string
 
 	// Class reserves the sheet's shape in CSS so a tall 2×6 strip does not
 	// shove the page around as it loads. Mapped from a fixed set rather than
@@ -154,12 +162,18 @@ func (s *Server) gallery(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		page.Photos = append(page.Photos, galleryPhoto{
-			ID:  p.ID,
-			Num: len(page.Photos) + 1,
-			GIF: moving[p.ID].ID,
+			ID:   p.ID,
+			Num:  len(page.Photos) + 1,
+			Live: moving[p.ID].ID,
 		})
 	}
 	page.Moving = len(moving) > 0
+	for _, sh := range page.Sheets {
+		if sh.GIF != "" {
+			page.MovingSheet = true
+			break
+		}
+	}
 
 	galleryHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -279,14 +293,16 @@ func (s *Server) galleryPrint(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-// galleryClip serves one frame's moving version.
+// galleryClip serves one frame's moving version — the live photo.
 //
-// No `dl` parameter, unlike the two routes above, and that is the point rather
-// than an omission. Content-Disposition puts a file in the phone's downloads;
-// what a customer wants is the animation in their camera roll, and the way
-// there on iOS is to long-press an image the browser is *displaying* and choose
-// "Add to Photos". Sending this as an attachment would break the one gesture
-// this whole feature exists to enable.
+// `dl` is honoured but the page never uses it on the <img>, and that
+// distinction is the whole design rather than an accident. Content-Disposition
+// puts a file in the phone's downloads; what most customers want is the
+// animation in their camera roll, and the way there on iOS is to long-press an
+// image the browser is *displaying* and choose "Add to Photos". So the image on
+// the page is served plain, and the download link beside it carries `dl` for
+// the customer who would rather have a file — the two coexist because they are
+// two different requests for the same bytes.
 func (s *Server) galleryClip(w http.ResponseWriter, r *http.Request) {
 	sess, ok := s.sessionByToken(w, r)
 	if !ok {
@@ -326,7 +342,64 @@ func (s *Server) galleryClip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	galleryHeaders(w)
+	if r.URL.Query().Get("dl") != "" {
+		w.Header().Set("Content-Disposition", `attachment; filename="bykami-live-`+c.ID[:8]+`.gif"`)
+	}
 	http.ServeFile(w, r, filepath.Join(s.Root, filepath.FromSlash(c.GIFPath)))
+}
+
+// gallerySheetClip serves one whole sheet's moving version — every cell of the
+// customer's frame playing at once, inside the artwork, at the size a phone
+// will actually pull down.
+//
+// Statted rather than trusted for the same reason galleryPrint stats: a sheet
+// animation lives under sheets/ and is swept by file age, so unlike a frame
+// clip there is no purged column that says it has gone.
+func (s *Server) gallerySheetClip(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.sessionByToken(w, r)
+	if !ok {
+		return
+	}
+	if s.Clips == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	sc, err := s.Clips.GetSheet(r.Context(), r.PathValue("sheet"))
+	switch {
+	case errors.Is(err, clip.ErrNotFound):
+		http.NotFound(w, r)
+		return
+	case err != nil:
+		s.fail(w, "gallery sheet clip", err)
+		return
+	}
+
+	// The same check every other route here rests on, and not found for the
+	// same reason: a 403 would confirm the animation exists.
+	if sc.SessionID != sess.ID {
+		http.NotFound(w, r)
+		return
+	}
+	if sc.GIFPath == "" {
+		// Queued but not rendered. The page does not link these, so reaching
+		// one means a customer reloaded into a race — and a 404 sends them back
+		// to a page that will have it shortly.
+		http.NotFound(w, r)
+		return
+	}
+
+	path := filepath.Join(s.Root, filepath.FromSlash(sc.GIFPath))
+	if _, err := os.Stat(path); err != nil {
+		http.Error(w, "this photo has been deleted", http.StatusGone)
+		return
+	}
+
+	galleryHeaders(w)
+	if r.URL.Query().Get("dl") != "" {
+		w.Header().Set("Content-Disposition", `attachment; filename="bykami-bingkai-`+sc.ID[:8]+`.gif"`)
+	}
+	http.ServeFile(w, r, path)
 }
 
 // sheets lists a session's composed prints, newest first.
@@ -347,6 +420,18 @@ func (s *Server) sheets(ctx context.Context, sessionID string) []gallerySheet {
 		return nil
 	}
 
+	// The animations of those sheets, keyed by job. A failure here costs the
+	// moving versions rather than the page, the same trade the frame clips
+	// take: the print is what the customer scanned the code for.
+	moving := map[string]clip.SheetClip{}
+	if s.Clips != nil {
+		moving, err = s.Clips.RenderedSheets(ctx, sessionID)
+		if err != nil {
+			s.Log.Error("httpd: gallery sheet clips", "session", sessionID, "err", err)
+			moving = map[string]clip.SheetClip{}
+		}
+	}
+
 	var out []gallerySheet
 	seen := make(map[[sha256.Size]byte]bool, len(jobs))
 	for _, j := range jobs {
@@ -360,7 +445,22 @@ func (s *Server) sheets(ctx context.Context, sessionID string) []gallerySheet {
 			continue
 		}
 		seen[sum] = true
-		out = append(out, gallerySheet{ID: j.ID, Num: len(out) + 1, Class: sheetClass(j.Layout)})
+
+		// Statted rather than trusted, because a sheet animation has no purged
+		// column to consult: it lives under sheets/ precisely so that purge's
+		// file-age sweep takes it with the JPEG it moves, which leaves the row
+		// pointing at a file that is gone. Listing it then would put a broken
+		// image where the customer expects their frame.
+		gif := moving[j.ID]
+		if gif.GIFPath != "" {
+			if _, err := os.Stat(filepath.Join(s.Root, filepath.FromSlash(gif.GIFPath))); err != nil {
+				gif = clip.SheetClip{}
+			}
+		}
+
+		out = append(out, gallerySheet{
+			ID: j.ID, Num: len(out) + 1, GIF: gif.ID, Class: sheetClass(j.Layout),
+		})
 	}
 	return out
 }
@@ -437,7 +537,7 @@ func (s *Server) RetentionDays() int {
 // they are refused.
 //
 // Every gallery route added must be added here too — which is the cost of the
-// exemption, and the reason there are only three.
+// exemption, and the reason the list is kept as short as the page allows.
 func isGalleryPath(p string) bool {
 	rest, ok := strings.CutPrefix(p, "/g/")
 	if !ok {
@@ -450,10 +550,15 @@ func isGalleryPath(p string) bool {
 	if !nested {
 		return true // GET /g/{token}
 	}
-	// GET /g/{token}/p/{photo}, /g/{token}/s/{sheet} and /g/{token}/m/{clip},
-	// and nothing below any of them.
+	// GET /g/{token}/p/{photo}, /g/{token}/s/{sheet}, /g/{token}/m/{clip} and
+	// /g/{token}/f/{sheet}, and nothing below any of them.
 	kind, id, ok := strings.Cut(sub, "/")
-	return ok && (kind == "p" || kind == "s" || kind == "m") && id != "" && !strings.Contains(id, "/")
+	switch kind {
+	case "p", "s", "m", "f":
+	default:
+		return false
+	}
+	return ok && id != "" && !strings.Contains(id, "/")
 }
 
 // brandLogoPath is where the download page finds the wordmark. Public, static,
@@ -535,31 +640,33 @@ h2 { font-size: 1.05rem; letter-spacing: -0.2px; margin: 30px 0 2px }
 .brand { display: block; width: 150px; height: auto; margin-bottom: 10px }
 p { margin: 0 0 4px; color: #6b6257 }
 .sheets { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px }
-.sheets a {
-  display: block; border: 2px solid #1a1a1a; border-radius: 14px;
-  overflow: hidden; background: #fffcf7; box-shadow: 3px 3px 0 #1a1a1a;
-  height: min(58vh, 22rem);
-}
+.sheet { margin: 0 }
 /* Sized from the height so a 2x6 strip and a 4R sheet sit side by side at the
    same scale instead of one of them filling the phone. */
-.sheets img { display: block; height: 100%; width: auto; max-width: 100% }
+.sheet img {
+  display: block; border: 2px solid #1a1a1a; border-radius: 14px;
+  background: #fffcf7; box-shadow: 3px 3px 0 #1a1a1a;
+  height: min(58vh, 22rem); width: auto; max-width: 100%;
+}
 .sheet-4r { aspect-ratio: 2/3 }
 .sheet-strip { aspect-ratio: 1/3 }
 .sheet-6x8 { aspect-ratio: 3/4 }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 12px; margin-top: 12px }
 .grid .cell {
-  position: relative; border: 2px solid #1a1a1a; border-radius: 14px;
+  border: 2px solid #1a1a1a; border-radius: 14px;
   overflow: hidden; background: #fffcf7; box-shadow: 3px 3px 0 #1a1a1a;
 }
-.grid .cell > a { display: block }
-.grid img { display: block; width: 100%; height: 100%; aspect-ratio: 4/3; object-fit: cover }
-/* The badge on a frame that moves. A link of its own rather than the whole
-   thumbnail, because the thumbnail is the still and the still must stay one
-   tap away — and because an <img> pointing at the animation would pull a
-   megabyte and a half per frame before anybody asked for it. */
-.gif {
-  position: absolute; right: 8px; bottom: 8px;
-  padding: 1px 9px; border: 2px solid #1a1a1a; border-radius: 999px;
+.grid img { display: block; width: 100%; height: auto; aspect-ratio: 4/3; object-fit: cover }
+/* The save buttons under each picture.
+   Two of them wherever there are two things to save — the still and the moving
+   version — because the picture above them is only ever one of the two, and a
+   customer who wants the other must not have to guess that long-pressing gives
+   a different file than tapping. */
+.acts { display: flex; gap: 6px; padding: 7px; border-top: 2px solid #1a1a1a }
+.sheet .acts { border: 0; padding: 7px 0 0 }
+.acts a {
+  flex: 1; padding: 3px 10px; text-align: center;
+  border: 2px solid #1a1a1a; border-radius: 999px;
   background: #e7b23f; color: #1a1a1a; text-decoration: none;
   font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px;
 }
@@ -592,29 +699,52 @@ var galleryTmpl = template.Must(template.New("gallery").Parse(`<!doctype html>
   <img class="brand" src="{{.LogoPath}}" alt="studio by KAMI" width="640" height="210">
   <h1>Ini foto kamu 🎉</h1>
 {{if .Photos}}
-  <p>Ketuk gambar untuk menyimpannya ke HP.</p>
+  <p>Tekan lama gambarnya untuk menyimpan ke HP, atau pakai tombol di bawahnya.</p>
 {{if .Sheets}}
   <h2>Versi bingkai</h2>
   <p>Sama persis dengan hasil cetakmu.</p>
+{{if .MovingSheet}}
+  <p>Yang bergerak sudah jalan sendiri di bawah ini. <strong>Bingkai</strong>
+  menyimpan yang diam, <strong>GIF</strong> menyimpan yang bergerak.</p>
+{{end}}
   <div class="sheets">
 {{range .Sheets}}
-    <a href="/g/{{$.Token}}/s/{{.ID}}?dl=1"><img class="{{.Class}}" src="/g/{{$.Token}}/s/{{.ID}}" alt="Cetakan {{.Num}}"></a>
+    <figure class="sheet">
+{{if .GIF}}
+      <img class="{{.Class}}" src="/g/{{$.Token}}/f/{{.GIF}}" alt="Cetakan {{.Num}}, bergerak">
+{{else}}
+      <img class="{{.Class}}" src="/g/{{$.Token}}/s/{{.ID}}" alt="Cetakan {{.Num}}">
+{{end}}
+      <figcaption class="acts">
+        <a href="/g/{{$.Token}}/s/{{.ID}}?dl=1">Bingkai</a>
+{{if .GIF}}
+        <a href="/g/{{$.Token}}/f/{{.GIF}}?dl=1">GIF</a>
+{{end}}
+      </figcaption>
+    </figure>
 {{end}}
   </div>
 {{end}}
   <h2>Foto asli</h2>
   <p>Tanpa bingkai, satu per satu — {{len .Photos}} foto.</p>
 {{if .Moving}}
-  <p>Yang bertanda <strong>GIF</strong> juga punya versi bergerak. Buka, lalu
-  tekan lama gambarnya untuk menyimpannya.</p>
+  <p><strong>Foto</strong> menyimpan yang diam, <strong>Live</strong> menyimpan
+  versi bergeraknya.</p>
 {{end}}
   <div class="grid">
 {{range .Photos}}
     <div class="cell">
-      <a href="/g/{{$.Token}}/p/{{.ID}}?dl=1"><img src="/g/{{$.Token}}/p/{{.ID}}" alt="Foto {{.Num}}" loading="lazy"></a>
-{{if .GIF}}
-      <a class="gif" href="/g/{{$.Token}}/m/{{.GIF}}">GIF</a>
+{{if .Live}}
+      <img src="/g/{{$.Token}}/m/{{.Live}}" alt="Foto {{.Num}}, bergerak" loading="lazy">
+{{else}}
+      <img src="/g/{{$.Token}}/p/{{.ID}}" alt="Foto {{.Num}}" loading="lazy">
 {{end}}
+      <div class="acts">
+        <a href="/g/{{$.Token}}/p/{{.ID}}?dl=1">Foto</a>
+{{if .Live}}
+        <a href="/g/{{$.Token}}/m/{{.Live}}?dl=1">Live</a>
+{{end}}
+      </div>
     </div>
 {{end}}
   </div>

@@ -282,7 +282,11 @@ func run(c config, log *slog.Logger) error {
 	// shutter, rendered to a GIF for the download page. Heavier than derive by
 	// an order of magnitude and wanted later, so it takes one clip per pass;
 	// see clip.DefaultBatch.
-	background("clip", clip.NewWorker(clips, root, log).Run)
+	// WithSheets is what turns on the animation of the whole frame, as opposed
+	// to one face at a time. It is handed the live template set rather than the
+	// slice loaded at startup, so a sheet queued against a design that arrived
+	// from the catalogue mid-session still finds it.
+	background("clip", clip.NewWorker(clips, root, log).WithSheets(live, photos).Run)
 
 	httpSrv := &http.Server{
 		Addr:    c.addr,
