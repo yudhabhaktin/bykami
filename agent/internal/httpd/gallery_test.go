@@ -173,6 +173,7 @@ func TestTheGalleryExemptionDoesNotOpenTheBooth(t *testing.T) {
 		"/api/state", "/api/photos", "/",
 		"/g", "/g/", "/g/x/y/z", "/g/x/p/y/z", "/g/x/notp/y",
 		"/g/x/s/y/z", "/g/x/s/", "/g/x/s",
+		"/g/x/f/y/z", "/g/x/f/", "/g/x/f",
 	} {
 		if w := publicGet(t, f, path, ""); w.Code != http.StatusUnauthorized {
 			t.Errorf("%s = %d, want 401 without the access token", path, w.Code)

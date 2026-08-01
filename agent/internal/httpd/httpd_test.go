@@ -34,6 +34,7 @@ type fixture struct {
 	photos    *photo.Store
 	clips     *clip.Store
 	printer   *printer.Queue
+	templates *compose.Set
 	root      string
 }
 
@@ -70,10 +71,11 @@ func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 		t.Fatalf("catalog: %v", err)
 	}
 
+	live := compose.NewSet(templates)
 	deps := httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
 		Clips:  clips,
-		Ingest: watcher, Templates: compose.NewSet(templates), Packages: packages,
+		Ingest: watcher, Templates: live, Packages: packages,
 		Root: root, Source: httpd.SourceWebcam, OutletID: "jajag",
 		Simulated: sim, Log: log,
 	}
@@ -92,7 +94,7 @@ func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 
 	return &fixture{
 		srv: srv.Handler(), simulated: sim, sessions: sessions, photos: photos,
-		clips: clips, printer: prints, root: root,
+		clips: clips, printer: prints, templates: live, root: root,
 	}
 }
 

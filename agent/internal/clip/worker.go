@@ -3,11 +3,15 @@ package clip
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/bhaktiyudha/bykami/agent/internal/compose"
+	"github.com/bhaktiyudha/bykami/agent/internal/photo"
 )
 
 // DefaultInterval is how often the render queue is checked.
@@ -43,6 +47,13 @@ type Worker struct {
 	batch    int
 	opts     Options
 
+	// templates and photos are what a sheet's animation needs and a frame's
+	// does not: which design was printed, and where the photographs in its
+	// cells are. Nil until WithSheets is called, which leaves the sheet queue
+	// alone entirely.
+	templates *compose.Set
+	photos    *photo.Store
+
 	// broken remembers clips that failed, so a clip whose frames will not
 	// decode is reported once instead of every second for the seven days until
 	// its row is purged. In memory because a restart is exactly when it is
@@ -59,6 +70,17 @@ func NewWorker(clips *Store, root string, log *slog.Logger) *Worker {
 		batch:    DefaultBatch,
 		broken:   map[string]bool{},
 	}
+}
+
+// WithSheets turns on the animated-sheet queue.
+//
+// Separate from NewWorker because the frame queue needs neither of these, and a
+// booth wired without them should render the per-photo animations rather than
+// fail: the sheet animation is the newer half of the feature and the one with
+// more to go wrong.
+func (w *Worker) WithSheets(templates *compose.Set, photos *photo.Store) *Worker {
+	w.templates, w.photos = templates, photos
+	return w
 }
 
 // Run renders until ctx is cancelled.
@@ -79,7 +101,22 @@ func (w *Worker) Run(ctx context.Context) error {
 
 // Sweep renders one batch and returns how many it wrote. Exported so a test
 // does not have to race a ticker.
+//
+// Frames first, and sheets only in the gaps between them. A sheet animation
+// decodes every cell's clip rather than one — six times the work of the
+// heaviest job the booth already runs — and the customer waiting on it has
+// already got their print, while the customer waiting on a frame's animation is
+// still in the booth taking the next shot.
 func (w *Worker) Sweep(ctx context.Context) (int, error) {
+	n, err := w.sweepFrames(ctx)
+	if err != nil || n > 0 {
+		return n, err
+	}
+	m, err := w.sweepSheets(ctx)
+	return n + m, err
+}
+
+func (w *Worker) sweepFrames(ctx context.Context) (int, error) {
 	// One extra so a batch made entirely of known-broken clips still reaches
 	// the ones behind them instead of stalling the queue forever.
 	due, err := w.clips.Unrendered(ctx, w.batch+len(w.broken))
@@ -110,6 +147,126 @@ func (w *Worker) Sweep(ctx context.Context) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// sweepSheets renders one queued sheet animation.
+//
+// A row whose sources are gone is abandoned in the database rather than
+// remembered in memory, unlike a broken frame clip. The difference is that this
+// queue is not swept by retention: nothing marks a sheet clip purged when its
+// photographs go, so a row left queued would be retried on every restart for as
+// long as the booth lives.
+func (w *Worker) sweepSheets(ctx context.Context) (int, error) {
+	if w.templates == nil || w.photos == nil {
+		return 0, nil
+	}
+
+	due, err := w.clips.UnrenderedSheets(ctx, w.batch+len(w.broken))
+	if err != nil {
+		return 0, err
+	}
+
+	n := 0
+	for _, sc := range due {
+		if w.broken[sc.ID] {
+			continue
+		}
+		if n >= w.batch {
+			break
+		}
+		switch err := w.oneSheet(ctx, sc); {
+		case err == nil:
+			n++
+		case errors.Is(err, fs.ErrNotExist), errors.Is(err, ErrTooShort), errors.Is(err, photo.ErrNotFound):
+			// The frames reached retention first, or nothing on this sheet
+			// moves at all. Neither will change.
+			w.log.Warn("clip: no sheet to animate", "sheet", sc.ID, "job", sc.JobID, "err", err)
+			if err := w.clips.AbandonSheet(ctx, sc.ID); err != nil {
+				w.log.Error("clip: abandon sheet", "sheet", sc.ID, "err", err)
+			}
+		default:
+			// Including an unknown template, which is why this is remembered in
+			// memory rather than written down: the frame catalogue syncs after
+			// the booth starts serving, so a design this row names can be
+			// missing for a minute and present afterwards.
+			w.broken[sc.ID] = true
+			w.log.Error("clip: sheet render failed", "sheet", sc.ID, "job", sc.JobID, "err", err)
+		}
+	}
+	return n, nil
+}
+
+func (w *Worker) oneSheet(ctx context.Context, sc SheetClip) error {
+	// A reprint is the same sheet again under a new job, and most packages
+	// include more than one print — so this is the ordinary path, not a corner.
+	// Rendering it twice would be a minute of a core to produce a file the
+	// booth already has, byte for byte.
+	if same, ok, err := w.clips.RenderedSheetLike(ctx, sc); err != nil {
+		return err
+	} else if ok {
+		w.log.Debug("clip: sheet already animated", "sheet", sc.ID, "reused", same.ID)
+		return w.clips.SetSheetGIF(ctx, sc.ID, same.GIFPath)
+	}
+
+	tpl, ok := w.templates.ByID(sc.TemplateID)
+	if !ok {
+		return fmt.Errorf("%w: %q", compose.ErrNoTemplate, sc.TemplateID)
+	}
+
+	cells := make([]SheetSource, len(sc.PhotoIDs))
+	for i, id := range sc.PhotoIDs {
+		p, err := w.photos.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !p.PurgedAt.IsZero() {
+			return fmt.Errorf("photo %s reached retention first: %w", id, fs.ErrNotExist)
+		}
+
+		// The derivative, like the download page serves — 2048px against a
+		// 6-10 MB original. This composes at 500 pixels for the whole sheet, so
+		// a cell is a couple of hundred wide and decoding a 24-megapixel
+		// original six times to reach it would be most of the render's cost for
+		// none of its quality.
+		rel := p.DerivedPath
+		if rel == "" {
+			rel = p.Path
+		}
+		cells[i].Still = filepath.Join(w.root, filepath.FromSlash(rel))
+
+		c, err := w.clips.ByPhoto(ctx, id)
+		switch {
+		case errors.Is(err, ErrNotFound), err == nil && !c.PurgedAt.IsZero():
+			// This cell does not move. Not a failure: a burst can fail to
+			// arrive without the print being any less printed, and a sheet
+			// where five of six faces move is still the thing they asked for.
+		case err != nil:
+			return err
+		default:
+			dir := filepath.Join(w.root, filepath.FromSlash(c.Dir))
+			frames := make([]string, 0, c.Frames)
+			for j := range c.Frames {
+				frames = append(frames, filepath.Join(dir, FrameName(j)))
+			}
+			cells[i].Frames = frames
+		}
+	}
+
+	rel := SheetGIFPathFor(sc.SessionID, sc.ID)
+	dest := filepath.Join(w.root, filepath.FromSlash(rel))
+
+	started := time.Now()
+	if err := RenderSheet(tpl, cells, compose.FilterByID(sc.Filter), dest, w.opts); err != nil {
+		return err
+	}
+
+	// The row after the file, the same ordering every other writer here uses.
+	if err := w.clips.SetSheetGIF(ctx, sc.ID, rel); err != nil {
+		return err
+	}
+
+	w.log.Debug("clip: rendered sheet", "sheet", sc.ID, "cells", len(cells), "took", time.Since(started))
+	return nil
 }
 
 func (w *Worker) one(ctx context.Context, c Clip) error {

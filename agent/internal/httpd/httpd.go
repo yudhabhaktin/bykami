@@ -207,6 +207,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /g/{token}/p/{photo}", s.galleryPhoto)
 	s.mux.HandleFunc("GET /g/{token}/s/{sheet}", s.galleryPrint)
 	s.mux.HandleFunc("GET /g/{token}/m/{clip}", s.galleryClip)
+	s.mux.HandleFunc("GET /g/{token}/f/{sheet}", s.gallerySheetClip)
 
 	// The one thing the download page loads that is not a photo. Registered as
 	// its own route rather than left to the fall-through below, because the
@@ -1205,7 +1206,7 @@ func (s *Server) print(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, filepath.Join(s.Root, filepath.FromSlash(p.Path)))
 	}
 
-	sheet := filepath.Join(s.Root, "sheets", sess.ID, fmt.Sprintf("%s-%d.jpg", tpl.ID, time.Now().UnixNano()))
+	sheet := filepath.Join(s.Root, clip.SheetsDir, sess.ID, fmt.Sprintf("%s-%d.jpg", tpl.ID, time.Now().UnixNano()))
 	if _, err := tpl.Sheet(paths, compose.FilterByID(req.Filter), sheet); err != nil {
 		s.fail(w, "compose sheet", err)
 		return
@@ -1233,7 +1234,38 @@ func (s *Server) print(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.queueSheetClip(ctx, sess.ID, job.ID, tpl.ID, req.Filter, req.PhotoIDs)
+
 	s.write(w, http.StatusAccepted, map[string]any{"job": jobViewOf(job)})
+}
+
+// queueSheetClip asks for the moving version of a sheet that has just been
+// composed.
+//
+// Here rather than anywhere later because this is the only place the three
+// things it needs exist together: which template was used, which filter, and
+// which frames went in which cell. The print job records none of them and the
+// composed JPEG cannot give them back, so a queue written after this handler
+// returns would have nothing to work from.
+//
+// Every failure is logged and swallowed. The sheet is already on its way to the
+// printer and the customer is already holding the receipt of that; refusing the
+// print because its animation could not be queued would trade the product for
+// the extra.
+func (s *Server) queueSheetClip(ctx context.Context, sessionID, jobID, templateID, filter string, photoIDs []string) {
+	if s.Clips == nil {
+		return
+	}
+	_, err := s.Clips.RecordSheet(ctx, clip.SheetClip{
+		JobID:      jobID,
+		SessionID:  sessionID,
+		TemplateID: templateID,
+		Filter:     filter,
+		PhotoIDs:   photoIDs,
+	})
+	if err != nil && !errors.Is(err, clip.ErrDuplicate) {
+		s.Log.Error("httpd: queue sheet animation", "job", jobID, "err", err)
+	}
 }
 
 func (s *Server) printStatus(w http.ResponseWriter, r *http.Request) {

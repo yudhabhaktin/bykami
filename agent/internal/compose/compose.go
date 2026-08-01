@@ -242,8 +242,8 @@ func (t Template) Sheet(photos []string, filter Filter, dest string) (image.Poin
 			return image.Point{}, err
 		}
 		c := t.Cells[i]
-		drawCover(sheet, c, img)
-		filter.apply(sheet, image.Rect(c.X, c.Y, c.X+c.W, c.Y+c.H))
+		DrawCover(sheet, c, img)
+		filter.Apply(sheet, image.Rect(c.X, c.Y, c.X+c.W, c.Y+c.H))
 	}
 
 	if t.Overlay != "" {
@@ -261,12 +261,16 @@ func (t Template) Sheet(photos []string, filter Filter, dest string) (image.Poin
 	return sheet.Bounds().Size(), nil
 }
 
-// drawCover scales a photo to fill its cell and centre-crops the overflow.
+// DrawCover scales a photo to fill its cell and centre-crops the overflow.
 //
 // Fill rather than fit: a letterboxed photo in a designed frame looks like a
 // mistake, and the customer framed the shot expecting the whole cell. Cropping
 // the long dimension is what every photobooth does.
-func drawCover(dst *image.RGBA, c Cell, src image.Image) {
+//
+// Exported for the animated sheet, which draws the same cells fifty times over
+// at a fraction of the size. That has to crop identically to the print or the
+// moving version is framed differently from the paper in the customer's hand.
+func DrawCover(dst *image.RGBA, c Cell, src image.Image) {
 	sb := src.Bounds()
 	scale := max(float64(c.W)/float64(sb.Dx()), float64(c.H)/float64(sb.Dy()))
 

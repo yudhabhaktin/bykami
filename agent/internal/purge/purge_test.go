@@ -164,6 +164,42 @@ func TestSweepDeletesOldComposedSheets(t *testing.T) {
 	}
 }
 
+// An animated sheet is the same faces again, and moving — the most identifying
+// artefact the booth produces. It has no purged column of its own and needs
+// none: it is written under sheets/, so the sweep above reaches it. This is the
+// test that the two agree about where that is, because a path built anywhere
+// else is a video of six customers that retention silently never touches.
+func TestSweepDeletesAnAnimatedSheetWithTheSheets(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	root := t.TempDir()
+	rel := clip.SheetGIFPathFor("s1", "abc123")
+	animated := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(animated), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(animated, []byte("GIF89a"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	stale := time.Now().Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(animated, stale, stale); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	p := purge.New(photo.New(db), nil, root, purge.DefaultAge, slog.New(slog.DiscardHandler))
+	if _, err := p.Sweep(context.Background()); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+
+	if _, err := os.Stat(animated); err == nil {
+		t.Fatalf("an animated sheet past the retention window is still on disk at %s", rel)
+	}
+}
+
 // A clip is the same face at the same moment as the frame it belongs to —
 // arguably more identifying, since it carries how somebody moves. It must not
 // outlive the still by so much as a sweep.
