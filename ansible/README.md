@@ -115,9 +115,8 @@ A 502 today means the service is down, not that nothing is deployed — check
 Binary drop, systemd unit with `GOMEMLIMIT`, SQLite data dir, backups.
 
 ```bash
-cd ../api && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-  go build -trimpath -ldflags="-s -w" -o /tmp/bykami ./cmd/bykami
-cd ../ansible && ansible-playbook site.yml --tags app -e app_binary_src=/tmp/bykami
+./scripts/build-linux.sh                   # leaves dist/bykami-linux
+cd ansible && ansible-playbook site.yml --tags app -e @booth.vars.yml
 ```
 
 The role ships a binary and refuses to build one — a toolchain on a production
@@ -246,13 +245,21 @@ unconditionally so that turning the flag back off **stops** the service rather
 than leaving whatever was last deployed running indefinitely.
 
 ```bash
-pnpm --filter @bykami/kiosk build          # or the binary embeds an empty UI
-cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-  go build -trimpath -ldflags="-s -w" -o /tmp/bykami-agent ./cmd/bykami-agent
-
+./scripts/build-linux.sh                   # kiosk bundle, then both binaries
 openssl rand -hex 24                       # then put it in a vars file
-ansible-playbook site.yml --tags booth -e @booth.vars.yml
+cd ansible && ansible-playbook site.yml --tags booth -e @booth.vars.yml
 ```
+
+`booth.vars.yml` is gitignored, so the binary path in it is the one thing about
+this deploy that version control cannot keep honest. Point it at the script's
+output and it stays true:
+
+```yaml
+booth_binary_src: "{{ playbook_dir }}/../dist/bykami-agent-linux"
+```
+
+A path under `/tmp` or a scratch directory works exactly once, then the
+directory is cleaned and the play stops on a missing binary.
 
 `booth_access_token` takes a comma-separated list, one token per tester:
 

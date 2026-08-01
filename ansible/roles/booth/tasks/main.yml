@@ -50,13 +50,11 @@
           - booth_binary_src | length > 0
           - booth_binary_stat.stat.exists | default(false)
         fail_msg: >-
-          No binary at booth_binary_src. Build the kiosk bundle first or the
-          embedded UI is empty:
-            pnpm --filter @bykami/kiosk build
-            cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath
-              -ldflags="-s -w" -o /tmp/bykami-agent ./cmd/bykami-agent
-          There is no pull-based updater for the agent: this deployment is
-          temporary and should not acquire one.
+          No binary at booth_binary_src. Build one with ./scripts/build-linux.sh
+          — it builds the kiosk bundle first, and skipping that embeds an empty
+          UI in a binary that compiles perfectly well. There is no pull-based
+          updater for the agent: this deployment is temporary and should not
+          acquire one.
         quiet: true
 
     - name: Create the service user
