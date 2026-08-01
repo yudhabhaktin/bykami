@@ -25,7 +25,41 @@ booth_name: bykami-agent
 # UI — and leaves dist/bykami-agent-linux, which is what a vars file should
 # point this at. A temp directory also works, right up until it is emptied and
 # the play stops on a missing binary having done nothing.
+#
+# Leave it empty when booth_update_enabled is true and let the box pull its own
+# releases. Setting both means every play run reinstalls whatever is on the
+# control machine over whatever the timer pulled, which is a deploy that
+# silently goes backwards.
 booth_binary_src: ""
+
+# Pull-based deploy: the box installs agent-* releases itself, on a timer.
+#
+# Off by default, and the README used to say this role would never have it —
+# "a temporary surface should not acquire a supply chain". That argument was
+# about not building a delivery mechanism nobody had asked for. Deploying by
+# hand turned out to mean deploying rarely, from a laptop, with the binary path
+# and the SSH firewall hole both going stale between runs; the supply chain was
+# a laptop either way, and a worse one.
+#
+# What the flag does not change: CI still reaches into nothing. The box pulls,
+# so there is no inbound rule to open and no deploy credential in GitHub. That
+# was the actual security property, and it survives.
+booth_update_enabled: false
+booth_release_repo: bhaktiyudha/bykami
+
+# Every ten minutes at :08. The API's poller is at :03 — offset rather than
+# shared, so the two do not restart services in the same minute on a 2 GiB box.
+booth_update_oncalendar: "*:08/10"
+
+# How long to wait for a customer to finish before restarting anyway.
+#
+# Nothing sweeps abandoned sessions: somebody who opens the QR screen and walks
+# off leaves a row in awaiting_payment forever. Without a bound the updater
+# would defer every release from that moment on and report success while doing
+# it. Two hours is longer than any real session — the take limit and the
+# five-minute clock cap a genuine one far below this — so in practice the
+# deadline is only ever reached by a session nobody is standing in front of.
+booth_update_max_defer_minutes: 120
 
 booth_user: bykami-agent
 booth_install_path: /usr/local/bin/bykami-agent

@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Pull and install the latest booth agent release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# Root, unavoidably: it writes {{ booth_install_path }} and restarts a unit.
+# That is the cost of pull-based deploy, and the reason the script verifies a
+# checksum and health-gates the result rather than trusting what it downloads.
+User=root
+ExecStart=/usr/local/bin/{{ booth_name }}-update
+
+# Deliberately narrower than the agent's own unit. It needs the binary path,
+# the data dir for its version and deferral markers, and nothing else on the
+# filesystem — not the captured frames, which live under the same directory but
+# are never read here.
+ProtectSystem=strict
+ReadWritePaths=/usr/local/bin {{ booth_data_dir }}
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true

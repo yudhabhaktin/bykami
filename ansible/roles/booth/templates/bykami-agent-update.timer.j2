@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Poll for new booth agent releases
+
+[Timer]
+OnCalendar={{ booth_update_oncalendar }}
+
+# Offset from the API's poller rather than sharing its slot. Both pull from the
+# same GitHub endpoint and both may restart a service; on a 2 GiB box there is
+# no reason to make them do it in the same minute.
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

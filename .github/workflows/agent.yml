@@ -11,6 +11,11 @@ name: Agent
 # machine in a shop with no inbound anything — it is not addressable from CI at
 # all. Releases are published here and installed by whoever is standing at the
 # booth, until the OTA mechanism in design/kiosk.md exists.
+#
+# The release carries a linux/amd64 build as well, for the booth-test VPS. That
+# box is not deployed to either: it polls this release and installs it itself,
+# the same shape as api/. CI still reaches into nothing, which is why neither
+# box has an inbound rule to open or a CI credential to leak.
 on:
   push:
     branches: [main]
@@ -141,24 +146,33 @@ jobs:
       - name: Build the kiosk bundle
         run: pnpm --filter @bykami/kiosk build
 
+      # Two targets from one bundle. Building them in separate jobs would build
+      # the kiosk twice, and two bundles built from one commit are equal only by
+      # convention — here the Windows booth and the test VPS demonstrably serve
+      # the same UI.
       - name: Build
+        working-directory: agent
         env:
           CGO_ENABLED: "0"
-          GOOS: windows
           GOARCH: amd64
-        working-directory: agent
         run: |
           set -euo pipefail
-          go build -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/bykami-agent.exe" ./cmd/bykami-agent
+          GOOS=windows go build -trimpath -ldflags="-s -w" \
+            -o "$RUNNER_TEMP/bykami-agent.exe" ./cmd/bykami-agent
+          GOOS=linux go build -trimpath -ldflags="-s -w" \
+            -o "$RUNNER_TEMP/bykami-agent-linux-amd64" ./cmd/bykami-agent
 
       - name: Checksum
-        # Whoever installs this is standing at the booth with a USB stick. The
-        # checksum is what makes "is this the build I meant?" answerable there.
+        # Two audiences. Whoever installs the .exe is standing at the booth with
+        # a USB stick, and the checksum is what makes "is this the build I
+        # meant?" answerable there. The linux one is verified by the updater on
+        # the VPS before it installs anything, unattended.
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
           sha256sum bykami-agent.exe > bykami-agent.exe.sha256
-          cat bykami-agent.exe.sha256
+          sha256sum bykami-agent-linux-amd64 > bykami-agent-linux-amd64.sha256
+          cat bykami-agent.exe.sha256 bykami-agent-linux-amd64.sha256
 
       - name: Publish the release
         env:
@@ -171,4 +185,6 @@ jobs:
             --title "$TAG" \
             --notes "booth agent built from ${GITHUB_SHA}" \
             "$RUNNER_TEMP/bykami-agent.exe" \
-            "$RUNNER_TEMP/bykami-agent.exe.sha256"
+            "$RUNNER_TEMP/bykami-agent.exe.sha256" \
+            "$RUNNER_TEMP/bykami-agent-linux-amd64" \
+            "$RUNNER_TEMP/bykami-agent-linux-amd64.sha256"
