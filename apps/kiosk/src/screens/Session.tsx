@@ -28,7 +28,7 @@ export function Session({
   const takes = state.session?.take_limit ?? 0;
 
   return (
-    <div className="grow">
+    <div className="session grow">
       <div className="page-head">
         <Doodle shape="camera" className="page-doodle ink" />
         <h1>Single Session</h1>

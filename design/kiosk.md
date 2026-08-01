@@ -582,7 +582,7 @@ A rectangle typed next to a picture that already contains it is a chance to
 disagree with the picture, and the symptom is a face printed off its slot,
 discovered on paper.
 
-Detection is checked against the two house frames, whose cells are written down
+Detection is checked against the house frames, whose cells are written down
 independently in their manifests, and it recovers them exactly.
 
 Uploads land unpublished, because inference from a picture needs a person to

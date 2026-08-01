@@ -1,33 +1,41 @@
 # Built-in templates
 
-These three exist so that a booth with no artwork installed can still complete a
-session end to end.
+The seven frames of the **Gacoan × studio by KAMI** set. They exist so that a
+booth with no artwork installed can still complete a session end to end, and
+they are what the booth offers until the catalogue at `app.bykami.id` gives it
+something else.
 
-## The two strip overlays
+## They are 4R sheets designed to be cut
 
-`strip-3/overlay.png` and `strip-4/overlay.png` are drawn to the house design
-language — cream mat, ink outlines, the wordmark and a handwritten line, a
-botanical mark at each foot. Source and the regeneration steps are in
-`design/frames/`; edit `frame.html` there rather than the PNGs.
+Every one is `4r` — 1200 × 1800 at 300 dpi, a single 4×6 sheet — laid out two-up
+with a gutter down the middle, so the printer's 2-inch cut turns one sheet into
+two 2×6 strips. That is the choice the customer makes on the session screen, and
+it is a property of the paper: the same pixels are composed either way and only
+the blade differs.
 
-They are ours rather than downloaded because every stock source carries
-attribution or share-alike terms and this repository is public — the same reason
-`refs/screenshots/` is gitignored. Drawing them makes them ours to publish, and
-that constraint is why a competitor's frames are not an option however
-convenient they look.
+The two halves are **not** duplicates. Each holds its own photographs, so a cut
+sheet is two strips with different pictures rather than the same strip twice.
+Six cells, except `gacoan-5-langit`, which is two full-bleed panels.
 
-`4r-polos` has no overlay and must not get one: *polos* means plain, and its
-single cell is the whole sheet, so any overlay would cover the photograph.
-Giving 4R a frame means a **new template** with a smaller cell.
+`strip2x6` is therefore unused by anything shipped. It remains a layout the
+printer and the catalogue both understand — an uploaded 600×1800 frame still
+works, and the printer still knows a strip yields two copies from one sheet.
 
-These are the house frames, not the catalogue. The catalogue is at
-`app.bykami.id` — an operator uploads a PNG, the cells are read out of its
-transparent regions, and the booth pulls what is published into
-`<root>/frames`. See `api/internal/frames` and `agent/internal/framesync`.
+## The cells were read out of the artwork, not typed
 
-These three stay compiled in because a booth with no internet on its first
-morning still has to be able to complete a session. A synced frame with the
-same id replaces one of these; a local `-templates` directory replaces either.
+Each `template.json` restates what `api/internal/frames`.`Detect` reads back out
+of its own `frame.png` — the bounding boxes of the transparent regions, to the
+pixel. `TestDetectRecoversTheHouseFrames` in that package holds the two to each
+other, so re-exporting a PNG without regenerating its manifest fails there
+rather than on paper.
+
+That is also why the artwork is named `frame.png` rather than `overlay.png`: it
+is the same shape on disk as a frame synced down from the catalogue, which
+`agent/internal/framesync` writes with exactly this manifest.
+
+The supplied artwork was 1800 × 2700 — 4×6 at 450 dpi — and was resampled to the
+300 dpi sheet before being committed. Cells detected at 450 dpi would be 1.5×
+the sheet they have to sit on.
 
 ## Adding one
 
@@ -58,28 +66,34 @@ loads, rather than printed half-off the paper.
 
 Photos **fill** their cell and are centre-cropped. A letterboxed photo inside a
 designed frame reads as a mistake, and the customer framed the shot expecting
-the whole cell.
+the whole cell. A tall narrow cell therefore crops hard: `gacoan-5-langit` is
+402 × 1800, so a landscape frame from the camera shows a vertical sliver of
+itself, which is what that design asks for.
 
 A chosen filter is applied to each cell after the photo is drawn into it, so it
 colours the photograph and never this artwork. See `filter.go`.
 
 Templates in this directory are compiled into the binary — one artifact, one
 version, the same rule the embedded kiosk UI follows. An outlet can add its own
-without a rebuild by pointing `-templates` at a folder on the booth PC.
+without a rebuild by pointing `-templates` at a folder on the booth PC, and a
+synced frame with the same id replaces one of these.
+
+## These are one outlet's frames
+
+They carry a partner's marks, which the house frames they replaced deliberately
+did not: the previous three were drawn in-house precisely so that a public
+repository was publishing nothing it did not own. Anything added here inherits
+that exposure. A second outlet wanting its own designs should get them through
+the catalogue rather than through this directory.
 
 ## Frame spec still open
 
-The strip size is settled — **2×6 in**, which is what the DS-RX1HS cuts, so
-600×1800 at 300 dpi is right (`design/assets-needed.md`).
+The strip size is settled — **2×6 in**, which is what the DS-RX1HS cuts, so a
+4×6 sheet cut in two is right (`design/assets-needed.md`).
 
-Bleed, safe area and cut marks are not. The margins here are a guess that looks
-reasonable rather than a measurement against a printed sheet, and the ink ring
-around each cell is exactly the kind of detail a few millimetres of cut drift
-would ruin. **Print one and measure it** before anyone draws forty designs
-against these numbers.
-
-This got more expensive, not less, now that frames are uploaded rather than
-committed. Every design an operator draws inherits whatever margin convention
-these three set, and a correction after forty of them exist is forty files to
-redraw — so the measurement is worth taking before the catalogue fills up, not
-after.
+Bleed, safe area and cut marks are not. Nothing here has been measured against a
+printed sheet, and the gutter each of these designs leaves down the middle is
+exactly the kind of detail a few millimetres of cut drift would ruin — a blade
+landing 2 mm off centre takes ink off one strip and leaves a stripe of the other
+attached. **Print one and measure it** before drawing more against these
+margins.

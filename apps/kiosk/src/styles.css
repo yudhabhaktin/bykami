@@ -509,6 +509,30 @@ p {
 }
 
 /*
+ * The session screen: what was bought, then the one question about it.
+ *
+ * A flex column, because `.grow` alone is only `flex: 1` — it stretches to fill
+ * the screen but lays its children out as plain blocks, so the only spacing
+ * they had was the margin under a `.page-head`. The cards and the button that
+ * follows them had none at all and met along their shadows.
+ *
+ * The gap is a section break rather than a line break: the summary and the
+ * question are two things being said, and at the 24px a heading already sits
+ * from its own caption, "Hasil cetak" read as a third line of the package
+ * description instead of as the next thing to answer.
+ */
+.session {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-7);
+}
+
+/* The column's gap does this now, and the two together double-spaced it. */
+.session .page-head {
+  margin-bottom: 0;
+}
+
+/*
  * Cut or no cut.
  *
  * Two cards rather than a toggle, because they are two different objects a
@@ -523,6 +547,12 @@ p {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   gap: var(--s-4);
+  /* The choice takes the room left between the question and the button, and
+     sits in the middle of it. The booth panel is tall and portrait: packed to
+     the top, the two cards were an island with a screen of nothing under them,
+     and pinning the button to the foot instead only moved the hole. */
+  flex: 1;
+  align-content: center;
 }
 
 .cut-option {
@@ -562,8 +592,12 @@ p {
   opacity: 0.72;
 }
 
+/* The mark holds the top of the card and the label sinks to the foot, so the
+   12rem the card is held open to stays composed instead of trailing off into
+   an empty band under the caption. */
 .cut-art {
   height: 3.5rem;
+  margin-bottom: auto;
 }
 
 .cut-name {
