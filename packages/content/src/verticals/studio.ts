@@ -1,7 +1,14 @@
 import type { Vertical } from "../schema.ts";
-import { blocked, unverified } from "../sourced.ts";
+import { blocked, unverified, verified } from "../sourced.ts";
 
 const PDF = "refs/Price LIst Studio Indoor.pdf (owner PDF, not owner-confirmed)";
+
+// The one fact here the owner has actually settled, and it contradicts the PDF.
+// The booth enforces five minutes — it counts down on the capture screen and
+// moves the customer on — so the PDF's fifteen is not a competing claim to be
+// reconciled later, it is simply out of date. A drift guard in
+// agent/internal/catalog asserts these two stay equal.
+const OWNER_DURATION = "owner, 2026-08-01 — supersedes the PDF's 15 minutes";
 
 /**
  * studio by KAMI — self-photo studio, pas foto, in Jajag, Banyuwangi.
@@ -57,7 +64,7 @@ export const studio: Vertical = {
       serviceLine: "self-photo",
       orderIndex: 0,
       priceIDR: unverified(45_000, PDF),
-      durationMinutes: unverified(15, PDF),
+      durationMinutes: verified(5, OWNER_DURATION),
       printsIncluded: unverified(1, PDF),
       headcount: unverified({ min: 1, max: 2 }, `${PDF} — conflicts with YouCanBook.me`),
     },
@@ -159,7 +166,14 @@ export const studio: Vertical = {
       id: "durasi-mini",
       question: "Berapa lama durasi paket MINI?",
       topic: "session",
-      answer: unverified("15 menit untuk 1–2 orang, termasuk 1 cetak 4R.", PDF),
+      // Still unverified as a whole: the duration is settled, the headcount and
+      // the print are the PDF's word. Kept together because the sentence a
+      // customer reads is one claim, and publishing half of it is not an option
+      // the FAQ shape offers.
+      answer: unverified(
+        "5 menit untuk 1–2 orang, termasuk 1 cetak 4R.",
+        `${PDF}; durasi dari ${OWNER_DURATION}`,
+      ),
     },
     {
       id: "durasi-big-maxi",
