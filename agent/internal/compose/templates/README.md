@@ -15,7 +15,7 @@ the blade differs.
 
 The two halves are **not** duplicates. Each holds its own photographs, so a cut
 sheet is two strips with different pictures rather than the same strip twice.
-Six cells, except `gacoan-5-langit`, which is two full-bleed panels.
+Six cells on every one of them, three to a strip.
 
 `strip2x6` is therefore unused by anything shipped. It remains a layout the
 printer and the catalogue both understand — an uploaded 600×1800 frame still
@@ -36,6 +36,12 @@ is the same shape on disk as a frame synced down from the catalogue, which
 The supplied artwork was 1800 × 2700 — 4×6 at 450 dpi — and was resampled to the
 300 dpi sheet before being committed. Cells detected at 450 dpi would be 1.5×
 the sheet they have to sit on.
+
+`gacoan-5-langit` arrived as two full-bleed panels and its grid was punched
+here, so it holds six photos like the rest of the set. The bands are filled with
+the sky read out of the frame either side of them, and the ornaments that
+overhang the panels were left alone. Re-exporting that one from the delivered
+file brings the two panels back.
 
 ## Adding one
 
@@ -66,9 +72,8 @@ loads, rather than printed half-off the paper.
 
 Photos **fill** their cell and are centre-cropped. A letterboxed photo inside a
 designed frame reads as a mistake, and the customer framed the shot expecting
-the whole cell. A tall narrow cell therefore crops hard: `gacoan-5-langit` is
-402 × 1800, so a landscape frame from the camera shows a vertical sliver of
-itself, which is what that design asks for.
+the whole cell. A cell squarer than the camera therefore crops hard:
+`gacoan-5-langit` is 402 × 402, so a 3:2 frame loses a third of its width.
 
 A chosen filter is applied to each cell after the photo is drawn into it, so it
 colours the photograph and never this artwork. See `filter.go`.
