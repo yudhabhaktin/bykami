@@ -167,22 +167,41 @@ type startResponse struct {
 }
 
 // pay walks the booth from an idle screen to a session that may fire.
-func (f *fixture) pay(t *testing.T, packageID string) startResponse {
+//
+// No package is named, exactly as the kiosk names none: the booth sells one
+// session and the screen it is bought from has nothing to choose.
+func (f *fixture) pay(t *testing.T) startResponse {
 	t.Helper()
 
-	w := f.do(t, "POST", "/api/session", map[string]string{"package_id": packageID})
+	w := f.do(t, "POST", "/api/session", map[string]any{})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("start session: %d %s", w.Code, w.Body)
 	}
 	start := decode[startResponse](t, w)
 
+	f.settle(t)
+	return start
+}
+
+// settle is the customer scanning whichever QR code is currently on screen.
+func (f *fixture) settle(t *testing.T) {
+	t.Helper()
 	if w := f.do(t, "POST", "/api/payment/simulate", nil); w.Code != http.StatusOK {
 		t.Fatalf("simulate payment: %d %s", w.Code, w.Body)
 	}
 	if w := f.do(t, "GET", "/api/payment", nil); w.Code != http.StatusOK {
 		t.Fatalf("poll payment: %d %s", w.Code, w.Body)
 	}
-	return start
+}
+
+// buyReprint is the customer paying for one more sheet, which is the only way
+// past the single print the session includes.
+func (f *fixture) buyReprint(t *testing.T) {
+	t.Helper()
+	if w := f.do(t, "POST", "/api/reprint", nil); w.Code != http.StatusCreated {
+		t.Fatalf("start reprint: %d %s", w.Code, w.Body)
+	}
+	f.settle(t)
 }
 
 // The self-service gate, end to end: no payment, no photos.
@@ -236,7 +255,7 @@ func TestOnlyOneCustomerHoldsTheBooth(t *testing.T) {
 		t.Fatalf("first: %d %s", w.Code, w.Body)
 	}
 	// Even unpaid, the first customer keeps the screen.
-	if w := f.do(t, "POST", "/api/session", map[string]string{"package_id": "midi"}); w.Code != http.StatusConflict {
+	if w := f.do(t, "POST", "/api/session", map[string]any{}); w.Code != http.StatusConflict {
 		t.Fatalf("second session took the booth: %d %s", w.Code, w.Body)
 	}
 }
@@ -251,7 +270,7 @@ func TestUnknownPackageIsRejected(t *testing.T) {
 
 func TestTakeLimitIsEnforcedAtCapture(t *testing.T) {
 	f := setup(t)
-	start := f.pay(t, "mini")
+	start := f.pay(t)
 
 	for i := range start.Session.TakeLimit {
 		if w := f.do(t, "POST", "/api/capture", frameBytes(t, 320, 240)); w.Code != http.StatusCreated {
@@ -268,7 +287,7 @@ func TestTakeLimitIsEnforcedAtCapture(t *testing.T) {
 // the screen shows what a frame would actually print at.
 func TestPhotoListReportsPrintResolution(t *testing.T) {
 	f := setup(t)
-	f.pay(t, "mini")
+	f.pay(t)
 
 	if w := f.do(t, "POST", "/api/capture", frameBytes(t, 640, 480)); w.Code != http.StatusCreated {
 		t.Fatalf("capture: %d %s", w.Code, w.Body)
@@ -293,7 +312,7 @@ func TestPhotoListReportsPrintResolution(t *testing.T) {
 
 func TestPrintComposesAndQueues(t *testing.T) {
 	f := setup(t)
-	start := f.pay(t, "mini")
+	start := f.pay(t)
 
 	var ids []string
 	for range 3 {
@@ -336,87 +355,146 @@ func TestPrintComposesAndQueues(t *testing.T) {
 	}
 }
 
-// The backstop kiosk.md keeps: a stray file must never become a free print,
-// and neither must asking for more copies than the package includes.
-func TestPrintRefusesMoreCopiesThanThePackage(t *testing.T) {
-	f := setup(t)
-	start := f.pay(t, "mini") // one print
-
+// stripPhotos fires the frames a strip needs and returns their ids.
+func (f *fixture) stripPhotos(t *testing.T, n int) []string {
+	t.Helper()
 	var ids []string
-	for range 3 {
+	for range n {
 		w := f.do(t, "POST", "/api/capture", frameBytes(t, 800, 600))
+		if w.Code != http.StatusCreated {
+			t.Fatalf("capture: %d %s", w.Code, w.Body)
+		}
 		ids = append(ids, decode[struct {
 			Photo struct {
 				ID string `json:"id"`
 			} `json:"photo"`
 		}](t, w).Photo.ID)
 	}
+	return ids
+}
+
+// The backstop kiosk.md keeps: a stray file must never become a free print,
+// and neither must asking for more copies than the session has paid for.
+func TestPrintRefusesMoreCopiesThanWerePaidFor(t *testing.T) {
+	f := setup(t)
+	start := f.pay(t) // one print
 
 	w := f.do(t, "POST", "/api/print", map[string]any{
 		"template_id": start.Session.TemplateID,
-		"photo_ids":   ids,
+		"photo_ids":   f.stripPhotos(t, 3),
 		"copies":      5,
 	})
-	if w.Code != http.StatusForbidden {
+	if w.Code != http.StatusPaymentRequired {
 		t.Fatalf("sold extra prints: %d %s", w.Code, w.Body)
 	}
 }
 
-// Reprint hands the paid copies out one at a time, which makes every single
-// request look legal on its own. The allowance is therefore cumulative: MIDI
-// includes two prints, so the third single-copy request must be refused.
-func TestPrintRefusesMoreCopiesAcrossSeparateRequests(t *testing.T) {
+// Copies are handed out one at a time, which makes every single request look
+// legal on its own. The allowance is therefore cumulative: the session includes
+// one print, so the second single-copy request must be refused until it is paid
+// for.
+func TestPrintRefusesASecondCopyAcrossSeparateRequests(t *testing.T) {
 	f := setup(t)
-	start := f.pay(t, "midi") // two prints
-
-	var ids []string
-	for range 3 {
-		w := f.do(t, "POST", "/api/capture", frameBytes(t, 800, 600))
-		ids = append(ids, decode[struct {
-			Photo struct {
-				ID string `json:"id"`
-			} `json:"photo"`
-		}](t, w).Photo.ID)
-	}
+	start := f.pay(t)
 
 	body := map[string]any{
 		"template_id": start.Session.TemplateID,
-		"photo_ids":   ids,
+		"photo_ids":   f.stripPhotos(t, 3),
 		"copies":      1,
 	}
-	for i := range 2 {
-		if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusAccepted {
-			t.Fatalf("copy %d of a two-print package refused: %d %s", i+1, w.Code, w.Body)
-		}
+	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusAccepted {
+		t.Fatalf("the included print was refused: %d %s", w.Code, w.Body)
 	}
-	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusForbidden {
-		t.Fatalf("gave away a third print on a two-print package: %d %s", w.Code, w.Body)
+	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusPaymentRequired {
+		t.Fatalf("gave away a second print nobody paid for: %d %s", w.Code, w.Body)
+	}
+}
+
+// "Cetak 1 lagi" costs money, and the sheet appears only once it has arrived.
+func TestASettledReprintBuysExactlyOneMorePrint(t *testing.T) {
+	f := setup(t)
+	start := f.pay(t)
+
+	body := map[string]any{
+		"template_id": start.Session.TemplateID,
+		"photo_ids":   f.stripPhotos(t, 3),
+		"copies":      1,
+	}
+	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusAccepted {
+		t.Fatalf("the included print was refused: %d %s", w.Code, w.Body)
+	}
+
+	// The QR goes up, and until it settles nothing has been bought.
+	w := f.do(t, "POST", "/api/reprint", nil)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("start reprint: %d %s", w.Code, w.Body)
+	}
+	reprint := decode[startResponse](t, w)
+	if reprint.Payment.AmountIDR != catalog.ReprintIDR {
+		t.Fatalf("reprint charged %d, want %d", reprint.Payment.AmountIDR, catalog.ReprintIDR)
+	}
+	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusPaymentRequired {
+		t.Fatalf("printed against an unscanned QR code: %d %s", w.Code, w.Body)
+	}
+
+	f.settle(t)
+	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusAccepted {
+		t.Fatalf("the paid reprint was refused: %d %s", w.Code, w.Body)
+	}
+	// One sheet, not an open tap.
+	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusPaymentRequired {
+		t.Fatalf("one reprint payment bought more than one sheet: %d %s", w.Code, w.Body)
+	}
+}
+
+// Selling somebody a sheet they already own is the one failure here that takes
+// money and gives nothing back.
+func TestReprintIsRefusedWhileAPrintIsStillUnclaimed(t *testing.T) {
+	f := setup(t)
+	f.pay(t)
+
+	if w := f.do(t, "POST", "/api/reprint", nil); w.Code != http.StatusConflict {
+		t.Fatalf("charged for a print the session already includes: %d %s", w.Code, w.Body)
+	}
+}
+
+// Closing the dialog and opening it again must not leave a second live QR code
+// against the same session at the gateway.
+func TestReopeningTheReprintDialogReusesTheSameCharge(t *testing.T) {
+	f := setup(t)
+	start := f.pay(t)
+
+	if w := f.do(t, "POST", "/api/print", map[string]any{
+		"template_id": start.Session.TemplateID,
+		"photo_ids":   f.stripPhotos(t, 3),
+		"copies":      1,
+	}); w.Code != http.StatusAccepted {
+		t.Fatalf("the included print was refused: %d %s", w.Code, w.Body)
+	}
+
+	first := decode[startResponse](t, f.do(t, "POST", "/api/reprint", nil))
+	second := decode[startResponse](t, f.do(t, "POST", "/api/reprint", nil))
+	if first.Payment.ID != second.Payment.ID {
+		t.Fatalf("minted a second charge %q alongside %q", second.Payment.ID, first.Payment.ID)
 	}
 }
 
 // prints_done is what the screen decides "cetak lagi" from, so it has to track
-// the copies actually claimed rather than the number of requests.
+// the copies actually claimed rather than the number of requests. print_copies
+// beside it is the paid allowance, which grows with every settled reprint.
 func TestSessionViewReportsPrintsDone(t *testing.T) {
 	f := setup(t)
-	start := f.pay(t, "midi")
+	start := f.pay(t)
 
-	var ids []string
-	for range 3 {
-		w := f.do(t, "POST", "/api/capture", frameBytes(t, 800, 600))
-		ids = append(ids, decode[struct {
-			Photo struct {
-				ID string `json:"id"`
-			} `json:"photo"`
-		}](t, w).Photo.ID)
-	}
-
-	if w := f.do(t, "POST", "/api/print", map[string]any{
+	body := map[string]any{
 		"template_id": start.Session.TemplateID,
-		"photo_ids":   ids,
+		"photo_ids":   f.stripPhotos(t, 3),
 		"copies":      1,
-	}); w.Code != http.StatusAccepted {
+	}
+	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusAccepted {
 		t.Fatalf("print: %d %s", w.Code, w.Body)
 	}
+	f.buyReprint(t)
 
 	w := f.do(t, "GET", "/api/state", nil)
 	got := decode[struct {
@@ -435,7 +513,7 @@ func TestSessionViewReportsPrintsDone(t *testing.T) {
 
 func TestPrintRequiresTheRightNumberOfPhotos(t *testing.T) {
 	f := setup(t)
-	start := f.pay(t, "mini")
+	start := f.pay(t)
 
 	w := f.do(t, "POST", "/api/capture", frameBytes(t, 800, 600))
 	id := decode[struct {
@@ -457,7 +535,7 @@ func TestPrintRequiresTheRightNumberOfPhotos(t *testing.T) {
 // trusted from a disabled button.
 func TestDeliveryRequiresConsent(t *testing.T) {
 	f := setup(t)
-	f.pay(t, "mini")
+	f.pay(t)
 
 	if w := f.do(t, "POST", "/api/delivery", map[string]any{
 		"phone": "081234567890", "consent": false,
@@ -487,7 +565,7 @@ func TestDeliveryRequiresConsent(t *testing.T) {
 
 func TestDeliveryRejectsAnInvalidNumber(t *testing.T) {
 	f := setup(t)
-	f.pay(t, "mini")
+	f.pay(t)
 
 	if w := f.do(t, "POST", "/api/delivery", map[string]any{
 		"phone": "12345", "consent": true,
@@ -772,7 +850,7 @@ func TestCancelFreesAnUnpaidBooth(t *testing.T) {
 	if w := f.do(t, "POST", "/api/session/cancel", nil); w.Code != http.StatusOK {
 		t.Fatalf("cancel: %d %s", w.Code, w.Body)
 	}
-	if w := f.do(t, "POST", "/api/session", map[string]string{"package_id": "midi"}); w.Code != http.StatusCreated {
+	if w := f.do(t, "POST", "/api/session", map[string]any{}); w.Code != http.StatusCreated {
 		t.Fatalf("booth still held: %d %s", w.Code, w.Body)
 	}
 }
@@ -780,7 +858,7 @@ func TestCancelFreesAnUnpaidBooth(t *testing.T) {
 // Money moved, so the row has to say so.
 func TestCancelRefusesAPaidSession(t *testing.T) {
 	f := setup(t)
-	f.pay(t, "mini")
+	f.pay(t)
 
 	if w := f.do(t, "POST", "/api/session/cancel", nil); w.Code != http.StatusConflict {
 		t.Fatalf("deleted a session that was paid for: %d %s", w.Code, w.Body)
@@ -879,7 +957,7 @@ var _ = time.Second
 // take that does not exist.
 func TestIdenticalFrameIsRefused(t *testing.T) {
 	f := setup(t)
-	f.pay(t, "mini")
+	f.pay(t)
 
 	frame := frameBytes(t, 320, 240)
 	if w := f.do(t, "POST", "/api/capture", frame); w.Code != http.StatusCreated {

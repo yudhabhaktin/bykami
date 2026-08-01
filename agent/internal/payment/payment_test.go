@@ -53,7 +53,7 @@ func TestSettlementReleasesTheShutter(t *testing.T) {
 
 	s := startSession(t, sessions)
 
-	p, err := payments.Create(ctx, s.ID, testPackage.PriceIDR)
+	p, err := payments.Create(ctx, s.ID, testPackage.PriceIDR, payment.SessionKind)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestExpiryIsDecidedLocally(t *testing.T) {
 	ctx := context.Background()
 
 	s := startSession(t, sessions)
-	p, err := payments.Create(ctx, s.ID, testPackage.PriceIDR)
+	p, err := payments.Create(ctx, s.ID, testPackage.PriceIDR, payment.SessionKind)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestRefreshIsIdempotentAfterSettlement(t *testing.T) {
 	ctx := context.Background()
 
 	s := startSession(t, sessions)
-	p, err := payments.Create(ctx, s.ID, testPackage.PriceIDR)
+	p, err := payments.Create(ctx, s.ID, testPackage.PriceIDR, payment.SessionKind)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAutoSettleSettlesWithoutBeingTold(t *testing.T) {
 	ctx := context.Background()
 
 	s := startSession(t, sessions)
-	p, err := payments.Create(ctx, s.ID, testPackage.PriceIDR)
+	p, err := payments.Create(ctx, s.ID, testPackage.PriceIDR, payment.SessionKind)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestNoProviderIsARefusal(t *testing.T) {
 		t.Fatal("payments reported enabled with no provider")
 	}
 	s := startSession(t, sessions)
-	if _, err := payments.Create(ctx, s.ID, 45_000); !errors.Is(err, payment.ErrNotConfigured) {
+	if _, err := payments.Create(ctx, s.ID, 45_000, payment.SessionKind); !errors.Is(err, payment.ErrNotConfigured) {
 		t.Fatalf("want ErrNotConfigured, got %v", err)
 	}
 }
@@ -197,7 +197,7 @@ func TestCreateRejectsANonPositiveAmount(t *testing.T) {
 	ctx := context.Background()
 
 	s := startSession(t, sessions)
-	if _, err := payments.Create(ctx, s.ID, 0); err == nil {
+	if _, err := payments.Create(ctx, s.ID, 0, payment.SessionKind); err == nil {
 		t.Fatal("minted a QR code for nothing")
 	}
 }

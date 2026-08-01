@@ -169,9 +169,12 @@ button {
   gap: 1rem;
 }
 
+/* The lockup, where the wordmark used to be set in type. Sized by height so it
+   sits with the paper count beside it; the intrinsic width and height on the
+   tag keep the row from reflowing while the PNG decodes. */
 .brand {
-  font-weight: 700;
-  letter-spacing: -0.5px;
+  height: 28px;
+  width: auto;
 }
 
 /* Display 40 / Heading 28 / Body 18 / Caption 14. */
@@ -405,11 +408,13 @@ p {
   position: relative;
 }
 
+/* Scales with the panel rather than sitting at a fixed size, for the same
+   reason the title does: this screen is read from across a room. The ceiling is
+   set by the asset — 17rem is 272px, which a 2x booth panel still renders from
+   the 640px original without upscaling. */
 .attract-kicker {
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  font-size: 0.875rem;
-  color: var(--ink);
+  width: clamp(11rem, 22vw, 17rem);
+  height: auto;
 }
 
 .attract-title {
@@ -503,45 +508,24 @@ p {
   animation: drift 6s ease-in-out infinite;
 }
 
-.packages {
+/*
+ * Cut or no cut.
+ *
+ * Two cards rather than a toggle, because they are two different objects a
+ * customer walks away holding and neither is a modification of the other. Wide
+ * enough to be hit without aiming, and side by side so the comparison is a
+ * glance rather than a memory.
+ *
+ * Colour carries the selection as well as the border does: on a booth screen
+ * seen at an angle, a 2px outline is not a state anyone can read across a room.
+ */
+.cut-options {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   gap: var(--s-4);
 }
 
-/*
- * The price list, in colour.
- *
- * Four identical cream rectangles is a table, and a table is what the booth
- * should least resemble on the one screen where somebody decides to spend
- * money. Cycling the palette makes each package a distinct object to point at
- * — "the pink one" is how a pair standing at a booth actually chooses.
- *
- * Strictly the five tokens at the top of this file. A fifth package restarts
- * the cycle rather than introducing a sixth colour, because inventing a tint to
- * fill a gap is how a limited palette stops being one.
- */
-.package:nth-child(4n + 1) {
-  background: var(--pink);
-}
-
-.package:nth-child(4n + 2) {
-  background: var(--accent-2);
-}
-
-.package:nth-child(4n + 3) {
-  background: var(--yellow);
-}
-
-/* The muted caption is warm grey against cream, which disappears on a saturated
-   fill. On a coloured card it is ink at reduced weight instead — the same
-   hierarchy, held by weight rather than by lightness. */
-.package .muted {
-  color: var(--ink);
-  opacity: 0.72;
-}
-
-.package {
+.cut-option {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
@@ -560,20 +544,32 @@ p {
     background-color 200ms var(--ease);
 }
 
-.package:active {
+.cut-option:active {
   transform: translate(4px, 4px);
   box-shadow: 0 0 0 var(--ink);
 }
 
-.package[aria-pressed="true"] {
+.cut-option[aria-pressed="true"] {
   background: var(--accent-2);
+  border-width: var(--stroke-thick);
 }
 
-.price {
+/* The muted caption is warm grey against cream, which disappears on a
+   saturated fill. On the selected card it is ink at reduced weight instead —
+   the same hierarchy, held by weight rather than by lightness. */
+.cut-option[aria-pressed="true"] .muted {
+  color: var(--ink);
+  opacity: 0.72;
+}
+
+.cut-art {
+  height: 3.5rem;
+}
+
+.cut-name {
   font-size: 32px;
   font-weight: 700;
   letter-spacing: -1px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* Capture */
@@ -714,6 +710,30 @@ p {
 .counter {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+}
+
+/*
+ * The photo session's clock.
+ *
+ * Beside the take counter rather than over the camera: it is information the
+ * customer needs to pace themselves, not something to watch instead of posing.
+ */
+.clock {
+  padding: var(--s-1) var(--s-3);
+  border: var(--stroke) solid var(--line);
+  border-radius: var(--r-btn);
+  background: var(--surface);
+}
+
+/* Under a minute. The whole chip changes rather than just the digits, because
+   a red number on a cream chip is what every other number on this screen looks
+   like at a glance. */
+.clock.low {
+  background: var(--red);
+  color: var(--cream);
 }
 
 /*
@@ -1145,6 +1165,48 @@ p {
   width: min(60vh, 22rem);
   height: auto;
   image-rendering: pixelated;
+}
+
+/*
+ * Paying for another sheet, over the screen that offers it.
+ *
+ * A dialog rather than a step, because the customer's selection and the sheet
+ * preview underneath are the thing being bought — sending them to a payment
+ * screen and back would mean rebuilding all of it, and a filmstrip that
+ * reappears with nothing chosen reads as the booth having lost their photos.
+ */
+.dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-5);
+  background: rgb(26 26 26 / 0.72);
+}
+
+.dialog-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-4);
+  text-align: center;
+  max-width: 34rem;
+  width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: var(--s-6);
+  background: var(--ground);
+  border: var(--stroke-thick) solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Sized to the dialog it sits in rather than to a screen it owns. Still far
+   past what a phone camera needs from arm's length. */
+.dialog .qr canvas {
+  width: min(36vh, 16rem);
 }
 
 /* Smaller than the payment QR, which owns its whole screen. This one shares a

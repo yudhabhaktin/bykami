@@ -61,6 +61,11 @@ export interface Session {
   package_name: string;
   price_idr: number;
   template_id: string;
+  /**
+   * How many sheets this session may take away in total: the one print it
+   * includes, plus one for every reprint that has actually been paid for. Grows
+   * only when a reprint payment settles.
+   */
   print_copies: number;
   /** How many of print_copies have been claimed. Server-held, so a refresh
    *  cannot hand the allowance out twice. */
@@ -111,6 +116,9 @@ export interface State {
   media: { sheets_remaining: number; low: boolean };
   consent: { version: string; retention_days: number };
   flags: Record<string, boolean>;
+  /** What one extra print costs. Served, so the price on the button is the
+   *  price the QR code will charge. */
+  reprint_idr: number;
 }
 
 /** The message the booth screen shows. Indonesian, because a customer reads it. */
@@ -148,11 +156,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   state: () => request<State>("/api/state"),
 
-  start: (packageId: string) =>
+  /**
+   * Opens the booth's one session and mints the QR code for it.
+   *
+   * Nothing is named. There is a single session to buy, so the screen has
+   * nothing to choose and the price lives at the gateway with the server that
+   * charges it — a package id sent from here would only be a second place for
+   * the screen and the charge to disagree.
+   */
+  start: () =>
     request<{ session: Session; payment: Payment }>("/api/session", {
       method: "POST",
-      body: JSON.stringify({ package_id: packageId }),
+      body: JSON.stringify({}),
     }),
+
+  /**
+   * Puts a second QR code up, for one more sheet.
+   *
+   * Idempotent while a code is live: tapping again returns the charge already
+   * on screen rather than minting another one the customer could also scan.
+   */
+  reprint: () =>
+    request<{ session: Session; payment: Payment }>("/api/reprint", { method: "POST" }),
 
   /** Settlement is polled: the booth has no inbound path for a gateway webhook. */
   pollPayment: () => request<{ session: Session; payment: Payment }>("/api/payment"),
@@ -181,10 +206,22 @@ export const api = {
 
   photoURL: (id: string) => `/api/photos/${id}/file`,
 
-  print: (templateId: string, photoIds: string[], copies: number, filter: string) =>
+  print: (
+    templateId: string,
+    photoIds: string[],
+    copies: number,
+    filter: string,
+    cut: boolean,
+  ) =>
     request<{ job: PrintJob }>("/api/print", {
       method: "POST",
-      body: JSON.stringify({ template_id: templateId, photo_ids: photoIds, copies, filter }),
+      body: JSON.stringify({
+        template_id: templateId,
+        photo_ids: photoIds,
+        copies,
+        filter,
+        cut,
+      }),
     }),
 
   printStatus: (id: string) => request<{ job: PrintJob }>(`/api/print/${id}`),

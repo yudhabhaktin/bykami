@@ -1,20 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ScreenProps } from "../App";
-import { api, ApiError, type Photo, type Template } from "../api";
+import { api, ApiError, rupiah, type Photo, type Template } from "../api";
 import { filterCSS, FilterPicker } from "../Filters";
 import { record, type Timings } from "../perf";
+import { countdown, QRCanvas } from "../QRCanvas";
 import { cellAspect } from "../shot";
 import { SheetPreview } from "../SheetPreview";
 
 /** How often the printer's progress is checked while the customer watches. */
 const POLL_MS = 1500;
 
+/** How often the reprint's QR code is checked for settlement. */
+const PAY_POLL_MS = 2000;
+
 /**
- * Pick the frames, pick the design, print.
+ * Pick the frames, print.
+ *
+ * The layout is no longer chosen here. It is settled two screens earlier,
+ * before the camera opens, because the frame decides how many photographs the
+ * session needs — and offering it again at review meant a customer could pick a
+ * four-cell design after shooting three, which is a question asked far too
+ * late. What is left here is the choice this screen is for: which frames go in,
+ * and how they look.
  *
  * This is also the backstop the capture-side take limit does not replace: it
- * enforces what was actually bought, because a stray file in the hot folder
+ * enforces what was actually paid for, because a stray file in the hot folder
  * must never become a free print.
  */
 export function Review({
@@ -25,15 +36,15 @@ export function Review({
   onTimings,
   onPrinted,
   templateId,
-  setTemplateId,
   filter,
   setFilter,
+  cut,
 }: ScreenProps & {
   onPrinted: (photos: Photo[]) => void;
   templateId: string;
-  setTemplateId: (id: string) => void;
   filter: string;
   setFilter: (id: string) => void;
+  cut: boolean;
 }) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [chosen, setChosen] = useState<string[]>([]);
@@ -47,8 +58,17 @@ export function Review({
   const decoded = useRef(0);
   const measured = useRef(false);
 
-  // Refetched when the template changes, because print_dpi is a property of the
-  // cell a frame lands in and the customer can switch layout here.
+  // The reprint's QR code, empty when nothing is being paid for. Held here
+  // rather than in the shared state because it is a dialog over this screen:
+  // the customer's selection and the sheet preview have to survive it.
+  //
+  // The countdown is separate state so that ticking it does not restart the
+  // settlement poll — the two run at different rates and one must not reset the
+  // other.
+  const [payload, setPayload] = useState("");
+  const [remaining, setRemaining] = useState(0);
+  const [buying, setBuying] = useState(false);
+
   const load = useCallback(async () => {
     try {
       const { photos } = await api.photos(templateId);
@@ -85,9 +105,10 @@ export function Review({
   const need = template?.cells.length ?? 0;
 
   // The paid allowance, and what is left of it. Both come from the server, so
-  // reloading the page mid-session cannot reset the count.
+  // reloading the page mid-session cannot reset the count — and the allowance
+  // itself only grows when a reprint payment settles.
   const printed = state.session?.prints_done ?? 0;
-  const remaining = Math.max(0, (state.session?.print_copies ?? 1) - printed);
+  const unclaimed = Math.max(0, (state.session?.print_copies ?? 1) - printed);
 
   // In tap order, which is cell order — the preview and the badge on each
   // thumbnail have to be showing the same thing.
@@ -105,23 +126,91 @@ export function Review({
     });
   }
 
-  // One at a time, not the whole allowance at once. A pair splitting a strip
-  // wants the second copy when they are ready for it, and this is the only
-  // meaning of "reprint" that costs nothing and changes no money rule. The
-  // server counts what the session has already claimed, so tapping again can
-  // never exceed what was paid for.
-  async function print() {
+  // One at a time, not the whole allowance at once. The server counts what the
+  // session has already claimed, so tapping again can never exceed what was
+  // paid for — this is the screen asking politely for something the print route
+  // enforces.
+  const print = useCallback(async () => {
     if (!template || chosen.length !== need) return;
     setBusy(true);
     setError("");
     try {
-      const { job } = await api.print(template.id, chosen, 1, filter);
+      const { job } = await api.print(template.id, chosen, 1, filter, cut);
       setJob({ id: job.id, state: job.state });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal mencetak.");
       setBusy(false);
     }
+  }, [template, chosen, need, filter, cut, setError]);
+
+  // The session includes one sheet; everything after it is bought. The QR goes
+  // up rather than the sheet coming out, and the allowance only moves when the
+  // gateway says the money arrived.
+  async function buyReprint() {
+    setBuying(true);
+    setError("");
+    try {
+      const { payment } = await api.reprint();
+      setPayload(payment.qr_payload);
+      setRemaining(payment.expires_in);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Gagal membuat QR.");
+    } finally {
+      setBuying(false);
+    }
   }
+
+  // What to print once the money lands. A ref because the poll below must not
+  // be restarted every time the customer taps a different thumbnail, and print
+  // closes over the selection.
+  const printNow = useRef(print);
+  printNow.current = print;
+
+  useEffect(() => {
+    if (!payload) return;
+    const t = setInterval(() => setRemaining((n) => Math.max(0, n - 1)), 1000);
+    return () => clearInterval(t);
+  }, [payload]);
+
+  // Settlement is polled here for the same reason it is on the pay screen: the
+  // booth has no inbound path a gateway webhook could reach.
+  //
+  // The sheet is queued the moment it is paid for, without a further tap. The
+  // customer has just scanned a code to print this exact selection; asking them
+  // to confirm it again is a tap that can only mean "yes".
+  useEffect(() => {
+    if (!payload) return;
+    let cancelled = false;
+
+    const t = setInterval(() => {
+      void (async () => {
+        try {
+          const { payment } = await api.pollPayment();
+          if (cancelled) return;
+          setRemaining(payment.expires_in);
+
+          if (payment.state === "settled") {
+            setPayload("");
+            await refresh();
+            await printNow.current();
+            return;
+          }
+          if (payment.state === "expired" || payment.state === "failed") {
+            setPayload("");
+            setError("Waktu pembayaran habis. Coba lagi kalau masih mau cetak.");
+          }
+        } catch {
+          // A failed poll is not a failed payment. The customer is standing
+          // right there, so the dialog stays put and asks again.
+        }
+      })();
+    }, PAY_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [payload, refresh, setError]);
 
   // The job's progress is polled because the agent owns the queue, which is the
   // whole reason it exists rather than window.print(): status, errors and media
@@ -139,16 +228,17 @@ export function Review({
             setBusy(false);
           }
           if (next.state === "done") {
-            // The refreshed state carries prints_done, which is what decides
-            // whether there is a copy left to offer.
-            void refresh().then((next) => {
-              const sess = next?.session;
-              if (sess && sess.prints_done < sess.print_copies) {
-                setJob(null);
-                setBusy(false);
-                return;
-              }
-              onPrinted(photos.filter((p) => chosen.includes(p.id)));
+            // Back to this screen every time, never straight on to delivery.
+            //
+            // It used to move on as soon as the package's copies were used up,
+            // which was right while the last included print was the end of the
+            // transaction. It no longer is: the offer to buy another sheet
+            // lives on this screen, so advancing past it would take the choice
+            // away at the exact moment it becomes available. "Lanjut" is how a
+            // customer says they are done, and it is one tap.
+            void refresh().then(() => {
+              setJob(null);
+              setBusy(false);
             });
           }
         })
@@ -156,7 +246,7 @@ export function Review({
     }, POLL_MS);
 
     return () => clearInterval(t);
-  }, [job, chosen, photos, refresh, onPrinted, setError]);
+  }, [job, refresh, setError]);
 
   if (job && job.state !== "failed") {
     return (
@@ -181,27 +271,10 @@ export function Review({
         </span>
       </div>
 
-      <div className="actions">
-        {state.templates.map((t) => (
-          <button
-            key={t.id}
-            className="btn secondary"
-            aria-pressed={t.id === templateId}
-            onClick={() => {
-              setTemplateId(t.id);
-              setChosen([]);
-            }}
-            style={t.id === templateId ? { borderWidth: 2 } : undefined}
-          >
-            {t.name}
-          </button>
-        ))}
-      </div>
-
       {/*
-        Below the layouts and above the filmstrip: the filter changes the sheet
-        in the preview beside it, so the choice is made against the thing being
-        bought rather than against a name.
+        Above the filmstrip: the filter changes the sheet in the preview beside
+        it, so the choice is made against the thing being bought rather than
+        against a name.
       */}
       <FilterPicker
         filters={state.filters}
@@ -248,7 +321,9 @@ export function Review({
 
       {printed > 0 && (
         <p className="notice">
-          Cetakan ke-{printed} sudah keluar. Sisa {remaining} cetak — ambil sekarang atau lanjut.
+          {unclaimed > 0
+            ? `Cetakan ke-${printed} sudah keluar. Sisa ${unclaimed} cetak — ambil sekarang atau lanjut.`
+            : `Cetakan ke-${printed} sudah keluar. Mau satu lagi? ${rupiah(state.reprint_idr)} per lembar.`}
         </p>
       )}
 
@@ -258,8 +333,8 @@ export function Review({
             Foto lagi
           </button>
         ) : (
-          // Declining the rest of the allowance has to be one tap. Some of it
-          // will go unclaimed and that is the customer's call, not the booth's.
+          // Declining another sheet has to be one tap, and it is the tap most
+          // customers will take.
           <button
             className="btn secondary"
             onClick={() => onPrinted(chosenPhotos)}
@@ -268,15 +343,67 @@ export function Review({
             Lanjut
           </button>
         )}
-        <button
-          className="btn"
-          onClick={() => void print()}
-          disabled={busy || chosen.length !== need || remaining === 0}
-        >
-          {printed === 0 ? "Cetak" : `Cetak lagi (${remaining} tersisa)`}
-        </button>
+        {unclaimed > 0 ? (
+          <button
+            className="btn"
+            onClick={() => void print()}
+            disabled={busy || chosen.length !== need}
+          >
+            {printed === 0 ? "Cetak" : `Cetak (${unclaimed} tersisa)`}
+          </button>
+        ) : (
+          // Nothing left that was paid for, so the next sheet is a purchase.
+          // Priced on the button: a customer should never tap something that
+          // turns out to cost money.
+          <button
+            className="btn"
+            onClick={() => void buyReprint()}
+            disabled={busy || buying || chosen.length !== need}
+          >
+            Cetak 1 lagi · {rupiah(state.reprint_idr)}
+          </button>
+        )}
       </div>
       </div>
+
+      {payload && (
+        <div className="dialog" role="dialog" aria-label="Bayar cetakan tambahan">
+          <div className="dialog-card">
+            <h2>Scan untuk cetak 1 lagi</h2>
+            <p className="muted">{rupiah(state.reprint_idr)} · 1 lembar</p>
+
+            <QRCanvas payload={payload} size={360} onError={setError} />
+
+            <p className="muted">Berlaku {countdown(remaining)}</p>
+
+            <div className="actions">
+              <button className="btn ghost" onClick={() => setPayload("")}>
+                Batal
+              </button>
+              {/*
+                Only rendered when the simulated provider is selected, exactly as
+                on the pay screen: with a real provider the route it calls is a
+                404, so a booth that could take real money has no button that
+                skips paying.
+              */}
+              {state.flags.payments_simulated && (
+                <button
+                  className="btn secondary"
+                  onClick={() =>
+                    void api
+                      .simulatePayment()
+                      .catch((err) =>
+                        setError(err instanceof ApiError ? err.message : "Gagal simulasi."),
+                      )
+                  }
+                >
+                  Simulasikan pembayaran
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

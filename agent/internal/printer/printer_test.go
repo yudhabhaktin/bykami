@@ -132,7 +132,7 @@ func TestPrintConsumesMedia(t *testing.T) {
 	if err := q.LoadRoll(ctx, printer.RollSheets, "roll 1"); err != nil {
 		t.Fatalf("load roll: %v", err)
 	}
-	if _, err := q.Submit(ctx, "s1", printer.LayoutStrip, 4, "sheets/s1/composed.jpg"); err != nil {
+	if _, err := q.Submit(ctx, "s1", printer.LayoutStrip, 4, true, "sheets/s1/composed.jpg"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 
@@ -160,11 +160,11 @@ func TestSubmitRefusesWhenTheRollCannotCoverIt(t *testing.T) {
 	if err := q.LoadRoll(ctx, 3, "nearly empty"); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 4, "sheets/s1/composed.jpg"); !errors.Is(err, printer.ErrNoMedia) {
+	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 4, true, "sheets/s1/composed.jpg"); !errors.Is(err, printer.ErrNoMedia) {
 		t.Fatalf("want ErrNoMedia, got %v", err)
 	}
 	// And what does fit is still accepted.
-	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 3, "sheets/s1/composed.jpg"); err != nil {
+	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 3, true, "sheets/s1/composed.jpg"); err != nil {
 		t.Fatalf("a job that fits was refused: %v", err)
 	}
 }
@@ -178,10 +178,10 @@ func TestQueuedSheetsAreCountedAgainstTheRoll(t *testing.T) {
 	if err := q.LoadRoll(ctx, 4, "roll"); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 3, "sheets/s1/composed.jpg"); err != nil {
+	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 3, true, "sheets/s1/composed.jpg"); err != nil {
 		t.Fatalf("first submit: %v", err)
 	}
-	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 3, "sheets/s1/composed.jpg"); !errors.Is(err, printer.ErrNoMedia) {
+	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 3, true, "sheets/s1/composed.jpg"); !errors.Is(err, printer.ErrNoMedia) {
 		t.Fatalf("second submit ignored the queue: %v", err)
 	}
 }
@@ -195,7 +195,7 @@ func TestFailedJobRecordsWhyAndConsumesNothing(t *testing.T) {
 	}
 	backend.FailNext(errors.New("media door open"))
 
-	job, err := q.Submit(ctx, "s1", printer.Layout4R, 1, "sheets/s1/composed.jpg")
+	job, err := q.Submit(ctx, "s1", printer.Layout4R, 1, true, "sheets/s1/composed.jpg")
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestMissingImageFailsTheJob(t *testing.T) {
 	if err := q.LoadRoll(ctx, 100, "roll"); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	job, err := q.Submit(ctx, "s1", printer.Layout4R, 1, "sheets/s1/composed.jpg")
+	job, err := q.Submit(ctx, "s1", printer.Layout4R, 1, true, "sheets/s1/composed.jpg")
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestJobsPrintInOrder(t *testing.T) {
 	}
 	var ids []string
 	for range 3 {
-		j, err := q.Submit(ctx, "s1", printer.Layout4R, 1, "sheets/s1/composed.jpg")
+		j, err := q.Submit(ctx, "s1", printer.Layout4R, 1, true, "sheets/s1/composed.jpg")
 		if err != nil {
 			t.Fatalf("submit: %v", err)
 		}
@@ -287,7 +287,7 @@ func TestRestartFailsInterruptedJobs(t *testing.T) {
 	if err := q.LoadRoll(ctx, 100, "roll"); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	job, err := q.Submit(ctx, "s1", printer.Layout4R, 1, "sheets/s1/composed.jpg")
+	job, err := q.Submit(ctx, "s1", printer.Layout4R, 1, true, "sheets/s1/composed.jpg")
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestSubmitRejectsAnUnknownLayout(t *testing.T) {
 	if err := q.LoadRoll(ctx, 100, "roll"); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if _, err := q.Submit(ctx, "s1", printer.Layout("polaroid"), 1, "sheets/s1/composed.jpg"); !errors.Is(err, printer.ErrUnknownLayout) {
+	if _, err := q.Submit(ctx, "s1", printer.Layout("polaroid"), 1, true, "sheets/s1/composed.jpg"); !errors.Is(err, printer.ErrUnknownLayout) {
 		t.Fatalf("want ErrUnknownLayout, got %v", err)
 	}
 }
@@ -351,7 +351,7 @@ func TestSubmitRequiresAComposedSheet(t *testing.T) {
 	if err := q.LoadRoll(ctx, 100, "roll"); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 1, ""); err == nil {
+	if _, err := q.Submit(ctx, "s1", printer.Layout4R, 1, true, ""); err == nil {
 		t.Fatal("queued a job with no image")
 	}
 }
@@ -365,7 +365,7 @@ func TestSheetPathIsPersisted(t *testing.T) {
 	if err := q.LoadRoll(ctx, 100, "roll"); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	job, err := q.Submit(ctx, "s1", printer.Layout4R, 1, "sheets/s1/a.jpg")
+	job, err := q.Submit(ctx, "s1", printer.Layout4R, 1, true, "sheets/s1/a.jpg")
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}

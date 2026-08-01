@@ -10,6 +10,7 @@
   robots.txt on non-root paths.
 -->
 <meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
 /*
  * Tokens mirrored from packages/ui/src/tokens.css rather than imported: this is
@@ -47,7 +48,10 @@ body {
   padding: 0.75rem 1rem;
 }
 .bar .wrap { padding: 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.brand { font-weight: 700; letter-spacing: -0.4px; }
+.brand { font-weight: 700; letter-spacing: -0.4px; white-space: nowrap; }
+/* Sized by height and nudged onto the text baseline, so "admin" reads as part
+   of the same line rather than as a caption under the logo. */
+.brand img { height: 22px; width: auto; vertical-align: -5px; margin-right: 0.15em; }
 h1 { font-size: 28px; line-height: 34px; letter-spacing: -0.7px; margin: 0 0 1.5rem; }
 h2 { font-size: 20px; line-height: 28px; letter-spacing: -0.4px; margin: 2rem 0 0.75rem; }
 p { margin: 0 0 1rem; max-width: 68ch; }
@@ -131,7 +135,7 @@ summary { cursor: pointer; color: var(--muted); }
 <body>
 <header class="bar">
   <div class="wrap">
-    <span class="brand">bykami · admin</span>
+    <span class="brand"><img src="/logo.png" alt="studio by KAMI" width="640" height="210"> · admin</span>
     {{if .Operator}}
       <nav>
         <a href="/customers">Pelanggan</a>

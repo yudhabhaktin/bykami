@@ -34,11 +34,42 @@ func TestGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if p.Name != "MINI" {
+	if p.Name != "Single Session" {
 		t.Fatalf("name = %q", p.Name)
 	}
 	if _, err := catalog.Get("not-a-package"); err == nil {
 		t.Fatal("returned a package that does not exist")
+	}
+}
+
+// The booth has no price list, so the server has to know what it is selling
+// without being told. A catalogue that grew a second package would make the
+// kiosk sell whichever one happened to be first.
+func TestOnlyIsTheOnePackageTheBoothSells(t *testing.T) {
+	only, err := catalog.Only()
+	if err != nil {
+		t.Fatalf("only: %v", err)
+	}
+
+	all, err := catalog.All()
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("the booth sells %d packages; the kiosk can only offer one", len(all))
+	}
+	if only.ID != all[0].ID {
+		t.Fatalf("Only returned %q, catalogue holds %q", only.ID, all[0].ID)
+	}
+	if only.PrintCopies != 1 {
+		// Everything past the first sheet is a paid reprint. A session that
+		// included two would hand the second one out for free.
+		t.Fatalf("print_copies = %d, want the single included print", only.PrintCopies)
+	}
+	if only.DurationMinutes <= 0 {
+		// The kiosk counts this down on the capture screen; zero would expire
+		// the photo session the moment the camera opened.
+		t.Fatal("the session has no duration for the capture screen to count down")
 	}
 }
 

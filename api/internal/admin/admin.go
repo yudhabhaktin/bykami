@@ -55,6 +55,15 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
+// The console's own copies of the brand assets. Served as routes rather than
+// inlined as `data:` URIs, because the CSP below names `img-src 'self'` and
+// deliberately excludes `data:` — see secHeaders. Copies rather than an import
+// from packages/ui for the same reason the tokens in layout.html are copied:
+// this is served by Go and never passes through the Astro build.
+//
+//go:embed logo.png icon.svg
+var brandFS embed.FS
+
 // sessionCookie is host-only and therefore prefixed __Host-, which browsers
 // enforce: the prefix is rejected unless the cookie is Secure, has no Domain,
 // and has Path=/. That turns the scoping rule above from a convention this code
@@ -146,7 +155,35 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("POST /frames/{id}/publish", c.staffOnly(c.framePublish))
 	mux.HandleFunc("POST /frames/{id}/season", c.staffOnly(c.frameSeason))
 	mux.HandleFunc("POST /frames/{id}/delete", c.staffOnly(c.frameDelete))
+
+	// Not behind staffOnly: the login page wears the same chrome as the rest of
+	// the console, so the logo has to load for someone who has not signed in.
+	// Neither file says anything a stranger could not read off the marketing
+	// site anyway.
+	mux.Handle("GET /logo.png", brandAsset("logo.png", "image/png"))
+	mux.Handle("GET /icon.svg", brandAsset("icon.svg", "image/svg+xml"))
 	return mux
+}
+
+// brandAsset serves one embedded brand file.
+//
+// Read once here rather than per request: Handler is called at startup, the
+// files are a few kilobytes, and a missing one is a build mistake rather than a
+// runtime condition — so it panics now instead of 404ing later.
+func brandAsset(name, mime string) http.Handler {
+	body, err := brandFS.ReadFile(name)
+	if err != nil {
+		panic("admin: embedded brand asset missing: " + name)
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Type", mime)
+		h.Set("X-Content-Type-Options", "nosniff")
+		// Unlike every page here, this holds nothing about an operator or a
+		// customer, so it is the one response worth letting a browser keep.
+		h.Set("Cache-Control", "public, max-age=86400")
+		w.Write(body)
+	})
 }
 
 // page is what every template renders against. One struct rather than one per

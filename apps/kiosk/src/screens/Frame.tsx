@@ -5,15 +5,20 @@ import { SheetPreview } from "../SheetPreview";
 /**
  * Pick the frame, before the camera opens.
  *
- * Chosen here rather than only at review because the frame decides how many
- * photos the session needs, and a customer who learns that after shooting has
- * been told too late. The package still names a default, so tapping straight
- * through gets the frame the price list advertised.
+ * Chosen here and only here. The frame decides how many photographs the session
+ * needs, so a customer who learns that after shooting has been told too late —
+ * and review used to offer the layout a second time, which meant they could
+ * pick a four-cell design having taken three frames. The session names a
+ * default, so tapping straight through lands on something.
+ *
+ * After the cut choice, because cut is a property of the paper and this is a
+ * property of the picture: what comes out of the machine is settled first, then
+ * what is printed on it.
  *
  * The preview is the same component the review screen uses, with no photos in
  * it — empty numbered cells are exactly what "this frame holds four" looks like.
  * Nothing is committed to the server here: the template travels with the print
- * request, so changing your mind at review is still free.
+ * request, so it is still only a choice until a sheet is queued.
  */
 export function Frame({
   state,

@@ -12,6 +12,15 @@
     />
     <meta name="robots" content="noindex, nofollow" />
     <title>bykami booth</title>
+    <!--
+      public/ holds its own copy of the mark rather than importing it from
+      @bykami/ui, for the same reason styles.css restates the design tokens:
+      this bundle is embedded in the Go agent and must build without the Astro
+      workspace. The source is packages/ui/src/brand/icon.svg.
+    -->
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="bykami" />
   </head>
   <body>
     <div id="root"></div>

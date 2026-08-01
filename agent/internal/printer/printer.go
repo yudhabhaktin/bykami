@@ -105,9 +105,18 @@ type Job struct {
 	SessionID string
 	Layout    Layout
 	// SheetPath is the composed image, relative to the store root.
-	SheetPath  string
-	Copies     int
-	Sheets     int
+	SheetPath string
+	Copies    int
+	Sheets    int
+
+	// Cut is whether the machine's blade splits the printed sheet.
+	//
+	// The customer's choice, made before they pick a frame, because it decides
+	// what they walk away holding: two 2x6 strips or one 4x6 kept whole. It
+	// changes nothing about the media ledger — both feed one sheet off the roll
+	// — so it travels with the job purely as an instruction to the backend.
+	Cut bool
+
 	State      State
 	Error      string
 	QueuedAt   time.Time
@@ -159,7 +168,7 @@ func NewWithClock(db *sql.DB, backend Backend, log *slog.Logger, now func() time
 // It does refuse up front when the roll cannot cover the queue, which is the
 // signal the browser could never give: better to tell the customer now than to
 // stop halfway through their strip.
-func (q *Queue) Submit(ctx context.Context, sessionID string, layout Layout, copies int, sheetPath string) (Job, error) {
+func (q *Queue) Submit(ctx context.Context, sessionID string, layout Layout, copies int, cut bool, sheetPath string) (Job, error) {
 	spec, ok := specs[layout]
 	if !ok {
 		return Job{}, fmt.Errorf("%w: %q", ErrUnknownLayout, layout)
@@ -194,14 +203,16 @@ func (q *Queue) Submit(ctx context.Context, sessionID string, layout Layout, cop
 		Layout:    layout,
 		Copies:    copies,
 		Sheets:    sheets,
+		Cut:       cut,
 		SheetPath: sheetPath,
 		State:     Queued,
 		QueuedAt:  q.now(),
 	}
 	if _, err := q.db.ExecContext(ctx,
-		`INSERT INTO print_jobs (id, session_id, layout, sheet_path, copies, sheets, state, queued_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)`,
-		job.ID, job.SessionID, string(job.Layout), job.SheetPath, job.Copies, job.Sheets, job.QueuedAt.Unix(),
+		`INSERT INTO print_jobs (id, session_id, layout, sheet_path, copies, sheets, cut, state, queued_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)`,
+		job.ID, job.SessionID, string(job.Layout), job.SheetPath, job.Copies, job.Sheets,
+		boolToInt(job.Cut), job.QueuedAt.Unix(),
 	); err != nil {
 		return Job{}, fmt.Errorf("printer: submit: %w", err)
 	}
@@ -264,7 +275,7 @@ func (q *Queue) step(ctx context.Context, imagePath func(Job) (string, error)) (
 	}
 
 	q.log.Info("printer: printing", "job", job.ID, "layout", job.Layout,
-		"copies", job.Copies, "sheets", job.Sheets, "backend", q.backend.Name())
+		"copies", job.Copies, "sheets", job.Sheets, "cut", job.Cut, "backend", q.backend.Name())
 
 	if err := q.backend.Print(ctx, job, path); err != nil {
 		return true, q.finishFailed(ctx, job, err)
@@ -452,7 +463,7 @@ func (q *Queue) BySession(ctx context.Context, sessionID string) ([]Job, error) 
 	return out, rows.Err()
 }
 
-const columns = `id, session_id, layout, sheet_path, copies, sheets, state, error, queued_at, started_at, finished_at`
+const columns = `id, session_id, layout, sheet_path, copies, sheets, cut, state, error, queued_at, started_at, finished_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -464,13 +475,15 @@ func scan(row scanner) (Job, error) {
 		errText               sql.NullString
 		startedAt, finishedAt sql.NullInt64
 		queuedAt              int64
+		cut                   int64
 		layout, state         string
 	)
-	if err := row.Scan(&j.ID, &j.SessionID, &layout, &j.SheetPath, &j.Copies, &j.Sheets, &state,
+	if err := row.Scan(&j.ID, &j.SessionID, &layout, &j.SheetPath, &j.Copies, &j.Sheets, &cut, &state,
 		&errText, &queuedAt, &startedAt, &finishedAt); err != nil {
 		return Job{}, err
 	}
 	j.Layout, j.State, j.Error = Layout(layout), State(state), errText.String
+	j.Cut = cut == 1
 	j.QueuedAt = time.Unix(queuedAt, 0)
 	if startedAt.Valid {
 		j.StartedAt = time.Unix(startedAt.Int64, 0)
@@ -497,6 +510,13 @@ func nullIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func newID() string {
