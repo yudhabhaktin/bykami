@@ -54,15 +54,14 @@ either impossible or unreliable to recover from Instagram screenshots.
 - [ ] Confirmation of bleed, safe area and cut marks, or permission to redraw
       them to a spec
 - [x] **"2R" resolved — the product is the 2×6 in strip** (5×15 cm), what the
-      DS-RX1HS actually cuts, not true 2R at 6×9 cm. The existing `strip-3` and
-      `strip-4` templates are therefore correct at 600×1800 px, and artwork can
-      now be specified against them:
+      DS-RX1HS actually cuts, not true 2R at 6×9 cm. Artwork can now be
+      specified against a sheet size:
 
-      | Template | Sheet | Cells |
+      | Sheet | Pixels | Note |
       |---|---|---|
-      | `strip-3` | 600 × 1800 | 3 |
-      | `strip-4` | 600 × 1800 | 4 |
-      | `4r-polos` | 1200 × 1800 | 1, full bleed |
+      | `4r` | 1200 × 1800 | 4×6. What the house frames use, laid out two-up so the cut yields two strips |
+      | `strip2x6` | 600 × 1800 | One strip, which the printer duplicates onto a 4×6 |
+      | `6x8` | 1800 × 2400 | |
 
       All at 300 dpi. A frame is a **PNG with the photo areas fully
       transparent** — those holes are what the console reads the cells out of,
@@ -72,11 +71,13 @@ either impossible or unreliable to recover from Instagram screenshots.
 - [ ] **Reword the price list.** It sells "cetak strip 2R", which names a size
       the booth does not print. Wrong on a customer-facing price list in a way
       that invites an argument at the counter
-- [ ] **Print one strip and measure it.** Bleed, safe area and cut marks are
+- [ ] **Print one sheet and measure it.** Bleed, safe area and cut marks are
       still a guess. This matters more now that frames are uploaded rather than
       committed: every design an operator draws inherits the margin convention
-      the three house frames set, and correcting it after forty exist is forty
-      files to redraw
+      the house frames set, and correcting it after forty exist is forty files
+      to redraw. It matters more again now that those frames are laid out
+      two-up — the cut lands in a gutter nobody has measured, and a blade 2 mm
+      off centre shaves one strip and leaves a stripe of the other on it
 
 Importing these beats building an authoring tool, and it sidesteps the logo
 vector being blocked. **The importer exists** — upload at `app.bykami.id`, and

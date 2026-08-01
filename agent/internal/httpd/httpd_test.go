@@ -315,7 +315,7 @@ func TestPrintComposesAndQueues(t *testing.T) {
 	start := f.pay(t)
 
 	var ids []string
-	for range 3 {
+	for range sheetCells(t) {
 		w := f.do(t, "POST", "/api/capture", frameBytes(t, 1200, 900))
 		if w.Code != http.StatusCreated {
 			t.Fatalf("capture: %d %s", w.Code, w.Body)
@@ -355,11 +355,39 @@ func TestPrintComposesAndQueues(t *testing.T) {
 	}
 }
 
-// stripPhotos fires the frames a strip needs and returns their ids.
-func (f *fixture) stripPhotos(t *testing.T, n int) []string {
+// sheetCells is how many photos the frame a session opens on needs.
+//
+// Read out of the built-ins rather than written down here. A house frame with a
+// different cell count would otherwise turn every print test below into a check
+// that the wrong photo count is rejected, which is the assertion one of them
+// already makes on purpose.
+func sheetCells(t *testing.T) int {
+	t.Helper()
+
+	packages, err := catalog.All()
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	templates, err := compose.Builtin()
+	if err != nil {
+		t.Fatalf("templates: %v", err)
+	}
+	for _, tpl := range templates {
+		if tpl.ID == packages[0].TemplateID {
+			return len(tpl.Cells)
+		}
+	}
+	t.Fatalf("the default package names %q, which no built-in template provides",
+		packages[0].TemplateID)
+	return 0
+}
+
+// sheetPhotos fires the frames the session's own template needs and returns
+// their ids.
+func (f *fixture) sheetPhotos(t *testing.T) []string {
 	t.Helper()
 	var ids []string
-	for range n {
+	for range sheetCells(t) {
 		w := f.do(t, "POST", "/api/capture", frameBytes(t, 800, 600))
 		if w.Code != http.StatusCreated {
 			t.Fatalf("capture: %d %s", w.Code, w.Body)
@@ -381,7 +409,7 @@ func TestPrintRefusesMoreCopiesThanWerePaidFor(t *testing.T) {
 
 	w := f.do(t, "POST", "/api/print", map[string]any{
 		"template_id": start.Session.TemplateID,
-		"photo_ids":   f.stripPhotos(t, 3),
+		"photo_ids":   f.sheetPhotos(t),
 		"copies":      5,
 	})
 	if w.Code != http.StatusPaymentRequired {
@@ -399,7 +427,7 @@ func TestPrintRefusesASecondCopyAcrossSeparateRequests(t *testing.T) {
 
 	body := map[string]any{
 		"template_id": start.Session.TemplateID,
-		"photo_ids":   f.stripPhotos(t, 3),
+		"photo_ids":   f.sheetPhotos(t),
 		"copies":      1,
 	}
 	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusAccepted {
@@ -417,7 +445,7 @@ func TestASettledReprintBuysExactlyOneMorePrint(t *testing.T) {
 
 	body := map[string]any{
 		"template_id": start.Session.TemplateID,
-		"photo_ids":   f.stripPhotos(t, 3),
+		"photo_ids":   f.sheetPhotos(t),
 		"copies":      1,
 	}
 	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusAccepted {
@@ -466,7 +494,7 @@ func TestReopeningTheReprintDialogReusesTheSameCharge(t *testing.T) {
 
 	if w := f.do(t, "POST", "/api/print", map[string]any{
 		"template_id": start.Session.TemplateID,
-		"photo_ids":   f.stripPhotos(t, 3),
+		"photo_ids":   f.sheetPhotos(t),
 		"copies":      1,
 	}); w.Code != http.StatusAccepted {
 		t.Fatalf("the included print was refused: %d %s", w.Code, w.Body)
@@ -488,7 +516,7 @@ func TestSessionViewReportsPrintsDone(t *testing.T) {
 
 	body := map[string]any{
 		"template_id": start.Session.TemplateID,
-		"photo_ids":   f.stripPhotos(t, 3),
+		"photo_ids":   f.sheetPhotos(t),
 		"copies":      1,
 	}
 	if w := f.do(t, "POST", "/api/print", body); w.Code != http.StatusAccepted {
@@ -522,7 +550,7 @@ func TestPrintRequiresTheRightNumberOfPhotos(t *testing.T) {
 		} `json:"photo"`
 	}](t, w).Photo.ID
 
-	// strip-3 has three cells.
+	// The session's frame needs more than the one photo taken above.
 	if w := f.do(t, "POST", "/api/print", map[string]any{
 		"template_id": start.Session.TemplateID,
 		"photo_ids":   []string{id},

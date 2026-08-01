@@ -1,0 +1,9 @@
+{
+  "name": "Langit Malam",
+  "layout": "4r",
+  "overlay": "frame.png",
+  "cells": [
+    { "x": 99, "y": 0, "w": 402, "h": 1800 },
+    { "x": 699, "y": 0, "w": 402, "h": 1800 }
+  ]
+}

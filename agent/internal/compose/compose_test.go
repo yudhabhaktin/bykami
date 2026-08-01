@@ -2,6 +2,7 @@ package compose_test
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -77,30 +78,39 @@ func TestSheetComposesAtPrintResolution(t *testing.T) {
 		t.Fatalf("builtin: %v", err)
 	}
 
-	var strip compose.Template
+	var sheet compose.Template
 	for _, tpl := range all {
-		if tpl.ID == "strip-3" {
-			strip = tpl
+		if tpl.ID == "gacoan-3-tiket" {
+			sheet = tpl
 		}
 	}
-	if strip.ID == "" {
-		t.Fatal("strip-3 is missing")
+	if sheet.ID == "" {
+		t.Fatal("gacoan-3-tiket is missing")
+	}
+
+	// One colour per cell, so a photo drawn into the wrong slot is a wrong
+	// colour rather than a passing test.
+	want := []color.RGBA{
+		{R: 255, A: 255}, {G: 255, A: 255}, {B: 255, A: 255},
+		{R: 255, G: 255, A: 255}, {R: 255, B: 255, A: 255}, {G: 255, B: 255, A: 255},
+	}
+	if len(want) != len(sheet.Cells) {
+		t.Fatalf("template has %d cells, the test has %d colours", len(sheet.Cells), len(want))
 	}
 
 	dir := t.TempDir()
-	photos := []string{
-		frame(t, dir, "a.jpg", 1800, 1200, color.RGBA{R: 255, A: 255}),
-		frame(t, dir, "b.jpg", 1800, 1200, color.RGBA{G: 255, A: 255}),
-		frame(t, dir, "c.jpg", 1800, 1200, color.RGBA{B: 255, A: 255}),
+	var photos []string
+	for i, c := range want {
+		photos = append(photos, frame(t, dir, fmt.Sprintf("%d.jpg", i), 1800, 1200, c))
 	}
 
 	dest := filepath.Join(dir, "sheet.jpg")
-	size, err := strip.Sheet(photos, compose.Filter{}, dest)
+	size, err := sheet.Sheet(photos, compose.Filter{}, dest)
 	if err != nil {
 		t.Fatalf("sheet: %v", err)
 	}
-	if size.X != 600 || size.Y != 1800 {
-		t.Fatalf("sheet is %v, want 600x1800", size)
+	if size.X != 1200 || size.Y != 1800 {
+		t.Fatalf("sheet is %v, want 1200x1800", size)
 	}
 
 	// And the cells really hold the photos, in order.
@@ -114,8 +124,8 @@ func TestSheetComposesAtPrintResolution(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	for i, want := range []color.RGBA{{R: 255, A: 255}, {G: 255, A: 255}, {B: 255, A: 255}} {
-		c := strip.Cells[i]
+	for i, want := range want {
+		c := sheet.Cells[i]
 		got := img.At(c.X+c.W/2, c.Y+c.H/2)
 		r, g, b, _ := got.RGBA()
 		wr, wg, wb := uint32(want.R)<<8, uint32(want.G)<<8, uint32(want.B)<<8
@@ -258,17 +268,17 @@ func TestWrongPhotoCountIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("builtin: %v", err)
 	}
-	var strip compose.Template
+	var sheet compose.Template
 	for _, tpl := range all {
-		if tpl.ID == "strip-3" {
-			strip = tpl
+		if tpl.ID == "gacoan-3-tiket" {
+			sheet = tpl
 		}
 	}
 
 	dir := t.TempDir()
 	one := frame(t, dir, "a.jpg", 1200, 800, color.RGBA{A: 255})
-	if _, err := strip.Sheet([]string{one}, compose.Filter{}, filepath.Join(dir, "out.jpg")); err == nil {
-		t.Fatal("composed a three-cell strip from one photo")
+	if _, err := sheet.Sheet([]string{one}, compose.Filter{}, filepath.Join(dir, "out.jpg")); err == nil {
+		t.Fatal("composed a six-cell sheet from one photo")
 	}
 }
 
