@@ -38,6 +38,7 @@ import (
 	"github.com/bhaktiyudha/bykami/agent/internal/printer"
 	"github.com/bhaktiyudha/bykami/agent/internal/purge"
 	"github.com/bhaktiyudha/bykami/agent/internal/session"
+	"github.com/bhaktiyudha/bykami/agent/internal/shutter"
 	"github.com/bhaktiyudha/bykami/agent/internal/store"
 )
 
@@ -48,6 +49,7 @@ type config struct {
 	outlet     string
 	source     string
 	camera     string
+	shutter    string
 	payments   string
 	printerKit string
 	templates  string
@@ -82,6 +84,12 @@ func main() {
 	// default, and on a booth PC that is the lid webcam rather than the Canon —
 	// the integrated camera wins and the DSLR is never opened.
 	flag.StringVar(&c.camera, "camera", "", `preview this video device, matched as a case-insensitive substring of its label, e.g. "EOS"; empty takes the browser's default camera`)
+
+	// How the countdown reaches the camera without the relay hardware in
+	// design/kiosk.md. A URL rather than a vendor integration, for the same
+	// reason the hot folder is a directory: whatever already owns the camera
+	// can be asked to fire it, and the booth learns no driver.
+	flag.StringVar(&c.shutter, "shutter", "", `URL that fires the camera when the countdown ends, e.g. http://127.0.0.1:5513/?slc=capturenoaf (digiCamControl); empty means the shutter is pressed by hand`)
 
 	// Empty by default, and that default is a safety property. With no provider
 	// the booth cannot take money, so it says "pay at the counter" instead of
@@ -171,6 +179,22 @@ func run(c config, log *slog.Logger) error {
 		return errors.New(`-source=hybrid needs -camera naming the tethered camera's video device, e.g. -camera EOS`)
 	}
 
+	// The browser owns the camera on the webcam source, so there is nothing
+	// here for a remote trigger to fire. Refused rather than ignored: a booth
+	// started with a shutter it will never use is a booth somebody believes is
+	// firing a camera.
+	var fireShutter func(context.Context) error
+	if c.shutter != "" {
+		if !source.Tethered() {
+			return fmt.Errorf("-shutter has nothing to fire on -source=%s: the browser owns the camera there", source)
+		}
+		release, err := shutter.New(c.shutter, shutter.DefaultTimeout)
+		if err != nil {
+			return err
+		}
+		fireShutter = release.Fire
+	}
+
 	db, err := store.Open(filepath.Join(root, "booth.db"))
 	if err != nil {
 		return err
@@ -239,7 +263,7 @@ func run(c config, log *slog.Logger) error {
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
 		Clips:  clips,
 		Ingest: watcher, Templates: live, Packages: packages,
-		Root: root, Source: source, Camera: c.camera, OutletID: c.outlet,
+		Root: root, Source: source, Camera: c.camera, Shutter: fireShutter, OutletID: c.outlet,
 		Simulated: simulated, PublicHost: c.publicHost, AccessTokens: tokens,
 		Retention: c.retention,
 		Log:       log,
@@ -319,6 +343,9 @@ func run(c config, log *slog.Logger) error {
 		log.Info("booth listening",
 			"addr", c.addr, "root", root, "source", source,
 			"hot_folder", c.hotFolder, "outlet", c.outlet,
+			// Whether the booth fires its own camera decides whether staff have
+			// to stand next to it, so it does not belong only in the unit file.
+			"shutter", fireShutter != nil,
 			"templates", live.Len(), "packages", len(packages),
 			"payments", providerName(provider), "printer", backend.Name(),
 			// Whether frames are being pulled is otherwise only answerable by

@@ -329,11 +329,12 @@ export function Capture({
         const { photo } = await timed(t, "upload", () => api.capture(frame));
         sendClip(photo.id, clip);
       } else {
-        // The tethered path. How a tap reaches a Canon's shutter is the last
-        // open question in the capture design — a USB relay into the RS-60E3
-        // jack is the recommendation — so until that hardware exists this
-        // announces the moment and the frame is fired by hand.
-        await fetch("/api/capture", { method: "POST" });
+        // The tethered path: no pixels to send, because the frame is coming
+        // down the USB cable into the hot folder. The agent either fires the
+        // camera itself or announces the moment for somebody to fire it by
+        // hand, and either way the answer is checked — an unchecked request
+        // here would let the run count down over a camera that refused.
+        await timed(t, "upload", api.fire);
       }
       await timed(t, "refresh", refresh);
       record(t, "shutter", performance.now() - firedAt);
@@ -406,10 +407,12 @@ export function Capture({
   }, [need, limit, takes, shoot, setError, startRolling, stopRolling]);
 
   const running = phase !== "idle" && phase !== "done";
-  // The tethered paths have no shutter to drive — hybrid included, since a live
-  // preview does not make the camera fire — so the sequence stays a posting
-  // feature and they keep the one-frame-at-a-time button.
-  const auto = posts;
+  // The automatic 3-2-1 needs something to fire at the end of it. The browser's
+  // own camera always counts; a tethered one counts once the agent has a
+  // shutter wired up. Without either, the countdown would end with nobody
+  // photographed, so that booth keeps the one-frame-at-a-time button and
+  // somebody presses the camera by hand.
+  const auto = posts || state.shutter;
 
   return (
     <div className="grow" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>

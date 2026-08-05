@@ -145,6 +145,12 @@ type Deps struct {
 	// Source decides which capture flow the UI shows.
 	Source Source
 
+	// Shutter fires the camera, and nil is the booth where somebody presses it
+	// by hand. A func rather than an interface so that "nothing is wired up"
+	// cannot arrive as a non-nil interface holding a nil pointer, which is the
+	// shape of bug that would fire no shutter while reporting success.
+	Shutter func(context.Context) error
+
 	// Camera names which video device the kiosk should preview, as a
 	// case-insensitive substring of the device label — "EOS" picks a Canon out
 	// of a booth PC that also has a lid webcam.
@@ -439,7 +445,13 @@ type stateResponse struct {
 	// Camera is the label substring the kiosk matches a video device against.
 	// Served rather than built into the bundle because which camera a booth
 	// previews is a property of that booth's hardware, not of the software.
-	Camera    string            `json:"camera"`
+	Camera string `json:"camera"`
+
+	// Shutter is whether the agent can fire the camera itself. The kiosk runs
+	// the automatic countdown only where something will actually fire at the
+	// end of it — a 3-2-1 that finishes with nobody photographed is worse than
+	// a button that says what it does.
+	Shutter   bool              `json:"shutter"`
 	Packages  []catalog.Package `json:"packages"`
 	Templates []templateView    `json:"templates"`
 	Filters   []compose.Filter  `json:"filters"`
@@ -552,6 +564,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	resp := stateResponse{
 		Source:     s.Source,
 		Camera:     s.Camera,
+		Shutter:    s.Shutter != nil,
 		Packages:   packages,
 		Templates:  views,
 		Filters:    compose.Filters,
@@ -952,14 +965,32 @@ func (s *Server) capture(w http.ResponseWriter, r *http.Request) {
 		// The tethered path, hybrid included: the preview on screen is not the
 		// negative, so there are no pixels to accept here even when the kiosk
 		// has a live camera open. The frame lands in the hot folder instead.
-		//
-		// How a tap reaches a Canon's shutter is the last open question in
-		// design/kiosk.md — a USB relay into the RS-60E3 jack is the
-		// recommendation, and until that hardware exists the countdown runs and
-		// the frame is fired by hand.
+		if s.Shutter == nil {
+			// No trigger wired up, so the countdown is an announcement and
+			// somebody fires the camera by hand.
+			s.write(w, http.StatusAccepted, map[string]any{
+				"awaiting_file": true,
+				"note":          "no shutter is wired up; fire the camera",
+			})
+			return
+		}
+
+		if err := s.Shutter(ctx); err != nil {
+			// Loudly, and this is the whole reason the failure is checked. A
+			// countdown that ends in silence has a customer standing in front
+			// of the booth believing they have been photographed, and the run
+			// would otherwise carry on to the next pose and do it again.
+			s.Log.Error("shutter", "err", err)
+			s.reject(w, http.StatusBadGateway, "Kamera tidak merespons. Panggil petugas.")
+			return
+		}
+
+		// Fired, but not yet a photograph: the file is still travelling down
+		// the USB cable, and it becomes a take when the hot-folder watcher
+		// finds it. The kiosk shows the frame when it lands.
 		s.write(w, http.StatusAccepted, map[string]any{
 			"awaiting_file": true,
-			"note":          "shutter release is not wired up yet; fire the camera",
+			"note":          "shutter fired; the frame is arriving through the hot folder",
 		})
 		return
 	}

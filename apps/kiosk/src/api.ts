@@ -117,6 +117,11 @@ export interface State {
   /** Label substring naming which video device to preview. Empty takes the
    *  browser's default, which on a booth PC is the built-in webcam. */
   camera: string;
+  /** Whether the agent can fire the camera itself. False is the booth where
+   *  somebody presses the shutter by hand, and it keeps the single-shot
+   *  button — an automatic countdown with no trigger at the end of it is a
+   *  booth that photographs nobody. */
+  shutter: boolean;
   packages: Package[];
   templates: Template[];
   filters: Filter[];
@@ -208,6 +213,17 @@ export const api = {
       body: frame,
       headers: { "Content-Type": "image/jpeg" },
     }),
+
+  /**
+   * Fires a tethered camera, where there are no pixels to send.
+   *
+   * The answer is 202 and not a photograph: the frame is still travelling down
+   * the USB cable and becomes a take when the hot-folder watcher finds it. What
+   * matters here is that the request is *checked* — a booth that ignored the
+   * status would count down over a camera that refused to fire and cheerfully
+   * carry on to the next pose.
+   */
+  fire: () => request<{ awaiting_file: boolean }>("/api/capture", { method: "POST" }),
 
   /**
    * The seconds of camera around one shutter, which become the frame's moving
