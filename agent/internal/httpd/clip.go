@@ -14,11 +14,17 @@ import (
 
 // maxClip bounds an uploaded burst.
 //
-// A five-second clip at ten frames a second, grabbed at the size it will be
-// delivered, is fifty JPEGs of roughly thirty kilobytes — under two megabytes.
-// This is generous against that and still small enough that a runaway client
-// cannot fill the booth's disk one shutter at a time.
-const maxClip = 8 << 20
+// A five-second clip at twenty frames a second, grabbed at the size it will be
+// delivered, is a hundred JPEGs of roughly eighty kilobytes — call it eight
+// megabytes. This is generous against that and still small enough that a
+// runaway client cannot fill the booth's disk one shutter at a time.
+//
+// It has to stay ahead of what the kiosk actually sends. This cap is enforced by
+// MaxBytesReader, which cuts the body off mid-frame, and the handler below
+// treats a truncated burst as a bad upload and deletes the lot — so a cap set
+// under what the booth grabs would not degrade the clips, it would silently
+// drop every one of them. See CLIP_FPS and CLIP_LONG_EDGE in the kiosk.
+const maxClip = 24 << 20
 
 // minClipFrames is the fewest frames worth keeping. Two is what it takes to
 // animate anything; below that the customer is better served by the still they

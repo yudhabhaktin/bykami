@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color/palette"
+	"image/color"
 	"image/draw"
 	"image/gif"
 	"image/jpeg"
@@ -26,31 +26,62 @@ import (
 // animated GIF in mobile Safari offers "Add to Photos" and the animation
 // survives, which is the entire point of building this.
 //
-// The costs are real and accepted. GIF is 256 colours and it is large — see
-// LongEdge and FPS for where that is bought back. An MP4 would be a tenth of
-// the size at better quality, and cannot be produced here: the booth binary is
+// The remaining cost is size, and most of it is now bought back rather than
+// paid. See quantize.go: the palette is chosen from the clip's own pixels, which
+// removes the dither noise a fixed palette needs, and the pixels that did not
+// change between frames are dropped entirely. An MP4 would still be a tenth of
+// the size, and still cannot be produced here: the booth binary is
 // cross-compiled from macOS with GOOS=windows, so cgo is unavailable and with
 // it every H.264 encoder worth having.
 const (
 	// LongEdge is the delivered animation's maximum dimension.
 	//
-	// Small, deliberately, and the number was measured rather than guessed.
-	// This travels over Indonesian mobile data exactly as the stills do, and
-	// unlike a still it carries fifty frames: every pixel added here is paid
-	// for fifty times. On synthetic worst-case noise a five-second clip encodes
-	// to roughly 1.5 MB at 400, 3.7 MB at 480 and 7.4 MB at 640 — real footage
-	// compresses better than that, but the shape of the curve is the point.
+	// This is what a customer posts to a story, so it is sized for a phone
+	// screen rather than for a thumbnail. It travels over Indonesian mobile
+	// data and carries a hundred frames, so not for a phone screen exactly
+	// either: 720 on the long edge is sharp held at arm's length, and is what
+	// the kiosk grabs at — see CLIP_LONG_EDGE, which must match, or the agent is
+	// upscaling frames that never held the detail.
 	//
-	// 400 is still sharp in a phone's photo roll, which is where this ends up.
-	LongEdge = 400
+	// The number moved from 400 because the encoder underneath it changed. At
+	// the old settings the new encoder is half the size and fifteen decibels
+	// better; that surplus is what pays for this.
+	LongEdge = 720
 
-	// FPS is the playback rate. Ten is smooth enough to read as motion rather
-	// than as a slideshow, and half the file of twenty.
+	// FPS is the playback rate.
+	//
+	// Twenty, which is where a clip stops reading as a fast slideshow and
+	// starts reading as video. Ten is visibly steppy on the pans and hand
+	// movements that fill a photobooth clip, and the difference costs far less
+	// than double: consecutive frames at 20fps differ less from each other, and
+	// differing less is exactly what the frame differencing is paid on.
 	//
 	// It must divide 100 evenly: GIF measures frame delay in hundredths of a
 	// second, so a rate that does not divide cleanly is silently rounded and the
-	// clip runs at a length nobody chose.
-	FPS = 10
+	// clip runs at a length nobody chose. It must also stay at or below 20,
+	// because a browser rounds a delay of one hundredth up to ten and would play
+	// a faster clip at a tenth of the rate it asked for.
+	FPS = 20
+
+	// Colors is the palette size, and it is 255 rather than 256 because the
+	// last entry is spent on the transparency the differencing needs.
+	Colors = 255
+
+	// still is how far a pixel may drift from what is already on screen before
+	// the frame has to redraw it, per channel.
+	//
+	// This is the single number that decides what a clip costs, because it
+	// decides how much of each frame can be dropped as unchanged. Zero would
+	// redraw nearly every pixel of every frame: a booth's camera puts a couple
+	// of levels of sensor noise on a wall that is not moving, and JPEG adds its
+	// own. Measured across a five-second clip, the delivered file runs 17.4 MB
+	// at zero, 6.8 at six, 4.4 at eight and 2.4 at twelve.
+	//
+	// Eight, which is comfortably above the noise floor and below a step a
+	// person can see on a face. Past it the wall starts holding visibly stale
+	// patches through a pan, which is the artefact this trades against and the
+	// reason the number is not simply as high as the file size would like.
+	still = 8
 )
 
 // ErrTooShort means there was not enough of a clip to animate.
@@ -72,12 +103,16 @@ func (o Options) withDefaults() Options {
 }
 
 // withSheetDefaults is the same, for the animation that carries every cell at
-// once and therefore needs more room. Only the bound differs — a sheet playing
-// at a different rate from the frames it is made of would be the same seconds
-// running at two speeds on one page.
+// once. Both the bound and the rate differ, and see SheetFPS for why the rate
+// does without the sheet running at a different speed from the frames it is made
+// of: it plays fewer of them over the same seconds, rather than the same ones
+// more slowly.
 func (o Options) withSheetDefaults() Options {
 	if o.LongEdge <= 0 {
 		o.LongEdge = SheetLongEdge
+	}
+	if o.FPS <= 0 {
+		o.FPS = SheetFPS
 	}
 	return o.withDefaults()
 }
@@ -86,9 +121,9 @@ func (o Options) withSheetDefaults() Options {
 //
 // frames are paths to the JPEGs the kiosk posted, in playback order. Frames
 // that will not decode are skipped rather than failing the render: one corrupt
-// upload out of fifty is a clip a hundredth of a second shorter, and refusing
-// the whole thing would hand the customer nothing over a defect they cannot
-// see.
+// upload out of a hundred is a clip a twentieth of a second shorter, and
+// refusing the whole thing would hand the customer nothing over a defect they
+// cannot see.
 func Render(frames []string, dest string, opts Options) error {
 	opts = opts.withDefaults()
 
@@ -118,15 +153,14 @@ func Render(frames []string, dest string, opts Options) error {
 			scaled = image.NewRGBA(canvas)
 		}
 
-		// ApproxBiLinear and not the CatmullRom the stills use: this output is
-		// about to lose all but 256 of its colours and gain dither noise, so a
-		// sharper resampler buys nothing a customer could see and costs about
-		// half a second per clip — measured, on a job that runs fifteen times a
-		// session.
+		// ApproxBiLinear and not the CatmullRom the stills use: this is a
+		// resample of at most the difference between two capture sizes, and a
+		// sharper one buys nothing a customer could see for about half a second
+		// per clip — measured, on a job that runs fifteen times a session.
 		//
 		// One scratch buffer for the whole run rather than one per frame: the
 		// booth shares 2 GiB with the operator API under a GOMEMLIMIT, and
-		// holding fifty full-size frames to quantise at the end is how this
+		// holding a hundred full-size frames to quantise at the end is how this
 		// feature would take the API down with it. EncodeSeq is written so
 		// that returning the same buffer every call is safe.
 		xdraw.ApproxBiLinear.Scale(scaled, canvas, img, img.Bounds(), draw.Src, nil)
@@ -137,25 +171,48 @@ func Render(frames []string, dest string, opts Options) error {
 // EncodeSeq encodes n frames into an animated GIF at dest.
 //
 // at(i) returns the image for frame i, or nil to leave that frame out — which
-// is how a source that will not decode costs a hundredth of a second instead of
+// is how a source that will not decode costs a twentieth of a second instead of
 // the whole animation. It may hand back the same buffer on every call: each
-// frame is dithered into a paletted image of its own before at is asked for the
+// frame is quantised into a paletted image of its own before at is asked for the
 // next, and nothing here keeps a reference to what it was given.
+//
+// at is called twice for every frame, once to choose the palette and once to
+// write it, so it has to answer the same way both times. Both callers do
+// naturally — one re-reads the JPEG from disk, the other repaints the sheet from
+// an untouched base — and the alternative is holding every scaled frame in
+// memory to quantise at the end, which for a hundred of them is a hundred and
+// forty megabytes on a booth that shares two gigabytes with the operator API.
 //
 // The two callers are a single photograph's clip and a whole sheet's, and they
 // differ in everything except this: both arrive as a run of same-sized images
-// that has to become 256 colours without banding across a face.
+// that has to become 255 colours without banding across a face.
 func EncodeSeq(n int, at func(i int) (image.Image, error), dest string, opts Options) error {
 	opts = opts.withDefaults()
 	if n < 2 {
 		return ErrTooShort
 	}
 
+	canvas, pal, err := survey(n, at)
+	if err != nil {
+		return err
+	}
+
 	out := &gif.GIF{
 		// Zero means loop forever, which is what a Live Photo does and what
 		// every phone's photo roll expects of an animation this short.
 		LoopCount: 0,
+		Config: image.Config{
+			// Set explicitly so the encoder writes one global colour table that
+			// every frame refers to, rather than repeating 768 bytes of
+			// identical palette a hundred times.
+			ColorModel: pal,
+			Width:      canvas.Dx(),
+			Height:     canvas.Dy(),
+		},
 	}
+
+	q := newQuantizer(canvas, pal)
+	scratch := image.NewRGBA(canvas)
 
 	for i := range n {
 		img, err := at(i)
@@ -166,21 +223,82 @@ func EncodeSeq(n int, at func(i int) (image.Image, error), dest string, opts Opt
 			continue
 		}
 
-		// Dithered down to the palette with Floyd-Steinberg rather than
-		// nearest-colour: 256 fixed colours across a face is visible banding,
-		// and a face is the entire subject.
-		b := img.Bounds()
-		p := image.NewPaletted(b, palette.Plan9)
-		draw.FloydSteinberg.Draw(p, b, img, b.Min)
-
-		out.Image = append(out.Image, p)
+		out.Image = append(out.Image, q.frame(rgbaOf(img, scratch)))
 		out.Delay = append(out.Delay, 100/opts.FPS)
+		// The frame under this one has to survive, because most of this frame is
+		// transparent and that frame is what shows through.
+		out.Disposal = append(out.Disposal, gif.DisposalNone)
 	}
 
 	if len(out.Image) < 2 {
 		return ErrTooShort
 	}
 	return write(out, dest)
+}
+
+// survey runs the sequence once to decide what it is: how big the animation
+// will be, and which 255 colours it should be made of.
+//
+// Every fourth frame or so rather than all of them. A palette is a summary of
+// what the clip contains, and five seconds of one room does not change enough in
+// a twentieth of a second to be worth counting four times — sampling keeps this
+// pass to a fraction of the render while choosing the same colours.
+func survey(n int, at func(i int) (image.Image, error)) (image.Rectangle, color.Palette, error) {
+	var (
+		canvas  image.Rectangle
+		hist    histogram
+		scratch *image.RGBA
+		seen    int
+	)
+
+	const want = 24
+	stride := max(1, n/want)
+
+	for i := range n {
+		if i%stride != 0 {
+			continue
+		}
+		img, err := at(i)
+		if err != nil {
+			return image.Rectangle{}, nil, err
+		}
+		if img == nil {
+			continue
+		}
+
+		if canvas.Empty() {
+			// Fixed by the first frame that arrives, and every frame after it is
+			// read at exactly this size. Both callers already promise uniform
+			// frames; this is what makes a broken promise a crop rather than an
+			// animation that jumps.
+			b := img.Bounds()
+			canvas = image.Rect(0, 0, b.Dx(), b.Dy())
+			scratch = image.NewRGBA(canvas)
+		}
+		hist.add(rgbaOf(img, scratch))
+		seen++
+	}
+
+	if seen == 0 {
+		return image.Rectangle{}, nil, ErrTooShort
+	}
+
+	// The transparent entry goes last, so a palette index is never silently
+	// reinterpreted if the count changes.
+	return canvas, append(hist.palettize(Colors), color.RGBA{}), nil
+}
+
+// rgbaOf is img as an *image.RGBA the quantiser can read directly.
+//
+// Both callers already hand over an RGBA of exactly the right size, so this is
+// normally the image itself and costs nothing. Anything else is copied into the
+// scratch buffer, which is also what clips a frame that arrived the wrong size.
+func rgbaOf(img image.Image, scratch *image.RGBA) *image.RGBA {
+	if rgba, ok := img.(*image.RGBA); ok && rgba.Bounds().Size() == scratch.Bounds().Size() {
+		return rgba
+	}
+	draw.Draw(scratch, scratch.Bounds(), img, img.Bounds().Min, draw.Src)
+	return scratch
 }
 
 func readFrame(path string) (image.Image, error) {

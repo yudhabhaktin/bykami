@@ -4,7 +4,7 @@ import type { ScreenProps } from "../App";
 import { api, ApiError, previews } from "../api";
 import { openCamera } from "../camera";
 import { record, timed, type Timings } from "../perf";
-import { cellAspect } from "../shot";
+import { cellAspect, cellRatio } from "../shot";
 import { recall, remember } from "../stash";
 
 /**
@@ -48,24 +48,32 @@ const CLIP_SECONDS = 5;
  *
  * Matches clip.FPS in the agent, which encodes the GIF. It must divide 100:
  * GIF measures delay in hundredths of a second, and a rate that does not divide
- * cleanly plays at a length nobody chose.
+ * cleanly plays at a length nobody chose. It must also stay at or below 20,
+ * because a browser rounds a delay of one hundredth up to ten and would play a
+ * faster clip at a tenth of the rate it asked for.
  */
-const CLIP_FPS = 10;
+const CLIP_FPS = 20;
 
 /**
  * The long edge of a clip frame, and it matches clip.LongEdge in the agent.
  *
  * Grabbed at the size it will be delivered at, so the agent has nothing to
- * rescale — this is fifty frames per shot travelling to a phone over mobile
- * data, and every pixel is paid for fifty times. Sending 1080p here would cost
- * the booth PC the encode, the network the upload, and the customer nothing
- * they could see in a 256-colour animation.
+ * rescale. This is what a customer posts to a story, so it is sized for a phone
+ * screen rather than for a thumbnail — the agent's palette and frame
+ * differencing are what make a hundred frames of it affordable to send.
  */
-const CLIP_LONG_EDGE = 400;
+const CLIP_LONG_EDGE = 720;
 
-/** Quality for a clip frame. Lower than a photograph's: it is about to be
- *  quantised to 256 colours and dithered, which hides far more than this does. */
-const CLIP_QUALITY = 0.7;
+/**
+ * Quality for a clip frame.
+ *
+ * Still under a photograph's, because this is a hundred files per shot rather
+ * than one and they only have to survive being quantised to 255 colours. But
+ * well above where it was: the agent no longer throws away enough detail to
+ * hide JPEG artefacts, so anything softer than this now shows up in the
+ * delivered animation instead of being lost in the dither.
+ */
+const CLIP_QUALITY = 0.85;
 
 const CLIP_FRAMES = CLIP_SECONDS * CLIP_FPS;
 
@@ -178,6 +186,12 @@ export function Capture({
   const need = template?.cells.length ?? 0;
   const enough = takes >= need;
 
+  // The shape the clip is cropped to: the cell the customer is being previewed
+  // in. That keeps the moving version framed like the still it belongs to, and
+  // it is what makes the result worth posting — a frame cell is upright, and an
+  // upright clip fills a story where the sensor's own 16:9 sits in a letterbox.
+  const clipAspect = cellRatio(template);
+
   // The browser owns the camera on both previewing paths. On a bare hot folder
   // there is nothing to show here: the camera's own software has the sensor,
   // and the frame arrives through the hot folder afterwards.
@@ -282,7 +296,7 @@ export function Capture({
       if (grabbing.current) return;
       grabbing.current = true;
 
-      grabFrame(video.current, CLIP_LONG_EDGE, CLIP_QUALITY)
+      grabFrame(video.current, CLIP_LONG_EDGE, CLIP_QUALITY, clipAspect)
         .then((f) => {
           moment.current.push(f);
           if (moment.current.length > CLIP_FRAMES) moment.current.shift();
@@ -295,7 +309,7 @@ export function Capture({
           grabbing.current = false;
         });
     }, 1000 / CLIP_FPS);
-  }, [posts]);
+  }, [posts, clipAspect]);
 
   const stopRolling = useCallback(() => {
     if (rolling.current === null) return;
@@ -586,21 +600,51 @@ function pause(ms: number, stopped: { current: boolean }): Promise<boolean> {
  * longEdge scales the grab down on the way out, which is how a clip frame costs
  * a fraction of a photograph. Zero means the sensor's own size, which is what
  * the printed frame needs and the only thing that should ever ask for it.
+ *
+ * aspect crops to a shape before scaling, and only the clip asks for it. The
+ * photograph must keep the whole sensor: nothing is discarded at capture, so
+ * switching frame at review re-crops from everything the camera saw. Zero means
+ * no crop.
  */
 async function grabFrame(
   el: HTMLVideoElement | null,
   longEdge = 0,
   quality = WEBCAM_QUALITY,
+  aspect = 0,
 ): Promise<Blob> {
   if (!el || !el.videoWidth) throw new Error("kamera belum siap");
 
-  let { videoWidth: w, videoHeight: h } = el;
+  // The region of the sensor being kept. Centred, and the same "fill it and
+  // throw the overflow away" rule compose.drawCover uses on the print — this is
+  // the moving version of a frame the customer previewed cropped, so it has to
+  // be cropped the same way or the two disagree.
+  let sx = 0;
+  let sy = 0;
+  let sw = el.videoWidth;
+  let sh = el.videoHeight;
+
+  if (aspect > 0) {
+    if (sw / sh > aspect) {
+      const want = sh * aspect;
+      sx = (sw - want) / 2;
+      sw = want;
+    } else {
+      const want = sw / aspect;
+      sy = (sh - want) / 2;
+      sh = want;
+    }
+  }
+
+  let w = sw;
+  let h = sh;
   if (longEdge > 0 && Math.max(w, h) > longEdge) {
     const scale = longEdge / Math.max(w, h);
-    // Rounded up off zero: a dimension of zero is a canvas that throws.
-    w = Math.max(1, Math.round(w * scale));
-    h = Math.max(1, Math.round(h * scale));
+    w *= scale;
+    h *= scale;
   }
+  // Rounded up off zero: a dimension of zero is a canvas that throws.
+  w = Math.max(1, Math.round(w));
+  h = Math.max(1, Math.round(h));
 
   const canvas = document.createElement("canvas");
   canvas.width = w;
@@ -608,7 +652,7 @@ async function grabFrame(
 
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas tidak tersedia");
-  ctx.drawImage(el, 0, 0, w, h);
+  ctx.drawImage(el, sx, sy, sw, sh, 0, 0, w, h);
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(

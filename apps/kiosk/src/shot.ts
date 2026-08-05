@@ -19,7 +19,24 @@ import type { Template } from "./api";
  * chosen which photo lands in which hole, and that choice is made at review.
  */
 export function cellAspect(template: Template | undefined): string | undefined {
+  const c = firstCell(template);
+  return c && `${c.w} / ${c.h}`;
+}
+
+/**
+ * The same shape as a number, for the canvas that crops a clip frame.
+ *
+ * CSS takes `w / h` as a string and `drawImage` takes a ratio, and both have to
+ * come from the same cell or the moving version is framed differently from the
+ * still it belongs to.
+ */
+export function cellRatio(template: Template | undefined): number | undefined {
+  const c = firstCell(template);
+  return c && c.w / c.h;
+}
+
+function firstCell(template: Template | undefined) {
   const c = template?.cells[0];
   if (!c || c.w <= 0 || c.h <= 0) return undefined;
-  return `${c.w} / ${c.h}`;
+  return c;
 }

@@ -51,9 +51,12 @@ func TestRenderSheetAnimatesEveryCellAtOnce(t *testing.T) {
 		t.Fatalf("render sheet: %v", err)
 	}
 
+	// Half the captured frames, because the sheet plays at SheetFPS while the
+	// burst was grabbed at FPS — the same seconds, at a rate that suits a cell
+	// a quarter of this size.
 	g := decode(t, dest)
-	if len(g.Image) != 10 {
-		t.Fatalf("animated %d frames, want 10", len(g.Image))
+	if len(g.Image) != 5 {
+		t.Fatalf("animated %d frames, want 5 — every other one of 10 captured", len(g.Image))
 	}
 
 	// The sheet's own proportions, reduced. A moving version shaped differently
@@ -83,8 +86,8 @@ func TestRenderSheetRunsForTheShortestClip(t *testing.T) {
 		t.Fatalf("render sheet: %v", err)
 	}
 
-	if g := decode(t, dest); len(g.Image) != 4 {
-		t.Fatalf("animated %d frames, want 4 — the shortest cell's", len(g.Image))
+	if g := decode(t, dest); len(g.Image) != 2 {
+		t.Fatalf("animated %d frames, want 2 — every other one of the shortest cell's 4", len(g.Image))
 	}
 }
 
@@ -102,8 +105,8 @@ func TestRenderSheetKeepsStillCellsStill(t *testing.T) {
 		t.Fatalf("render sheet: %v", err)
 	}
 
-	if g := decode(t, dest); len(g.Image) != 10 {
-		t.Fatalf("animated %d frames, want 10", len(g.Image))
+	if g := decode(t, dest); len(g.Image) != 5 {
+		t.Fatalf("animated %d frames, want 5 — every other one of 10 captured", len(g.Image))
 	}
 }
 
@@ -139,19 +142,27 @@ func TestRenderSheetRefusesTheWrongNumberOfCells(t *testing.T) {
 // What the customer's phone actually pulls, and the reason SheetLongEdge is the
 // number it is.
 //
-// This travels over Indonesian mobile data, and a five-second sheet is fifty
-// frames of it. The ceiling is what makes the constant a decision rather than a
-// guess: raising the long edge without measuring will fail here first, and the
-// figure this logs is the one quoted in the constant's comment.
+// This travels over Indonesian mobile data, and a five-second sheet is a
+// hundred captured frames of it. The ceiling is what makes the constants a
+// decision rather than a guess: raising the long edge or the rate without
+// measuring will fail here first, and the figure this logs is the one quoted in
+// the constant's comment.
+//
+// Fed at the rate the kiosk actually captures — CLIP_FPS over five seconds —
+// rather than at a round number, because that is the input the booth will hand
+// this and the whole point of a ceiling is to be measured against reality. At
+// the capture rate with no decimation this lands at 4.5 MB, which is what
+// SheetFPS exists to bring back under.
 func TestAnimatedSheetStaysUnderTheDeliveryCeiling(t *testing.T) {
 	if testing.Short() {
-		t.Skip("renders fifty frames across six cells")
+		t.Skip("renders a hundred frames across six cells")
 	}
 
 	tpl := sixCell(t)
 	dest := filepath.Join(t.TempDir(), "sheet.gif")
 
-	if err := clip.RenderSheet(tpl, sources(t, 6, 50), compose.FilterByID("asli"), dest, clip.Options{}); err != nil {
+	captured := 5 * clip.FPS
+	if err := clip.RenderSheet(tpl, sources(t, 6, captured), compose.FilterByID("asli"), dest, clip.Options{}); err != nil {
 		t.Fatalf("render sheet: %v", err)
 	}
 
