@@ -45,7 +45,7 @@ booth_binary_src: ""
 # so there is no inbound rule to open and no deploy credential in GitHub. That
 # was the actual security property, and it survives.
 booth_update_enabled: false
-booth_release_repo: bhaktiyudha/bykami
+booth_release_repo: yudhabhaktin/bykami
 
 # Every ten minutes at :08. The API's poller is at :03 — offset rather than
 # shared, so the two do not restart services in the same minute on a 2 GiB box.

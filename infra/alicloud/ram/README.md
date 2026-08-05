@@ -58,7 +58,7 @@ fork guard — two independent mechanisms, neither relying on the other.
 
 **The `@`-suffixed numbers are not a typo.** GitHub's subject claim now embeds
 immutable IDs by default — user `44221675`, repository `1312201709` — so the sub
-reads `repo:bhaktiyudha@44221675/bykami@1312201709:…` rather than the
+reads `repo:yudhabhaktin@44221675/bykami@1312201709:…` rather than the
 name-only form most documentation still shows. Confirm with:
 
 ```bash
@@ -70,9 +70,16 @@ released and re-registered by someone else, so this form closes the attack where
 a repository is renamed or deleted and its old name claimed by a stranger who
 then inherits the trust policy.
 
-The cost is that **transferring or recreating this repository silently breaks
-OIDC**, with an `ImplicitDeny` that names no condition. Re-run the command above
-and update this file if that ever happens.
+The cost is that **transferring, recreating or renaming silently breaks OIDC**,
+with an `ImplicitDeny` that names no condition. Re-run the command above and
+update this file if that ever happens.
+
+It has happened once: the account was renamed `bhaktiyudha` → `yudhabhaktin` on
+2026-08-05, and the sub became `repo:yudhabhaktin@44221675/…` while both IDs
+stayed put. **The name travels in the claim beside the ID, so the ID does not
+spare you the edit** — it only means nobody can pick up the abandoned name and
+inherit this role. Updating the file is not enough on its own; the policy has to
+be pushed to the RAM role before the `plan` job can assume it again.
 
 Adding a ref to this list grants whoever can push that ref everything the role
 can do. That is a permission change, not configuration — and it is why the next
