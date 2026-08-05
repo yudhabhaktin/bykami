@@ -143,7 +143,7 @@ reason `api/` requires `-otp-delivery=log`.
 | Flag | Stands in for | What it would cost to leave on |
 |---|---|---|
 | `-payments=sim` | Xendit QRIS, blocked on a business entity, NPWP and a bank account | Every session free. The screen can unlock itself |
-| `-printer=sim` | DNP's Windows driver and SDK | Nothing comes out of the machine |
+| `-printer=sim` | The DNP, through `-printer=dnp` | Nothing comes out of the machine |
 | `-source=webcam` | A tethered Canon 200D | ~180 dpi at 4R — visibly softer than what the studio delivers today |
 
 `-source=hybrid` is not on that list. It is a production mode, not a stand-in:
@@ -246,6 +246,95 @@ for the Canon is how a booth gets `NotReadableError` on the device it wants.
 `-source=hybrid` refuses to start without `-camera`. The two cameras look
 identical on screen, so a booth that previewed the wrong one would look like it
 was working until somebody compared a print to what anybody was looking at.
+
+## Printing on the real machine
+
+```bash
+-printer dnp -printer-queue "DS-RX1" -printer-cut-queue "DS-RX1 cut"
+```
+
+`internal/printer.Spooler` prints through the **Windows spooler**, and no part
+of it knows what a DNP is: the vendor-specific half is the driver Windows
+already has. It is pure Go against `gdi32` and `winspool` — `CreateDC` on the
+queue, `StretchDIBits` for the sheet, `GetJob` until the document is gone — so
+the release still cross-compiles with `GOOS=windows` and no cgo, the same
+constraint that decided the download page ships GIF rather than MP4. No SDK, no
+registration, exactly as `-shutter` gets the camera fired without EDSDK.
+
+The half that earns the package is `GetJob`. Handing bytes to the spooler is
+where `window.print()` stops, and everything worth knowing is only knowable
+after that: whether the sheet came out, whether the roll ran out, and whether
+anybody is coming to fix it.
+
+**Two queues against one printer, because the cut is per session.** The customer
+chooses between two 2×6 strips and one 4×6 kept whole before they pick a frame,
+and the driver holds the cut as a machine-wide setting. Setting it per job means
+DNP's private DEVMODE extension, which is the SDK this design avoids; adding a
+second queue is a right-click in Windows. A job whose queue is not configured is
+**refused, never printed the other way** — the wrong one is not a degraded
+result, it is the wrong product on a sheet the customer paid for.
+
+**A job that cannot fit the queue's page is refused before it feeds paper.** GDI
+will cheerfully stretch a 2×6 strip across a 4×6 sheet, and nobody finds out
+until somebody is handed a distorted print that has already cost media. The
+backend compares the driver's physical page against the layout in inches, with
+enough tolerance for the bleed a borderless dye-sub adds and nowhere near enough
+to confuse 4×6 with 2×6. The error names both sizes, because the fix is at the
+machine and the person making it has to know which page size to select.
+
+**Every path that gives up cancels the spool job first.** Paper out, offline and
+"wants attention" are waited through — those are thirty-second fixes, and a
+booth that failed the print the instant the roll ended would have taken money
+and sent somebody to find staff for a problem already solved by the time they
+arrived. `-printer-wait` is how long that grace lasts past the expected print
+time, two minutes by default. When it does expire, the document is deleted from
+the Windows queue before the job is reported failed. Otherwise it prints the
+moment somebody loads paper, by which time a human has reprinted it by hand:
+one customer, two sheets, and a media ledger that no longer matches the roll.
+
+**A queue Windows does not have stops the booth starting.** Both configured
+names are opened at startup and thrown away again. Windows keeps a print queue
+whether or not the printer is plugged in or switched on, which is what makes
+this safe to be fatal: it catches the deployment mistake — a typo in the service
+definition, a driver nobody installed — without catching a printer that is
+merely off, which is an operational state the spooler wait already handles. The
+alternative is a booth that starts, sells a session, takes the money and only
+then discovers it has nowhere to print.
+
+**A booth with no printer at all is unaffected.** `-printer=sim` is still the
+default and still the only backend a laptop needs; nothing about running the
+whole flow with no hardware has changed.
+
+**A print that fails does hold the session, and that is not an accident.** The
+review screen shows the reason and offers the print again, but `prints_done`
+counts only sheets that actually came out — `CopiesForSession` excludes failed
+jobs — so **Lanjut**, the tap that leads to the download QR, does not appear
+until one has. A customer who paid for a print and got none is not quietly moved
+on to the digital files as though the transaction completed; the screen says
+*panggil petugas* and a person deals with it. Worth knowing before somebody
+reads it as a bug: whether a failed print should still let the customer leave
+with their files is a refund question, not a UI one.
+
+### Three things only the printer can settle
+
+None of this has met an RX1HS. Everything above is written, cross-compiles for
+`windows/amd64`, and is tested to the edge of where Windows starts — the queue
+choice, the page check and the status decoding are unit-tested, and the hand-laid
+Win32 struct sizes are asserted at compile time, which is the most a machine
+without the hardware can do.
+
+1. **Does the `(2)2x6` page size report a 2×6 page or a 4×6 one?** `compose`
+   writes a single 600×1800 strip and the driver is expected to duplicate it
+   and cut. If the driver instead expects a full 4×6 containing two strips, the
+   page check refuses the job and its error says exactly which two sizes
+   disagreed — which is the diagnostic that settles this on first contact.
+2. **Does `JOB_STATUS_PRINTED` mean the sheet is out, or that the bytes reached
+   the device?** A dye-sub sheet takes 12.4 s. If it is the latter, `finishDone`
+   consumes media slightly before the print exists. That errs in the safe
+   direction — the counter reads low, so the operator loads early — but it
+   makes the queue's one-job-at-a-time serialisation nominal rather than real.
+3. **Is `-printer-wait` long enough to load a roll?** Two minutes is a guess
+   made by someone not standing at the machine.
 
 | | | |
 |---|---|---|
@@ -534,7 +623,10 @@ when there is a second outlet, that becomes worth having.
   belongs to, and a tethered capture hands back no photo id — the frame has not
   been taken yet, let alone ingested. So `-source=hybrid` shows a live preview
   and keeps no GIF from it; only `-source=webcam` delivers motion today.
-- **No DNP backend.** `-printer=sim` is the only one that exists.
+- **The DNP backend has never met the printer.** `-printer=dnp` is written,
+  cross-compiles and is tested as far as a machine without the hardware can
+  test it — which stops at the point where Windows is involved. See *Printing
+  on the real machine* above for the three things only the RX1HS can settle.
 - **No liveness heartbeat to `api/`**, so nothing knows the booth is down.
 - **No OTA updates on the booth PC.** The shop machine is Windows with no
   inbound anything, so its release is still installed by whoever is standing at

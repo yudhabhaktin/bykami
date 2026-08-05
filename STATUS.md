@@ -27,7 +27,7 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
 |---|---|---|
 | `bykami.id` and the three vertical sites | Live | Dimsamcong is built but held out of the index until it has a menu |
 | `app.bykami.id` — API and operator console | Built | Serves `/healthz` and the booth frame sync. Auth answers 503 |
-| The booth — a full paid session end to end | Built | Runs on a laptop and on the test VPS. Payment, printing and capture are simulated |
+| The booth — a full paid session end to end | Built | Runs on a laptop and on the test VPS. Payment and capture are simulated; the printer backend is real but has never met the printer |
 | `booth-test.bykami.id` | Built | Temporary. One access token per tester, auto-deploying from `agent-<sha>` |
 | The VPS | Built | Alibaba ECS trial box, Singapore. Synthetic data only |
 | Booking, QRIS, WhatsApp delivery | Blocked | See the owner list below |
@@ -75,14 +75,21 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
       transparent regions, publish it and every booth pulls it within five
       minutes. Seven built-in Gacoan collab designs ship in the binary as the
       fallback
-- [~] **Payment, printing and capture all run against simulations.** Each is an
-      opt-in flag with a startup warning, standing in for hardware or an account
-      that does not exist yet
+- [~] **Payment and capture run against simulations.** Each is an opt-in flag
+      with a startup warning, standing in for hardware or an account that does
+      not exist yet
+- [~] **The DNP prints through the Windows spooler**, in pure Go against
+      `gdi32` and `winspool` — no SDK, no cgo, and the release still
+      cross-compiles. It picks between two print queues for the customer's cut
+      choice, refuses a job the queue's page size does not match, and cancels
+      the spool job on any path that gives up so a failed print cannot reappear.
+      Never run against an RX1HS; `agent/README.md` lists the three things only
+      the printer can settle
 - [ ] No shutter release. `-source=hotfolder` announces the countdown and a
       person fires the camera. The recommended path is a USB relay into the
       RS-60E3 jack
-- [ ] No DNP printer backend, no WhatsApp sender, no liveness heartbeat, and no
-      per-booth identity — one shared secret admits every booth
+- [ ] No WhatsApp sender, no liveness heartbeat, and no per-booth identity —
+      one shared secret admits every booth
 
 `agent/README.md` → *Not here yet* and `api/README.md` → *Not here yet* carry
 the full list with the reasoning for each.

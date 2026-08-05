@@ -18,7 +18,7 @@ is why parts of this repo are visibly waiting on someone else.
 | **Size** | ~11.5k lines of Go, ~7.5k of TypeScript, 1.6k of Terraform and Ansible |
 | **Tests** | 282 Go test functions, ~9k lines of them, run under `-race` |
 | **Docs** | ~4.5k lines, mostly decision records explaining why rather than what |
-| **Target hardware** | Canon EOS 200D, DNP DS-RX1HS dye-sub printer, touchscreen, Windows 11 Pro. Capture, printing and payment currently run against simulators — see `STATUS.md` |
+| **Target hardware** | Canon EOS 200D, DNP DS-RX1HS dye-sub printer, touchscreen, Windows 11 Pro. Capture and payment currently run against simulators; the printer backend is real but has never met the printer — see `STATUS.md` |
 
 You can run the entire photo booth on a laptop with no camera, no printer and no
 payment account. Three commands, in [Running it](#running-it).

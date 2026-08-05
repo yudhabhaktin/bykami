@@ -268,9 +268,23 @@ mid-event rather than discovered at the moment it stops.
 ### Driver path — Windows 11 Pro
 
 Media remaining is queryable, which is the whole reason the agent exists rather
-than `window.print()`. **Decided: Windows 11 Pro**, using DNP's own driver and
-SDK — the path every photobooth operator runs and the one EOS Utility is best
-tested against.
+than `window.print()`. **Decided: Windows 11 Pro**, using DNP's own driver — the
+path every photobooth operator runs and the one EOS Utility is best tested
+against.
+
+**The SDK turned out not to be needed to print.** `internal/printer.Spooler`
+goes through the Windows spooler: `CreateDC` on the queue, `StretchDIBits` for
+the composed sheet, then `GetJob` until the document leaves the queue. That last
+call is the one that matters — it answers "did the sheet come out", "is the roll
+empty" and "is anybody coming to fix it", which is everything `window.print()`
+cannot say and the entire reason this package exists. It is pure Go against
+`gdi32` and `winspool`, so the release still cross-compiles with no cgo, exactly
+as the capture path avoids EDSDK.
+
+What the SDK is still the only route to is the printer's **own** media counter.
+The ledger in `internal/printer` is loaded by hand and is deliberately the
+source of truth, so that is a question about reconciliation rather than a
+missing feature — see the open item in `STATUS.md`.
 
 Windows won on **lockdown**, not on the printer. macOS has no equivalent of
 **Assigned Access**, and this machine sits alone in a room with customers who
@@ -288,8 +302,25 @@ future outlet needs it: the `dnpds40` backend in Solomon Peachy's `selphy_print`
 reports media offset, iSerial and multi-lot media. An earlier note in this repo
 calling Linux dye-sub "patchy" was wrong for this printer.
 
-Layout, page sizing and cut mode remain **per-machine driver configuration**,
-not application config.
+Layout and page sizing remain **per-machine driver configuration**, not
+application config.
+
+**Cut mode is the exception, and it took two queues to resolve.** This document
+had it in the same sentence as the rest, which was wrong: the cut is the
+customer's choice, made per session before they pick a frame, because it decides
+whether they leave with two 2×6 strips or one 4×6 kept whole. A machine-wide
+driver setting cannot express a per-session choice, and reaching into DEVMODE
+per job means the driver's private extension — the vendor SDK this whole design
+avoids.
+
+So the booth is configured with **two Windows print queues against the one
+printer**, one with the 2-inch cut enabled and one without, named to the agent
+as `-printer-queue` and `-printer-cut-queue`. Adding a second queue is a
+right-click in Windows, it needs nothing from DNP, and it leaves the setting
+somewhere the person standing at the machine can see it. `Job.Cut` picks between
+them; a job whose queue is not configured is refused rather than printed the
+other way, because the wrong one is not a degraded result but the wrong product
+on paid media.
 
 ### Throughput is a non-issue at the studio
 

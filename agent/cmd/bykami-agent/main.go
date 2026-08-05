@@ -52,6 +52,9 @@ type config struct {
 	shutter    string
 	payments   string
 	printerKit string
+	printQueue string
+	printCut   string
+	printWait  time.Duration
 	templates  string
 	frameSync  string
 	syncEvery  time.Duration
@@ -95,7 +98,15 @@ func main() {
 	// the booth cannot take money, so it says "pay at the counter" instead of
 	// opening the shutter for free.
 	flag.StringVar(&c.payments, "payments", "", `payment provider: "" (disabled) or "sim" (development only — takes no money)`)
-	flag.StringVar(&c.printerKit, "printer", "sim", `print backend: "sim" (development). The DNP driver is not built yet`)
+	flag.StringVar(&c.printerKit, "printer", "sim", `print backend: "sim" (development) or "dnp" (the DS-RX1HS through its Windows driver)`)
+
+	// Two queues against the one printer, because the cut is the customer's
+	// choice per session and the driver holds it as a machine-wide setting.
+	// See internal/printer/spooler.go for why that is not worked around in
+	// code.
+	flag.StringVar(&c.printQueue, "printer-queue", "", `with -printer=dnp, the Windows print queue that returns a whole sheet, e.g. "DS-RX1"`)
+	flag.StringVar(&c.printCut, "printer-cut-queue", "", `with -printer=dnp, a second queue on the same printer whose driver has the 2-inch cut enabled`)
+	flag.DurationVar(&c.printWait, "printer-wait", printer.DefaultSpoolWait, "with -printer=dnp, how long past the expected print time a job may wait on the machine — for paper, a jam, or the printer coming back online — before it is cancelled")
 	flag.StringVar(&c.templates, "templates", "", "extra template directory; the built-in designs are always available")
 
 	// Where the operator console's frame catalogue lives. Empty disables
@@ -418,10 +429,14 @@ func newPrintBackend(c config, log *slog.Logger) (printer.Backend, error) {
 	case "sim":
 		log.Warn("SIMULATED PRINTER: nothing comes out of the machine — development only")
 		return printer.NewSimulated(log, c.speed), nil
+	case "dnp":
+		return printer.NewSpooler(printer.SpoolerConfig{
+			Queue:    c.printQueue,
+			CutQueue: c.printCut,
+			Wait:     c.printWait,
+		}, log)
 	default:
-		// The real one is DNP's Windows driver and SDK. Named here so the error
-		// says what is missing rather than only what is wrong.
-		return nil, fmt.Errorf(`unknown -printer %q: want "sim" (the DNP DS-RX1HS backend is not built yet)`, c.printerKit)
+		return nil, fmt.Errorf(`unknown -printer %q: want "sim" or "dnp"`, c.printerKit)
 	}
 }
 

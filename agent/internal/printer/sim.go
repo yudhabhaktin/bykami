@@ -65,11 +65,7 @@ func (s *Simulated) Print(ctx context.Context, job Job, imagePath string) error 
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownLayout, job.Layout)
 	}
-	sheets := job.Sheets
-	if spec.sheetCost > 0 {
-		sheets = job.Sheets / spec.sheetCost
-	}
-	d := time.Duration(float64(spec.Duration) * float64(max(sheets, 1)) / s.speed)
+	d := time.Duration(float64(spec.Duration) * float64(max(spec.Fed(job.Copies), 1)) / s.speed)
 
 	// cut is logged rather than acted on. There is no blade to drive here, and
 	// the whole point of recording it on the job is that the real DNP backend
