@@ -10,9 +10,9 @@ package clip
 //
 // Composed at delivery size and never at 300 dpi. compose.Sheet works from the
 // originals because its output goes to a dye-sub printer; this one is going
-// down Indonesian mobile data into an <img>, and scaling a 1200x1800 sheet
-// fifty times to throw away seven eighths of it afterwards would cost about a
-// minute of a core per print for pixels nobody ever sees.
+// down Indonesian mobile data into an <img>, and scaling a 1200x1800 sheet a
+// hundred times to throw away seven eighths of it afterwards would cost about
+// a minute of a core per print for pixels nobody ever sees.
 
 import (
 	"context"
@@ -42,15 +42,35 @@ import (
 //
 // The temptation is to go bigger, because each cell here is only about a
 // quarter of the long edge. The measurement is what refuses: on synthetic
-// worst-case motion a five-second six-cell sheet encodes to roughly 1.7 MB at
-// 300, 2.8 MB at 400 and 4.1 MB at 500 — and unlike the printed sheet, this one
+// worst-case motion a five-second six-cell sheet encodes to roughly 1.3 MB at
+// 300, 2.1 MB at 400 and 3.1 MB at 500 — and unlike the printed sheet, this one
 // is pulled down a phone's mobile connection the instant the page opens.
+//
+// Those figures came down from 1.7, 2.8 and 4.1 when the encoder moved to a
+// palette built from the sheet's own colours. The room that bought was spent on
+// the single-photograph animation, which is the one a customer posts, rather
+// than here — see LongEdge.
 //
 // 400 is where the bytes stop buying anything a customer can see. The page
 // shows a sheet at min(58vh, 22rem), which is about 350 CSS pixels tall on a
 // phone, so 500 is already being scaled down before it is drawn. See
 // TestAnimatedSheetStaysUnderTheDeliveryCeiling.
 const SheetLongEdge = 400
+
+// SheetFPS is the animated sheet's playback rate, and it is half a frame clip's.
+//
+// The frames are captured at FPS for the single-photograph animation, where they
+// are delivered at 720 on the long edge and the smoothness is visible. A cell on
+// a six-slot sheet is about a quarter of 400, and twenty frames a second buys
+// almost nothing at that size — while costing exactly double, on a file already
+// measured against a ceiling and pulled down mobile data the moment the page
+// opens. At the capture rate a five-second sheet lands at 4.5 MB, over it.
+//
+// RenderSheet takes every other captured frame rather than slowing the playback,
+// so the animation still runs for the seconds it was filmed over. A sheet
+// playing the same moment at half speed alongside the frames it is made of is
+// the defect this is avoiding.
+const SheetFPS = 10
 
 // SheetsDir is where animated sheets live, relative to the store root.
 //
@@ -148,6 +168,14 @@ func RenderSheet(tpl compose.Template, cells []SheetSource, filter compose.Filte
 		return ErrTooShort
 	}
 
+	// Every stride-th captured frame, which is what lets the sheet play at its
+	// own rate over the same seconds the burst was filmed across. See SheetFPS.
+	stride := max(1, FPS/opts.FPS)
+	steps := n / stride
+	if steps < 2 {
+		return ErrTooShort
+	}
+
 	// base holds everything that does not change: the background, and every
 	// cell's still. Built once and memcpy'd per frame, which is what keeps the
 	// per-frame work proportional to the cells that actually move.
@@ -191,7 +219,7 @@ func RenderSheet(tpl compose.Template, cells []SheetSource, filter compose.Filte
 		filter.Apply(base, cellRect(rects[i]))
 	}
 
-	// Scaled once rather than per frame: it is the same artwork fifty times,
+	// Scaled once rather than per frame: it is the same artwork a hundred times,
 	// and CatmullRom over a full sheet is not cheap.
 	var overlay image.Image
 	if tpl.Overlay != "" {
@@ -206,18 +234,18 @@ func RenderSheet(tpl compose.Template, cells []SheetSource, filter compose.Filte
 
 	// One scratch frame for the whole run. EncodeSeq dithers each frame into a
 	// paletted image of its own before asking for the next, so handing back the
-	// same buffer every time is safe — and holding fifty sheets instead would
+	// same buffer every time is safe — and holding a hundred sheets instead would
 	// be most of the booth's memory budget.
 	work := image.NewRGBA(bounds)
 
-	return EncodeSeq(n, func(i int) (image.Image, error) {
+	return EncodeSeq(steps, func(i int) (image.Image, error) {
 		copy(work.Pix, base.Pix)
 
 		for ci, c := range cells {
 			if len(c.Frames) == 0 {
 				continue
 			}
-			img, err := readFrame(c.Frames[i])
+			img, err := readFrame(c.Frames[i*stride])
 			if err != nil {
 				continue
 			}

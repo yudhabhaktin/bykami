@@ -52,7 +52,7 @@ var (
 // A tree of their own, beside derived/ and for the same reason: ingest.Recover
 // walks sessions/ and unassigned/ recording every JPEG without a row, so burst
 // frames filed anywhere near the originals would be ingested as brand new
-// photos on the next restart — fifty of them per shot.
+// photos on the next restart — a hundred of them per shot.
 const Dir = "clips"
 
 // Unassigned mirrors ingest.UnassignedDir, so an orphan frame's clip has

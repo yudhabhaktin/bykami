@@ -161,8 +161,8 @@ func (p *Purger) removeClip(ctx context.Context, photoID string) {
 	}
 
 	// RemoveAll rather than a file at a time: the frames are the reason a clip
-	// gets a directory of its own, and fifty names reconstructed from a count
-	// is fifty chances to leave one behind.
+	// gets a directory of its own, and a hundred names reconstructed from a
+	// count is a hundred chances to leave one behind.
 	if err := os.RemoveAll(filepath.Join(p.root, filepath.FromSlash(c.Dir))); err != nil {
 		p.log.Error("purge: remove clip frames", "clip", c.ID, "dir", c.Dir, "err", err)
 	}

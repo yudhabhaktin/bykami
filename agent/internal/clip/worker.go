@@ -26,12 +26,17 @@ const DefaultInterval = time.Second
 
 // DefaultBatch caps one pass, and it is one.
 //
-// A five-second clip is fifty frames to decode, scale, dither and encode —
-// measured at two to three seconds of one core. That is far and away the
-// heaviest background job on the booth, and doing several per pass would take
-// the CPU in a burst while somebody is mid-session. One at a time still keeps
-// pace with capture, because a shot costs about five seconds of countdown and
-// hold before the next one arrives.
+// A five-second clip is a hundred frames to decode, scale, quantise and encode,
+// twice over — once to choose the palette and once to write it. That is far and
+// away the heaviest background job on the booth, and doing several per pass
+// would take the CPU in a burst while somebody is mid-session. One at a time
+// still keeps pace with capture, because a shot costs about five seconds of
+// countdown and hold before the next one arrives.
+//
+// It is cheaper than it looks, and cheaper than what it replaced: the palette
+// lookup in quantize.go turns the per-pixel cost from a scan of 256 colours into
+// an array read, which on the same machine renders five times the pixels in less
+// time than the old fixed-palette version took.
 const DefaultBatch = 1
 
 // Worker renders every clip's animation, in the background.
