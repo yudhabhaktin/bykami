@@ -79,7 +79,7 @@ app_r2_budget_bytes: 2147483648
 # Pull-based deploy. CI publishes a release tagged api-<sha>; the box polls for
 # it. Inverted on purpose: the VPS has one inbound rule and GitHub's runner
 # ranges are too broad to allowlist without undoing the point of the tunnel.
-app_release_repo: bhaktiyudha/bykami
+app_release_repo: yudhabhaktin/bykami
 
 # Every 10 minutes, offset from the hour. The cost of a poll is one API call
 # against an unauthenticated rate limit of 60/hour per IP — 6/hour leaves room
