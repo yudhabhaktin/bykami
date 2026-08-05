@@ -113,6 +113,35 @@ func TestSheetsPerLayout(t *testing.T) {
 	}
 }
 
+// Fed is what a backend prints; Sheets is what the roll pays for. They are
+// different numbers in both directions, and a backend that reached for the
+// wrong one would feed a 6x8 twice or a pair of strips one at a time.
+func TestFedIsNotTheSameAsSheets(t *testing.T) {
+	for _, tc := range []struct {
+		layout    printer.Layout
+		copies    int
+		fed, cost int
+	}{
+		{printer.Layout4R, 3, 3, 3},
+		{printer.LayoutStrip, 2, 1, 1}, // one sheet, cut into the pair
+		{printer.LayoutStrip, 3, 2, 2},
+		{printer.Layout6x8, 1, 1, 2}, // one sheet through the machine, two off the roll
+		{printer.Layout4R, 0, 0, 0},
+		{printer.Layout4R, -1, 0, 0},
+	} {
+		spec, ok := printer.SpecFor(tc.layout)
+		if !ok {
+			t.Fatalf("no spec for %q", tc.layout)
+		}
+		if got := spec.Fed(tc.copies); got != tc.fed {
+			t.Errorf("%s x%d = %d sheets fed, want %d", tc.layout, tc.copies, got, tc.fed)
+		}
+		if got := spec.Sheets(tc.copies); got != tc.cost {
+			t.Errorf("%s x%d = %d sheets off the roll, want %d", tc.layout, tc.copies, got, tc.cost)
+		}
+	}
+}
+
 // One roll is 700 sheets, which is 1,400 strips. This is the arithmetic behind
 // the second-roll rule for long Unlimited Print bookings.
 func TestRollCoversTheBoothCatalogue(t *testing.T) {

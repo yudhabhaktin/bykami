@@ -72,17 +72,23 @@ func SpecFor(l Layout) (Spec, bool) {
 	return s, ok
 }
 
+// Fed is how many sheets have to go through the machine for n copies. It is
+// what a backend prints and what the print time is measured against.
+func (s Spec) Fed(copies int) int {
+	if copies <= 0 {
+		return 0
+	}
+	return (copies + s.perSheet - 1) / s.perSheet
+}
+
 // Sheets is the media cost of n copies, in 4×6 units.
 //
 // Not the same as the number of copies, and the difference is the point: two
 // strips come off one sheet, so counting copies would make the roll appear to
-// last half as long as it does.
+// last half as long as it does. Not the same as Fed either — a 6×8 is one sheet
+// through the machine and two units off the roll.
 func (s Spec) Sheets(copies int) int {
-	if copies <= 0 {
-		return 0
-	}
-	fed := (copies + s.perSheet - 1) / s.perSheet
-	return fed * s.sheetCost
+	return s.Fed(copies) * s.sheetCost
 }
 
 var (
