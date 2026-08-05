@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ScreenProps } from "../App";
-import { api, ApiError } from "../api";
+import { api, ApiError, previews } from "../api";
+import { openCamera } from "../camera";
 import { record, timed, type Timings } from "../perf";
 import { cellAspect } from "../shot";
 import { recall, remember } from "../stash";
@@ -149,7 +150,14 @@ export function Capture({
   const takes = session?.takes ?? 0;
   const limit = session?.take_limit ?? 0;
   const atLimit = takes >= limit;
-  const webcam = state.source === "webcam";
+
+  // Two different questions, and hybrid is why they had to stop being one. It
+  // shows a live camera *and* takes its frames from the hot folder: the preview
+  // is there so the customer can see themselves pose, while the picture that
+  // gets printed comes off the tethered camera at full resolution.
+  const preview = previews(state.source);
+  const posts = state.source === "webcam";
+  const cameraHint = state.camera;
 
   // Seconds of photo time left. Held in state so the screen can show it, but
   // derived from a fixed deadline rather than counted down from five minutes —
@@ -170,11 +178,11 @@ export function Capture({
   const need = template?.cells.length ?? 0;
   const enough = takes >= need;
 
-  // The browser owns the camera on the webcam path. On the tethered path there
-  // is nothing to preview here: the camera's own software has the sensor, and
-  // the frame arrives through the hot folder afterwards.
+  // The browser owns the camera on both previewing paths. On a bare hot folder
+  // there is nothing to show here: the camera's own software has the sensor,
+  // and the frame arrives through the hot folder afterwards.
   useEffect(() => {
-    if (!webcam) return;
+    if (!preview) return;
     let cancelled = false;
     const openedAt = performance.now();
 
@@ -184,9 +192,14 @@ export function Capture({
       setError("Kamera tidak merespons. Panggil petugas.");
     }, CAMERA_TIMEOUT_MS);
 
-    void navigator.mediaDevices
-      .getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
-      .then((s) => {
+    // Wrapped in an async call rather than left as a bare promise chain: on an
+    // insecure origin `navigator.mediaDevices` is undefined, and reaching for
+    // it throws *synchronously* — out of the effect entirely, past any .catch()
+    // on the chain it was supposed to start, taking the whole app down to a
+    // blank screen instead of showing the message below.
+    void (async () => {
+      try {
+        const s = await openCamera(cameraHint);
         clearTimeout(giveUp);
         if (cancelled) {
           s.getTracks().forEach((t) => t.stop());
@@ -201,13 +214,16 @@ export function Capture({
         const t: Timings = {};
         record(t, "camera", performance.now() - openedAt);
         onTimings(t);
-      })
-      .catch(() => {
+      } catch (err) {
         clearTimeout(giveUp);
         if (cancelled) return;
         setCamera("failed");
         setError("Kamera tidak bisa diakses. Panggil petugas.");
-      });
+        // The customer gets one message for every camera failure; the reason
+        // they differ belongs to whoever reads the booth's console.
+        console.error("camera", err);
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -217,12 +233,12 @@ export function Capture({
       stream.current = null;
       setCamera("opening");
     };
-  }, [webcam, setError]);
+  }, [preview, cameraHint, setError]);
 
   // Nothing to warm up on the tethered path: the camera's own software has the
   // sensor and the frame arrives through the hot folder.
-  const preparing = webcam && camera === "opening";
-  const broken = webcam && camera === "failed";
+  const preparing = preview && camera === "opening";
+  const broken = preview && camera === "failed";
 
   useEffect(() => {
     const tick = () =>
@@ -255,7 +271,11 @@ export function Capture({
    * for no reason.
    */
   const startRolling = useCallback(() => {
-    if (!webcam || rolling.current !== null) return;
+    // Tied to the posting path, not the previewing one. A clip has to be filed
+    // against the photo it belongs to, and the tethered capture hands back no
+    // photo id — the frame has not been taken yet, let alone ingested. So a
+    // hybrid booth shows a live preview and keeps no motion from it.
+    if (!posts || rolling.current !== null) return;
 
     moment.current = [];
     rolling.current = window.setInterval(() => {
@@ -275,7 +295,7 @@ export function Capture({
           grabbing.current = false;
         });
     }, 1000 / CLIP_FPS);
-  }, [webcam]);
+  }, [posts]);
 
   const stopRolling = useCallback(() => {
     if (rolling.current === null) return;
@@ -297,7 +317,7 @@ export function Capture({
     const firedAt = performance.now();
 
     try {
-      if (webcam) {
+      if (posts) {
         const frame = await timed(t, "encode", () => grabFrame(video.current));
 
         // Taken now, not after the upload. The buffer keeps filling while the
@@ -309,11 +329,12 @@ export function Capture({
         const { photo } = await timed(t, "upload", () => api.capture(frame));
         sendClip(photo.id, clip);
       } else {
-        // The tethered path. How a tap reaches a Canon's shutter is the last
-        // open question in the capture design — a USB relay into the RS-60E3
-        // jack is the recommendation — so until that hardware exists this
-        // announces the moment and the frame is fired by hand.
-        await fetch("/api/capture", { method: "POST" });
+        // The tethered path: no pixels to send, because the frame is coming
+        // down the USB cable into the hot folder. The agent either fires the
+        // camera itself or announces the moment for somebody to fire it by
+        // hand, and either way the answer is checked — an unchecked request
+        // here would let the run count down over a camera that refused.
+        await timed(t, "upload", api.fire);
       }
       await timed(t, "refresh", refresh);
       record(t, "shutter", performance.now() - firedAt);
@@ -323,7 +344,7 @@ export function Capture({
       setError(err instanceof ApiError ? err.message : "Gagal mengambil foto.");
       return false;
     }
-  }, [webcam, refresh, setError, onTimings]);
+  }, [posts, refresh, setError, onTimings]);
 
   /**
    * The whole strip, on its own.
@@ -386,9 +407,12 @@ export function Capture({
   }, [need, limit, takes, shoot, setError, startRolling, stopRolling]);
 
   const running = phase !== "idle" && phase !== "done";
-  // The tethered path has no shutter to drive, so the sequence is a webcam
-  // feature and that path keeps the one-frame-at-a-time button.
-  const auto = webcam;
+  // The automatic 3-2-1 needs something to fire at the end of it. The browser's
+  // own camera always counts; a tethered one counts once the agent has a
+  // shutter wired up. Without either, the countdown would end with nobody
+  // photographed, so that booth keeps the one-frame-at-a-time button and
+  // somebody presses the camera by hand.
+  const auto = posts || state.shutter;
 
   return (
     <div className="grow" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -407,7 +431,7 @@ export function Capture({
       </div>
 
       <div className="stage">
-        {webcam ? (
+        {preview ? (
           /*
             Masked to the frame's own cell shape, so the preview and the print
             agree. The video fills this box and the overflow is cropped exactly

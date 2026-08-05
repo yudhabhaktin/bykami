@@ -2,7 +2,9 @@ package httpd_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -999,5 +1001,177 @@ func TestIdenticalFrameIsRefused(t *testing.T) {
 	}
 	if w := f.do(t, "POST", "/api/capture", frame); w.Code != http.StatusConflict {
 		t.Fatalf("the same bytes became a second take: %d %s", w.Code, w.Body)
+	}
+}
+
+// The hybrid booth previews a live camera and still takes its frames off the
+// tethered one. The preview is decoration: nothing may be captured from it, or
+// the booth quietly prints 1080p webcam grabs while a Canon sits idle beside
+// it — which looks like working software right up to the moment somebody
+// compares a print to what the studio used to deliver.
+func TestHybridPreviewsButDoesNotCaptureFromTheBrowser(t *testing.T) {
+	f := setupWith(t, func(d *httpd.Deps) {
+		d.Source = httpd.SourceHybrid
+		d.Camera = "EOS"
+	})
+
+	if w := f.do(t, "POST", "/api/session", map[string]string{"package_id": "mini"}); w.Code != http.StatusCreated {
+		t.Fatalf("session: %d %s", w.Code, w.Body)
+	}
+	if w := f.do(t, "POST", "/api/payment/simulate", nil); w.Code != http.StatusOK {
+		t.Fatalf("simulate: %d %s", w.Code, w.Body)
+	}
+	// The charge settles when it is polled, so the shutter is not unlocked
+	// until the kiosk has actually seen the money land.
+	if poll := decode[startResponse](t, f.do(t, "GET", "/api/payment", nil)); poll.Session.State != "open" {
+		t.Fatalf("session state = %q, want open", poll.Session.State)
+	}
+
+	// A paid session, a real JPEG in the body, and it is still not a photograph:
+	// the answer is "the frame is coming through the hot folder", not "created".
+	w := f.do(t, "POST", "/api/capture", frameBytes(t, 640, 480))
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("hybrid capture = %d %s, want 202", w.Code, w.Body)
+	}
+	got := decode[struct {
+		Awaiting bool `json:"awaiting_file"`
+	}](t, w)
+	if !got.Awaiting {
+		t.Fatal("hybrid capture did not say it was waiting for the tethered frame")
+	}
+
+	// And the browser's bytes were not filed as a take behind the customer's
+	// back, which is the failure this whole test exists to catch. Asserted on
+	// the count the customer is charged against rather than on the row count:
+	// that is the number the booth bills, and it is the one that must not move.
+	state := decode[struct {
+		Session *struct {
+			Takes int `json:"takes"`
+		} `json:"session"`
+	}](t, f.do(t, "GET", "/api/state", nil))
+	if state.Session == nil {
+		t.Fatal("the paid session vanished")
+	}
+	if state.Session.Takes != 0 {
+		t.Fatalf("the preview stream burned %d take(s) off the session", state.Session.Takes)
+	}
+}
+
+// Which camera to preview is the booth's hardware talking, so it has to reach
+// the browser: the kiosk cannot pick the Canon out of a machine that also has a
+// lid webcam without being told what to look for.
+func TestStateCarriesTheCameraHint(t *testing.T) {
+	f := setupWith(t, func(d *httpd.Deps) {
+		d.Source = httpd.SourceHybrid
+		d.Camera = "EOS Webcam Utility"
+	})
+
+	got := decode[struct {
+		Source string `json:"source"`
+		Camera string `json:"camera"`
+	}](t, f.do(t, "GET", "/api/state", nil))
+
+	if got.Source != string(httpd.SourceHybrid) {
+		t.Fatalf("source = %q, want hybrid", got.Source)
+	}
+	if got.Camera != "EOS Webcam Utility" {
+		t.Fatalf("camera = %q, want the hint the booth was started with", got.Camera)
+	}
+}
+
+// With a shutter wired up, a tap actually fires the camera. The answer is still
+// 202 and not a photograph: the frame is travelling down the USB cable and
+// becomes a take when the hot-folder watcher finds it.
+func TestTetheredCaptureFiresTheShutter(t *testing.T) {
+	var fired int
+	f := setupWith(t, func(d *httpd.Deps) {
+		d.Source = httpd.SourceHybrid
+		d.Camera = "EOS"
+		d.Shutter = func(context.Context) error {
+			fired++
+			return nil
+		}
+	})
+	openPaidSession(t, f)
+
+	if w := f.do(t, "POST", "/api/capture", nil); w.Code != http.StatusAccepted {
+		t.Fatalf("capture = %d %s, want 202", w.Code, w.Body)
+	}
+	if fired != 1 {
+		t.Fatalf("the camera was fired %d times for one tap", fired)
+	}
+}
+
+// The failure the whole shutter path exists to make visible. A camera that
+// refused to fire must reach the customer as an error, because the alternative
+// is a booth that counts down, photographs nobody, and moves on to the next
+// pose — money taken, nothing produced, and no sign anything went wrong.
+func TestARefusedShutterIsAnError(t *testing.T) {
+	f := setupWith(t, func(d *httpd.Deps) {
+		d.Source = httpd.SourceHotFolder
+		d.Shutter = func(context.Context) error {
+			return errors.New("no camera is connected")
+		}
+	})
+	openPaidSession(t, f)
+
+	w := f.do(t, "POST", "/api/capture", nil)
+	if w.Code == http.StatusAccepted || w.Code == http.StatusCreated {
+		t.Fatalf("a camera that never fired was reported as a photograph: %d %s", w.Code, w.Body)
+	}
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("capture = %d %s, want 502", w.Code, w.Body)
+	}
+	// And the customer is told in the language the booth speaks, not handed a
+	// Go error about USB.
+	if !strings.Contains(w.Body.String(), "petugas") {
+		t.Fatalf("the customer was not told to call staff: %s", w.Body)
+	}
+}
+
+// A booth with no trigger keeps working exactly as it did: the countdown is an
+// announcement and somebody fires the camera by hand.
+func TestTetheredCaptureWithoutAShutterStillAnnounces(t *testing.T) {
+	f := setupWith(t, func(d *httpd.Deps) { d.Source = httpd.SourceHotFolder })
+	openPaidSession(t, f)
+
+	if w := f.do(t, "POST", "/api/capture", nil); w.Code != http.StatusAccepted {
+		t.Fatalf("capture = %d %s, want 202", w.Code, w.Body)
+	}
+}
+
+// The kiosk runs the automatic countdown only where something fires at the end
+// of it, so whether a shutter exists has to reach the screen.
+func TestStateSaysWhetherTheBoothCanFireItsOwnCamera(t *testing.T) {
+	hand := setupWith(t, func(d *httpd.Deps) { d.Source = httpd.SourceHotFolder })
+	if got := decode[struct {
+		Shutter bool `json:"shutter"`
+	}](t, hand.do(t, "GET", "/api/state", nil)); got.Shutter {
+		t.Fatal("a hand-fired booth claimed it could fire its own camera")
+	}
+
+	wired := setupWith(t, func(d *httpd.Deps) {
+		d.Source = httpd.SourceHotFolder
+		d.Shutter = func(context.Context) error { return nil }
+	})
+	if got := decode[struct {
+		Shutter bool `json:"shutter"`
+	}](t, wired.do(t, "GET", "/api/state", nil)); !got.Shutter {
+		t.Fatal("a booth with a shutter wired up did not say so")
+	}
+}
+
+// openPaidSession walks a fixture to the point where the shutter is unlocked.
+func openPaidSession(t *testing.T, f *fixture) {
+	t.Helper()
+
+	if w := f.do(t, "POST", "/api/session", map[string]string{"package_id": "mini"}); w.Code != http.StatusCreated {
+		t.Fatalf("session: %d %s", w.Code, w.Body)
+	}
+	if w := f.do(t, "POST", "/api/payment/simulate", nil); w.Code != http.StatusOK {
+		t.Fatalf("simulate: %d %s", w.Code, w.Body)
+	}
+	if poll := decode[startResponse](t, f.do(t, "GET", "/api/payment", nil)); poll.Session.State != "open" {
+		t.Fatalf("session state = %q, want open", poll.Session.State)
 	}
 }

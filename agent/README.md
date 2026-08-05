@@ -146,6 +146,13 @@ reason `api/` requires `-otp-delivery=log`.
 | `-printer=sim` | DNP's Windows driver and SDK | Nothing comes out of the machine |
 | `-source=webcam` | A tethered Canon 200D | ~180 dpi at 4R — visibly softer than what the studio delivers today |
 
+`-source=hybrid` is not on that list. It is a production mode, not a stand-in:
+the preview comes from the camera's virtual-webcam feed so the customer can see
+themselves pose, and the frame that gets printed still arrives through the hot
+folder at the sensor's own resolution. Nothing is ever captured from the preview
+— see the capture handler, which answers `202 awaiting_file` on every tethered
+source even when the browser posts bytes.
+
 With no `-payments` at all the booth refuses to start a session and says *"bayar
 di kasir dulu"*. That is the deployed default, and it is the pre-booth studio
 working normally rather than a broken booth.
@@ -168,8 +175,77 @@ somebody standing within reach of the screen, which is the opposite of standing
 where the camera can see them. The first countdown is longer than the rest
 because it is the only one spent walking back into frame.
 
-The tethered path keeps a single-shot button. There is no shutter to drive
-there until the relay hardware in `design/kiosk.md` exists.
+The tethered paths keep a single-shot button until something can fire the
+camera. With `-shutter` set they run the same automatic sequence as the webcam.
+
+## Firing the camera without the relay
+
+`design/kiosk.md` recommends a USB relay into the RS-60E3 jack, and that is
+still the sturdier answer — its failure mode is a plug coming out, which is
+visible and costs a few dollars to fix, rather than a vendor update quietly
+changing an API. But the relay is hardware that has to be bought and wired, and
+the booth without it makes a customer press the camera by hand.
+
+`-shutter` is a URL the agent calls when the countdown ends:
+
+```bash
+-shutter 'http://127.0.0.1:5513/?slc=capturenoaf'   # digiCamControl
+```
+
+A URL and not a vendor integration, for the same reason the hot folder is a
+directory: whatever already owns the camera can be asked to fire it, and the
+booth learns no driver. No cgo, no EDSDK, no registration — one `http.Get`.
+
+digiCamControl serves this on port 5513 and both triggers *and* tethers, so it
+replaces EOS Utility rather than joining it — one moving part instead of two.
+Point its session folder at `-hot-folder` and the frame lands where the watcher
+is looking. Use its **HTTP API and not the bundled CLI**: `CameraControlCmd.exe`
+refuses to run while the GUI is open, even minimised, and the GUI is what does
+the tethering.
+
+`capturenoaf` fires without autofocus, which is usually what a booth wants — a
+camera that hunts for focus against an empty background can decline to fire at
+all, and a countdown that ends in nothing is the failure this whole path is
+trying to avoid.
+
+**The reply is read, not just the status code.** digiCamControl answers `200`
+and puts the failure in the body: "no camera is connected" arrives as a
+perfectly successful HTTP response, so a booth trusting the status alone would
+count down, photograph nobody, and report that everything went well. Anything
+that is neither empty nor `OK` is treated as a refusal — which errs towards a
+false alarm on some future tool with a chatty body, and that is the right way
+round. A booth that wrongly says "call staff" is annoying; one that wrongly says
+nothing is wrong sends people home without their photographs.
+
+A refused shutter is a `502` and the customer is told to call staff. It is never
+a take: nothing is billed for a frame the camera did not expose.
+
+## Which camera the booth previews
+
+A booth PC has two cameras: the tethered one the customer is photographed by,
+and the webcam in the lid. `getUserMedia` with no device named hands over
+whichever the browser calls default, and that is reliably the lid one — so the
+screen shows a laptop webcam while the Canon photographs the same person from a
+different angle, and nothing looks wrong until the prints come out.
+
+`-camera` names the right one as a case-insensitive substring of the device
+label: `-camera EOS` picks "EOS Webcam Utility (Canon EOS 200D)" out of a
+machine that also has "Integrated Camera". A substring and not a device id
+because ids are useless here — the browser mints them per profile, they rotate
+when the profile is cleared, and nobody can read one off a machine to put it in
+a service definition. A label fragment survives a reinstall and can be written
+down.
+
+Finding it costs two `getUserMedia` calls, and that is the permission model
+rather than a choice: device labels are empty until the page holds a camera
+permission, so there is no way to find the camera called "EOS" without first
+opening *a* camera. The first stream is released before the second is asked for,
+because a camera is exclusive on Windows and holding the lid webcam while asking
+for the Canon is how a booth gets `NotReadableError` on the device it wants.
+
+`-source=hybrid` refuses to start without `-camera`. The two cameras look
+identical on screen, so a booth that previewed the wrong one would look like it
+was working until somebody compared a print to what anybody was looking at.
 
 | | | |
 |---|---|---|
@@ -449,9 +525,15 @@ when there is a second outlet, that becomes worth having.
   storing it is all that happens; `Sender` has no implementation anywhere. The
   QR is what actually delivers today, which is why the number stopped being a
   precondition for leaving the screen.
-- **No shutter release.** `-source=hotfolder` announces the countdown and the
-  frame is fired by hand. The recommended path is a USB relay into the RS-60E3
-  jack — the last open question in the capture design.
+- **No shutter relay.** `-shutter` fires the camera through whatever software
+  already owns it, which is what makes the tethered path automatic today.
+  Without it `-source=hotfolder` and `-source=hybrid` announce the countdown and
+  the frame is fired by hand. The relay into the RS-60E3 jack is still the
+  sturdier answer and is still unbuilt.
+- **No motion on the hybrid path.** A clip has to be filed against the photo it
+  belongs to, and a tethered capture hands back no photo id — the frame has not
+  been taken yet, let alone ingested. So `-source=hybrid` shows a live preview
+  and keeps no GIF from it; only `-source=webcam` delivers motion today.
 - **No DNP backend.** `-printer=sim` is the only one that exists.
 - **No liveness heartbeat to `api/`**, so nothing knows the booth is down.
 - **No OTA updates on the booth PC.** The shop machine is Windows with no
