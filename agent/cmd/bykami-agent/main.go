@@ -47,6 +47,7 @@ type config struct {
 	hotFolder  string
 	outlet     string
 	source     string
+	camera     string
 	payments   string
 	printerKit string
 	templates  string
@@ -72,7 +73,15 @@ func main() {
 
 	// Two capture sources, and the difference is not cosmetic. See the
 	// resolution table in design/kiosk.md: 1080p is about 180 dpi at 4R.
-	flag.StringVar(&c.source, "source", "hotfolder", `where frames come from: "hotfolder" (a tethered camera) or "webcam" (development)`)
+	flag.StringVar(&c.source, "source", "hotfolder", `where frames come from: "hotfolder" (a tethered camera), "hybrid" (tethered, with a live preview) or "webcam" (development)`)
+
+	// Which camera the kiosk previews, by label substring. Only consulted on
+	// the sources that show a preview at all.
+	//
+	// Needed because getUserMedia with no device named hands over the browser's
+	// default, and on a booth PC that is the lid webcam rather than the Canon —
+	// the integrated camera wins and the DSLR is never opened.
+	flag.StringVar(&c.camera, "camera", "", `preview this video device, matched as a case-insensitive substring of its label, e.g. "EOS"; empty takes the browser's default camera`)
 
 	// Empty by default, and that default is a safety property. With no provider
 	// the booth cannot take money, so it says "pay at the counter" instead of
@@ -148,8 +157,18 @@ func run(c config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	if source == httpd.SourceHotFolder && c.hotFolder == "" {
-		return errors.New("-source=hotfolder needs -hot-folder pointing at the camera's destination directory")
+	if source.Tethered() && c.hotFolder == "" {
+		return fmt.Errorf("-source=%s needs -hot-folder pointing at the camera's destination directory", source)
+	}
+
+	// A hybrid booth with no -camera previews whatever the browser calls
+	// default, which on a PC with a built-in webcam is the built-in webcam —
+	// the customer poses at the lid camera while the Canon photographs them
+	// from somewhere else. Refused rather than warned: the two cameras look
+	// identical on the screen, so nobody discovers this until they see prints
+	// that do not match what anybody was looking at.
+	if source == httpd.SourceHybrid && c.camera == "" {
+		return errors.New(`-source=hybrid needs -camera naming the tethered camera's video device, e.g. -camera EOS`)
 	}
 
 	db, err := store.Open(filepath.Join(root, "booth.db"))
@@ -220,7 +239,7 @@ func run(c config, log *slog.Logger) error {
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
 		Clips:  clips,
 		Ingest: watcher, Templates: live, Packages: packages,
-		Root: root, Source: source, OutletID: c.outlet,
+		Root: root, Source: source, Camera: c.camera, OutletID: c.outlet,
 		Simulated: simulated, PublicHost: c.publicHost, AccessTokens: tokens,
 		Retention: c.retention,
 		Log:       log,
@@ -332,8 +351,10 @@ func parseSource(s string) (httpd.Source, error) {
 		return httpd.SourceHotFolder, nil
 	case httpd.SourceWebcam:
 		return httpd.SourceWebcam, nil
+	case httpd.SourceHybrid:
+		return httpd.SourceHybrid, nil
 	default:
-		return "", fmt.Errorf(`unknown -source %q: want "hotfolder" or "webcam"`, s)
+		return "", fmt.Errorf(`unknown -source %q: want "hotfolder", "hybrid" or "webcam"`, s)
 	}
 }
 

@@ -7,7 +7,13 @@
  * what is happening before the server has to refuse it.
  */
 
-export type Source = "hotfolder" | "webcam";
+export type Source = "hotfolder" | "webcam" | "hybrid";
+
+/** Whether this source shows a live camera. Hybrid previews without capturing
+ *  from it: the printed frame arrives through the hot folder instead. */
+export function previews(s: Source): boolean {
+  return s === "webcam" || s === "hybrid";
+}
 
 export interface Package {
   id: string;
@@ -108,6 +114,9 @@ export interface PrintJob {
 
 export interface State {
   source: Source;
+  /** Label substring naming which video device to preview. Empty takes the
+   *  browser's default, which on a booth PC is the built-in webcam. */
+  camera: string;
   packages: Package[];
   templates: Template[];
   filters: Filter[];

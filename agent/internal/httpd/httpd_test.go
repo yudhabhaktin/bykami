@@ -999,3 +999,78 @@ func TestIdenticalFrameIsRefused(t *testing.T) {
 		t.Fatalf("the same bytes became a second take: %d %s", w.Code, w.Body)
 	}
 }
+
+// The hybrid booth previews a live camera and still takes its frames off the
+// tethered one. The preview is decoration: nothing may be captured from it, or
+// the booth quietly prints 1080p webcam grabs while a Canon sits idle beside
+// it — which looks like working software right up to the moment somebody
+// compares a print to what the studio used to deliver.
+func TestHybridPreviewsButDoesNotCaptureFromTheBrowser(t *testing.T) {
+	f := setupWith(t, func(d *httpd.Deps) {
+		d.Source = httpd.SourceHybrid
+		d.Camera = "EOS"
+	})
+
+	if w := f.do(t, "POST", "/api/session", map[string]string{"package_id": "mini"}); w.Code != http.StatusCreated {
+		t.Fatalf("session: %d %s", w.Code, w.Body)
+	}
+	if w := f.do(t, "POST", "/api/payment/simulate", nil); w.Code != http.StatusOK {
+		t.Fatalf("simulate: %d %s", w.Code, w.Body)
+	}
+	// The charge settles when it is polled, so the shutter is not unlocked
+	// until the kiosk has actually seen the money land.
+	if poll := decode[startResponse](t, f.do(t, "GET", "/api/payment", nil)); poll.Session.State != "open" {
+		t.Fatalf("session state = %q, want open", poll.Session.State)
+	}
+
+	// A paid session, a real JPEG in the body, and it is still not a photograph:
+	// the answer is "the frame is coming through the hot folder", not "created".
+	w := f.do(t, "POST", "/api/capture", frameBytes(t, 640, 480))
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("hybrid capture = %d %s, want 202", w.Code, w.Body)
+	}
+	got := decode[struct {
+		Awaiting bool `json:"awaiting_file"`
+	}](t, w)
+	if !got.Awaiting {
+		t.Fatal("hybrid capture did not say it was waiting for the tethered frame")
+	}
+
+	// And the browser's bytes were not filed as a take behind the customer's
+	// back, which is the failure this whole test exists to catch. Asserted on
+	// the count the customer is charged against rather than on the row count:
+	// that is the number the booth bills, and it is the one that must not move.
+	state := decode[struct {
+		Session *struct {
+			Takes int `json:"takes"`
+		} `json:"session"`
+	}](t, f.do(t, "GET", "/api/state", nil))
+	if state.Session == nil {
+		t.Fatal("the paid session vanished")
+	}
+	if state.Session.Takes != 0 {
+		t.Fatalf("the preview stream burned %d take(s) off the session", state.Session.Takes)
+	}
+}
+
+// Which camera to preview is the booth's hardware talking, so it has to reach
+// the browser: the kiosk cannot pick the Canon out of a machine that also has a
+// lid webcam without being told what to look for.
+func TestStateCarriesTheCameraHint(t *testing.T) {
+	f := setupWith(t, func(d *httpd.Deps) {
+		d.Source = httpd.SourceHybrid
+		d.Camera = "EOS Webcam Utility"
+	})
+
+	got := decode[struct {
+		Source string `json:"source"`
+		Camera string `json:"camera"`
+	}](t, f.do(t, "GET", "/api/state", nil))
+
+	if got.Source != string(httpd.SourceHybrid) {
+		t.Fatalf("source = %q, want hybrid", got.Source)
+	}
+	if got.Camera != "EOS Webcam Utility" {
+		t.Fatalf("camera = %q, want the hint the booth was started with", got.Camera)
+	}
+}

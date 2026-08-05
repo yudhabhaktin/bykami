@@ -90,7 +90,35 @@ const (
 	// shipping it to customers would make the one thing they pay for worse than
 	// what the studio delivers today.
 	SourceWebcam Source = "webcam"
+
+	// SourceHybrid is the tethered camera with a live preview: the picture on
+	// screen comes from the camera's virtual-webcam feed, and the frame that
+	// gets printed still arrives through the hot folder at full resolution.
+	//
+	// It exists because the two halves of a photobooth pull in opposite
+	// directions. Customers need to see themselves to pose — a booth showing a
+	// line of text is a booth people stand in front of wrongly — but a 1080p
+	// preview stream is the wrong thing to print, which is the whole reason the
+	// hot folder exists. So the preview and the negative come from the same
+	// camera by two different routes, and neither is asked to do the other's
+	// job.
+	//
+	// The preview is decoration here: nothing is captured from it, and a booth
+	// whose virtual camera never opens still sells photographs. That is
+	// deliberate — see the webcam-vs-hybrid split in capture below.
+	SourceHybrid Source = "hybrid"
 )
+
+// Previews reports whether the kiosk shows a live camera on this source.
+//
+// Hybrid and webcam both do, for different reasons: webcam is about to capture
+// from that stream, hybrid only wants the customer to see themselves. The hot
+// folder alone has nothing to show — the camera's own software owns the sensor.
+func (s Source) Previews() bool { return s == SourceWebcam || s == SourceHybrid }
+
+// Tethered reports whether frames arrive through the hot folder rather than
+// being posted by the browser.
+func (s Source) Tethered() bool { return s == SourceHotFolder || s == SourceHybrid }
 
 type Deps struct {
 	Sessions *session.Store
@@ -116,6 +144,19 @@ type Deps struct {
 
 	// Source decides which capture flow the UI shows.
 	Source Source
+
+	// Camera names which video device the kiosk should preview, as a
+	// case-insensitive substring of the device label — "EOS" picks a Canon out
+	// of a booth PC that also has a lid webcam.
+	//
+	// A hint and not a device id, because ids are useless here: getUserMedia
+	// mints them per browser profile, they rotate when the profile is cleared,
+	// and nobody can read one off a machine to put it in a service definition.
+	// A label substring survives a reinstall and can be written down.
+	//
+	// Empty means whatever the browser considers default, which on a booth PC
+	// with a built-in webcam is reliably the wrong camera.
+	Camera string
 
 	// OutletID is stamped on every session. One booth today; the ledger is
 	// pooled across outlets by design, so this is not a placeholder.
@@ -393,7 +434,12 @@ func (s *Server) ui() http.Handler {
 // ---- API ----
 
 type stateResponse struct {
-	Source    Source            `json:"source"`
+	Source Source `json:"source"`
+
+	// Camera is the label substring the kiosk matches a video device against.
+	// Served rather than built into the bundle because which camera a booth
+	// previews is a property of that booth's hardware, not of the software.
+	Camera    string            `json:"camera"`
 	Packages  []catalog.Package `json:"packages"`
 	Templates []templateView    `json:"templates"`
 	Filters   []compose.Filter  `json:"filters"`
@@ -505,6 +551,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 
 	resp := stateResponse{
 		Source:     s.Source,
+		Camera:     s.Camera,
 		Packages:   packages,
 		Templates:  views,
 		Filters:    compose.Filters,
@@ -901,11 +948,15 @@ func (s *Server) capture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.Source != SourceWebcam {
-		// The tethered path. How a tap reaches a Canon's shutter is the last
-		// open question in design/kiosk.md — a USB relay into the RS-60E3 jack
-		// is the recommendation, and until that hardware exists the countdown
-		// runs and the frame is fired by hand.
+	if s.Source.Tethered() {
+		// The tethered path, hybrid included: the preview on screen is not the
+		// negative, so there are no pixels to accept here even when the kiosk
+		// has a live camera open. The frame lands in the hot folder instead.
+		//
+		// How a tap reaches a Canon's shutter is the last open question in
+		// design/kiosk.md — a USB relay into the RS-60E3 jack is the
+		// recommendation, and until that hardware exists the countdown runs and
+		// the frame is fired by hand.
 		s.write(w, http.StatusAccepted, map[string]any{
 			"awaiting_file": true,
 			"note":          "shutter release is not wired up yet; fire the camera",
