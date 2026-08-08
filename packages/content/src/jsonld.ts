@@ -1,9 +1,37 @@
-import { PLATFORM_ROOT, type Faq, type Offering, type Vertical } from "./schema.ts";
+import {
+  PLATFORM_ROOT,
+  instagramUrl,
+  tiktokUrl,
+  type Faq,
+  type Offering,
+  type Vertical,
+} from "./schema.ts";
 import { publishedValueOf } from "./sourced.ts";
 
 type Ld = Record<string, unknown>;
 
 const siteUrl = (v: Vertical) => `https://${v.hostname}`;
+
+/**
+ * The accounts customers already follow, as `sameAs` — the property that makes a
+ * hostname and a social profile resolve to one entity rather than two.
+ *
+ * Verified handles only, and for a stricter reason than prices: `sameAs` is an
+ * identity claim. A mistyped handle does not merely publish a wrong fact, it
+ * points this business's accumulated authority at an account someone else owns.
+ */
+const profileUrls = (v: Vertical): string[] => {
+  if (!v.social) return [];
+  const out: string[] = [];
+
+  const ig = v.social.instagram ? publishedValueOf(v.social.instagram) : undefined;
+  if (ig) out.push(instagramUrl(ig));
+
+  const tiktok = v.social.tiktok ? publishedValueOf(v.social.tiktok) : undefined;
+  if (tiktok) out.push(tiktokUrl(tiktok));
+
+  return out;
+};
 
 /**
  * Every property declares itself part of one company, so engines consolidate
@@ -24,6 +52,18 @@ export const organizationLd = (v: Vertical): Ld => {
   }
   const logo = publishedValueOf(v.brand.logoSvg);
   if (logo) ld["logo"] = `${siteUrl(v)}${logo}`;
+
+  /*
+   * Profiles hang off the Organization, not the LocalBusiness beside it. An
+   * Instagram account belongs to a brand rather than to a street address, and
+   * this node is the one that always ships — the LocalBusiness is gated on a
+   * verified address, so putting `sameAs` there would drop the link for exactly
+   * the properties whose address is still unconfirmed. One node, one claim, no
+   * chance of two @ids asserting they own the same profile.
+   */
+  const profiles = profileUrls(v);
+  if (profiles.length > 0) ld["sameAs"] = profiles;
+
   return ld;
 };
 

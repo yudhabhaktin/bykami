@@ -96,6 +96,25 @@ export const brand = z.object({
   accentColor: sourced(z.string().regex(/^#[0-9a-fA-F]{6}$/)),
 });
 
+/**
+ * A profile is stored as the handle alone — never the full URL.
+ *
+ * The URL is one template away from the handle, and holding both is holding two
+ * things that can disagree. The handle is also what a customer recognises and
+ * what gets said out loud, so it is the fact; the link is a rendering of it.
+ */
+const handle = z
+  .string()
+  .regex(/^[A-Za-z0-9._]{1,30}$/, "handle only — no leading @, no URL");
+
+export const social = z.object({
+  instagram: sourced(handle).optional(),
+  tiktok: sourced(handle).optional(),
+});
+
+export const instagramUrl = (handle: string) => `https://www.instagram.com/${handle}/`;
+export const tiktokUrl = (handle: string) => `https://www.tiktok.com/@${handle}`;
+
 export const vertical = z.object({
   id: z.enum(["root", "studio", "dimsamcong", "booth"]),
   displayName: z.string().min(1),
@@ -125,6 +144,8 @@ export const vertical = z.object({
    */
   indexable: z.boolean(),
   nap: nap.optional(),
+  /** Absent where the vertical has no account of its own, which is not the same as an unknown handle. */
+  social: social.optional(),
   brand,
   offerings: z.array(offering),
   backdrops: z.array(backdrop),
@@ -137,6 +158,7 @@ export type Backdrop = z.infer<typeof backdrop>;
 export type Promo = z.infer<typeof promo>;
 export type Faq = z.infer<typeof faq>;
 export type Nap = z.infer<typeof nap>;
+export type Social = z.infer<typeof social>;
 export type Brand = z.infer<typeof brand>;
 export type Vertical = z.infer<typeof vertical>;
 

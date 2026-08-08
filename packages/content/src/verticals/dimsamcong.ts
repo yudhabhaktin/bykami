@@ -38,6 +38,13 @@ export const dimsamcong: Vertical = {
     bookingUrl: blocked("Not applicable until ordering exists."),
   },
 
+  social: {
+    instagram: blocked(
+      "The vertical is known to have an Instagram account, but no handle was ever recorded.",
+    ),
+    tiktok: blocked("Owner has not said whether a TikTok account exists."),
+  },
+
   brand: {
     logoSvg: blocked("No brand assets for the F&B vertical."),
     accentColor: blocked("No brand assets for the F&B vertical."),
