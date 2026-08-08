@@ -133,6 +133,11 @@ important in the outer 5%, because the grid fills a 3:2 box with
 `object-fit: cover`; and written consent from anyone recognisable, since these
 become marketing.
 
+If a frame is to be regenerated rather than shot in the meantime, the prompts
+are in `image-prompts.md`, along with the two things the current set gets wrong:
+the five generated frames do not look like the same building, and everyone in
+them reads as European.
+
 Also still needed for the sections that are built but empty:
 
 - [ ] **Real numbers for a trust block** — sessions shot, years open, Google
