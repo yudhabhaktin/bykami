@@ -99,7 +99,11 @@ export const studio: Vertical = {
         { kind: "p", shortcode: "DbmTvrMEqXd" },
         { kind: "p", shortcode: "DbiET7oE79V" },
         { kind: "p", shortcode: "DbLFSYAD0Gr" },
-        { kind: "p", shortcode: "DbA-dqUEgTT" },
+        // DbA-dqUEgTT was here and was withdrawn: it is a landscape post, and a
+        // grid of portrait ones with a single wide row in the middle reads as a
+        // mistake rather than as variety. The first thing anyone could tell us
+        // about what these pictures actually look like, which is the check no
+        // amount of URL validation was ever going to substitute for.
         { kind: "p", shortcode: "DaoaYU4k9v1" },
         { kind: "p", shortcode: "DZe8P0xD3w4" },
         { kind: "p", shortcode: "DZFN3IjH5gL" },
