@@ -53,8 +53,21 @@ export const booth: Vertical = {
      * about studio hire.
      */
     posts: verified(
-      [{ kind: "p", shortcode: "DbastU-vOKa" }],
-      "owner, 2026-08-08 — supplied as the photobooth post; checked to resolve",
+      [
+        { kind: "p", shortcode: "DbastU-vOKa" },
+        { kind: "p", shortcode: "DbLXcJIgcpz" },
+        { kind: "p", shortcode: "DbLWz9SBm-k" },
+        { kind: "p", shortcode: "DbLWhrjgdUl" },
+        { kind: "p", shortcode: "Da91AfggUM_" },
+        { kind: "p", shortcode: "DaKfMk7AVpe" },
+        { kind: "p", shortcode: "DZcqWOwh2nL" },
+        { kind: "p", shortcode: "DZcaIkQAcp8" },
+        { kind: "p", shortcode: "DZY8fBKgZRj" },
+        { kind: "p", shortcode: "DZQCD2qAesG" },
+        { kind: "p", shortcode: "DZNP3G4AfJi" },
+        { kind: "p", shortcode: "DYylxEkgUmF" },
+      ],
+      "owner, 2026-08-08 and 2026-08-09 — permalinks supplied directly; each one checked to resolve",
     ),
   },
 
