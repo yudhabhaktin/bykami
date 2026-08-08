@@ -43,7 +43,20 @@
   --space-6: 1.5rem;
   --space-8: 2rem;
   --space-12: 3rem;
-  --space-16: 4rem;
+
+  /*
+   * Section rhythm, and the one spacing value that is not a fixed step on the
+   * scale above. A flat 4rem was wrong at both ends: on a 390px phone it spends
+   * a third of a screen on gaps and pushes the price list below another scroll,
+   * and on desktop it is too tight to read as considered — the whitespace is
+   * what makes a page look expensive. Bellroy and Cowboy both scale this;
+   * Cowboy ships 2.5rem → 6.9rem.
+   *
+   * Fluid rather than a breakpoint because there is no width at which the gap
+   * should visibly jump, and a clamp is one line where a media query is five.
+   * Lower bound holds to ~570px, upper bound lands just past the 72rem wrap.
+   */
+  --space-section: clamp(2.5rem, 7vw + 0.75rem, 6rem);
 
   --tap: 44px;
   --bar-height: 64px;
@@ -80,9 +93,20 @@ h3 {
 }
 
 h1 {
-  font-size: 36px;
-  line-height: 40px;
-  letter-spacing: -0.9px;
+  /*
+   * 36px is a heading size, not a display size — Cowboy reserves 2.25rem for
+   * section headers and gives its hero 3.75rem. Mobile deliberately stays at
+   * 36px: Indonesian headings run long ("Self photo studio di Banyuwangi"
+   * already takes two lines at 390px) and a larger size buys a third. All the
+   * growth happens above ~800px, where there is room for the page to open up.
+   *
+   * Ratios rather than pixels so both track the clamp. -0.025em is exactly the
+   * -0.9px this rule set at 36px, and 1.1 lands within half a pixel of the 40px
+   * it replaces, so nothing moves at phone width.
+   */
+  font-size: clamp(36px, 4vw + 20px, 52px);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
 }
 
 h2 {
@@ -117,6 +141,19 @@ img {
   padding-inline: var(--space-4);
 }
 
+/*
+ * Section rhythm is defined once, here, rather than repeated in every component
+ * that renders one. It used to live in six scoped style blocks, and two of them
+ * — InstagramPosts and TiktokVideos — simply forgot it, so those sections sat
+ * flush against their neighbours on the studio page. A shared class whose
+ * spacing each user has to remember to restate is a trap that keeps catching
+ * the next component; owning it here means a section is spaced because it is a
+ * section.
+ */
+.section {
+  margin-block: var(--space-section);
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -149,5 +186,73 @@ img {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Section entry reveal.
+ *
+ * Scroll-driven, so it costs no JavaScript. Bellroy and Cowboy both do this
+ * with a hand-rolled IntersectionObserver — neither ships an animation library
+ * — but the CSS timeline did not exist when they built.
+ *
+ * Purely decorative: a section that does not fade in is simply a section that
+ * is visible, which is the behaviour everywhere this is unsupported. So there
+ * is no fallback path — Firefox has none at all, and Chrome/Edge below 115 and
+ * Safari below 26 fall out of the @supports gate. The (animation-range) half of
+ * that gate is load-bearing: it filters browsers that ship animation-timeline
+ * without the range syntax, which would otherwise match here and animate wrong.
+ *
+ * The reduce block above cannot govern this on its own. It works by forcing
+ * animation-duration to 0.01ms, and a scroll-driven animation has no duration —
+ * progress comes from scroll position — so the override is a no-op against it.
+ * Hence the explicit no-preference wrapper. Verified: under forced reduced
+ * motion no animations are created at all and every section renders opaque.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @supports ((animation-timeline: view()) and (animation-range: entry)) {
+    @keyframes reveal-fade {
+      from {
+        opacity: 0;
+      }
+    }
+
+    @keyframes reveal-rise {
+      from {
+        transform: translate3d(0, 1rem, 0);
+      }
+    }
+
+    .section {
+      /*
+       * Longhands, not the `animation` shorthand. The shorthand does not carry
+       * animation-timeline, so it resets it — and this build's CSS minifier
+       * folds a following `animation-timeline: view()` back *into* the
+       * shorthand, emitting `animation: linear backwards reveal-fade view()`.
+       * Chrome rejects `view()` there and drops the whole declaration, so the
+       * reveal silently does not run. Authoring order alone does not survive
+       * minification; longhands do.
+       */
+      animation-name: reveal-fade, reveal-rise;
+      animation-duration: auto, auto;
+      animation-timing-function: linear;
+      animation-fill-mode: backwards;
+      animation-timeline: view(), view();
+
+      /*
+       * Cowboy desyncs its hero reveal by giving opacity and transform
+       * different durations (.85s against 1.15s) — the fade lands before the
+       * movement settles, and that lag is most of why it reads as expensive. A
+       * scroll-driven animation has no duration to vary, so the same shape
+       * comes from ending the fade earlier in the range than the rise.
+       *
+       * Both finish well inside `entry` so a section taller than the viewport
+       * still completes its reveal as it arrives, rather than dragging out
+       * across the whole scroll past it.
+       */
+      animation-range:
+        entry 0% entry 40%,
+        entry 0% entry 70%;
+    }
   }
 }
