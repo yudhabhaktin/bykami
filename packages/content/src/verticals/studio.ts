@@ -51,8 +51,17 @@ export const studio: Vertical = {
       "owner, 2026-08-09 — confirmed Jajag against the Wringinagung in the TikTok captions",
     ),
     mapsUrl: blocked("No Google Maps link in any source. Owner must supply."),
-    openingHours: blocked(
-      "Hours appear in no PDF or capture. Owner must supply, including weekend/holiday variation.",
+    // Every day, 09.00–21.00. The studio's own TikTok captions say so and the
+    // owner confirmed it — which is the order that mattered, because those same
+    // captions were the source that got the village wrong. A source being right
+    // about one fact and wrong about another is the ordinary case, not a
+    // surprise, and it is why confirmation is per-fact rather than per-source.
+    //
+    // No holiday or Lebaran variation recorded. "Mo-Su" claims there is none, so
+    // if the studio closes for Idulfitri this is the line that will be wrong.
+    openingHours: verified(
+      ["Mo-Su 09:00-21:00"],
+      "owner, 2026-08-09 — confirming the hours in the TikTok captions; no holiday variation given",
     ),
     whatsapp: unverified(
       "62811377710",

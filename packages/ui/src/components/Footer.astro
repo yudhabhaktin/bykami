@@ -1,6 +1,7 @@
 ---
 import {
   instagramUrl,
+  openingHoursText,
   tiktokUrl,
   valueOf,
   verticals,
@@ -68,7 +69,7 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
                 {address.addressRegion}
               </p>
             )}
-            {hours && <p class="muted">{hours.join(", ")}</p>}
+            {hours && <p class="muted">{openingHoursText(hours)}</p>}
           </div>
         )
       }

@@ -1,3 +1,4 @@
+import { openingHoursText } from "./hours.ts";
 import { instagramUrl, tiktokUrl, type Vertical } from "./schema.ts";
 import { valueOf } from "./sourced.ts";
 
@@ -40,7 +41,7 @@ export const llmsTxt = (v: Vertical): string => {
         `- Alamat: ${address.streetAddress}, ${address.addressLocality}, ${address.addressRegion}`,
       );
     }
-    if (hours) contact.push(`- Jam buka: ${hours.join(", ")}`);
+    if (hours) contact.push(`- Jam buka: ${openingHoursText(hours)}`);
     if (whatsapp) contact.push(`- WhatsApp: +${whatsapp}`);
   }
 
