@@ -1,5 +1,5 @@
 import type { Vertical } from "../schema.ts";
-import { blocked, unverified } from "../sourced.ts";
+import { blocked, unverified, verified } from "../sourced.ts";
 
 const PDF = "refs/PRICE LIST PHOTOBOOTH.pdf (owner PDF, not owner-confirmed)";
 
@@ -46,6 +46,16 @@ export const booth: Vertical = {
       "design/direction.md — read out of the studio bio as a sister account, never opened",
     ),
     tiktok: blocked("Owner has not said whether a TikTok account exists."),
+    /*
+     * Supplied for this vertical specifically, rather than split off the studio
+     * set: the booth is the thing being sold here, and a photobooth post on the
+     * studio page would be advertising a different product to someone reading
+     * about studio hire.
+     */
+    posts: verified(
+      [{ kind: "p", shortcode: "DbastU-vOKa" }],
+      "owner, 2026-08-08 — supplied as the photobooth post; checked to resolve",
+    ),
   },
 
   brand: {
