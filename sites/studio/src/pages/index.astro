@@ -4,6 +4,7 @@ import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
 import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import PriceList from "@bykami/ui/PriceList.astro";
+import TiktokVideos from "@bykami/ui/TiktokVideos.astro";
 
 const vertical = byId("studio");
 ---
@@ -37,12 +38,14 @@ const vertical = byId("studio");
 
   <InstagramPosts vertical={vertical} />
 
+  <TiktokVideos vertical={vertical} />
+
   <Faq vertical={vertical} />
 </BaseLayout>
 
 <style>
   .hero {
-    margin-block: var(--space-12) var(--space-16);
+    margin-block: var(--space-12) var(--space-section);
   }
 
   .lede {
@@ -51,7 +54,7 @@ const vertical = byId("studio");
   }
 
   .section {
-    margin-block: var(--space-16);
+    margin-block: var(--space-section);
   }
 
   ol {
