@@ -100,35 +100,38 @@ to put it.
 
 ## Shot list — the gallery on studio.bykami.id
 
-The studio page now has a photo grid, and it is filled with **placeholders taken
-from a Framer template**. They are in `sites/studio/public/img/studio-0*.jpg` and
-they are not the studio's work. They must be replaced before the page is
-indexed, for two separate reasons: they carry the template's licence, and a page
-showing somebody else's photographs as this studio's output is the same class of
-unverified claim the price gate exists to stop. Swapping them is a matter of
-dropping six files over the same names — no code change.
+The studio page has a photo grid, and six frames are in it at
+`sites/studio/public/img/studio-0*.jpg`. They match the brief below one for one,
+and the grid is built around them: 3:2 landscape, 1200 × 800, two columns from
+640px. Replacing any of them is dropping a file over the same name — no code
+change, so long as the replacement is 3:2.
 
-Six frames, in the order they appear. Portrait or square, shot in the studio,
-black and white to match the grid on `@studiobykami`:
+**Five of the six are generated, not shot.** That is fine as brand imagery and it
+is not fine as evidence, so the frames are not equal and the list below stays
+open rather than ticked:
 
-- [ ] **01 — a single person, lit and posed.** The one that has to carry the
-      grid; strongest frame goes first.
-- [ ] **02 — a second solo portrait, different backdrop.** Proves the backdrop
-      is a real choice, which the highlights treat as a feature.
+- [x] **06 — a printed 4-panel strip, held.** Real, house layout, real lockup.
+      Done. The only frame showing what a customer actually leaves with.
+- [ ] **05 — the room itself, empty.** The urgent one. An empty studio is read as
+      *this* studio, and this page carries a `LocalBusiness` block with the real
+      Jajag address on it, so the picture is a claim about premises a customer
+      can walk into and check. Lighting rig, backdrop and remote shutter visible,
+      lights on, nobody in frame.
+- [ ] **04 — a group of four or more.** Currently four models. It is standing in
+      for BIG MAXI's ten-person capacity, which is the one number on the price
+      list a photograph could corroborate.
 - [ ] **03 — two people.** The most-booked shape, and what "Untuk berdua" on the
       MINI card is describing.
-- [ ] **04 — a group of four or more.** Shows BIG MAXI's ten-person capacity is
-      real rather than a number on a card.
-- [ ] **05 — the room itself, empty.** Lighting rig, backdrop, remote shutter
-      visible. First-timers are buying a room they have never seen.
-- [ ] **06 — a printed 4-panel strip, held or on a surface.** The signature
-      format per `direction.md`, and the only frame that shows what a customer
-      leaves with.
+- [ ] **01, 02 — two solo portraits, different backdrops.** Lowest risk of the
+      five; nobody reads a model as a named customer. Real ones would still show
+      the actual lighting and prove the backdrop is a real choice, which the
+      highlights treat as a feature.
 
 Requirements, so they survive the layout: originals from the camera, not
-Instagram re-encodes; at least 1600px on the short edge; nothing important
-within 10% of any edge, because the grid crops to 4:5 with `object-fit: cover`;
-and written consent from anyone recognisable, since these become marketing.
+Instagram re-encodes; landscape, at least 2400px on the long edge; nothing
+important in the outer 5%, because the grid fills a 3:2 box with
+`object-fit: cover`; and written consent from anyone recognisable, since these
+become marketing.
 
 Also still needed for the sections that are built but empty:
 

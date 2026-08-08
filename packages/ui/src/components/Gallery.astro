@@ -9,15 +9,8 @@ import SectionHeader from "./SectionHeader.astro";
  * white, asymmetric. A photo studio's page with no photographs on it is the
  * single largest gap here, larger than any amount of type scale.
  *
- * The images passed in today are placeholders lifted from a Framer template.
- * They are not the studio's work and must not reach a live page presenting them
- * as a portfolio: they carry the template's licence, and a page that shows
- * somebody else's photographs as this studio's output is exactly the kind of
- * unverified claim the catalogue gate exists to prevent. See the image to-do in
- * `design/assets-needed.md`.
- *
- * Renders nothing when no images are supplied, so removing the placeholders is
- * a matter of passing an empty list rather than editing markup.
+ * Renders nothing when no images are supplied, so clearing the grid is a matter
+ * of passing an empty list rather than editing markup.
  */
 interface Props {
   images: { src: string; alt: string }[];
@@ -39,8 +32,8 @@ const { images, heading = "Galeri", label = "Foto" } = Astro.props;
             <img
               src={img.src}
               alt={img.alt}
-              width="720"
-              height="900"
+              width="1200"
+              height="800"
               /*
                * The first pair is close enough to the fold on a phone to be
                * worth fetching eagerly; the rest wait. `decoding="async"`
@@ -60,7 +53,7 @@ const { images, heading = "Galeri", label = "Foto" } = Astro.props;
 <style>
   .grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
     gap: var(--space-3);
     margin: 0;
     padding: 0;
@@ -79,18 +72,27 @@ const { images, heading = "Galeri", label = "Foto" } = Astro.props;
     width: 100%;
     height: 100%;
     /*
-     * The photographs are a mix of portrait ratios. A fixed 4:5 box with cover
-     * keeps the rows even without letterboxing, and matches the crop discipline
-     * used in the booth preview — the box decides the ratio, the picture fills
-     * it.
+     * 3:2, which is the ratio the pictures already are — so `cover` crops
+     * nothing and the rows still come out even. The box deciding the ratio is
+     * the same discipline the booth preview uses; here it happens to agree with
+     * the source, which is the cheapest kind of agreement to keep.
+     *
+     * It was 4:5 while the grid held portrait placeholders. Four of these six
+     * are composed edge to edge — a group across the full width, a room with a
+     * light at each margin — and a portrait box would have cut the ends off
+     * exactly the frames that exist to show scale.
      */
-    aspect-ratio: 4 / 5;
+    aspect-ratio: 3 / 2;
     object-fit: cover;
   }
 
+  /*
+   * Two columns, not three. A landscape frame at a third of the wrap is 360px
+   * wide, and at that size four people in a row stop being four people.
+   */
   @media (min-width: 640px) {
     .grid {
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: var(--space-4);
     }
   }
