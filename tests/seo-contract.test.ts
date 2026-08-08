@@ -97,10 +97,21 @@ describe.each(verticals.map((v) => [v.id, v] as const))("%s", (id, vertical: Ver
     expect(html).not.toContain('"@type":"Offer"');
   });
 
-  it("emits no LocalBusiness subtype while the address is unverified", () => {
+  /**
+   * Emitted exactly when the address is owner-confirmed, rather than never.
+   *
+   * Written as a conjunction so that confirming an address is a content change
+   * and not a test change: a hardcoded `false` here would have to be edited by
+   * whoever verifies the next one, which makes the suite something to work
+   * around rather than the thing that catches a fact escaping the gate.
+   */
+  it("emits a LocalBusiness subtype exactly when its address is verified", () => {
+    const confirmed = vertical.nap?.address.status === "verified";
     const blocks = jsonLdBlocks(html);
-    expect(blocks.some((b) => b["@type"] === "PhotographyBusiness")).toBe(false);
-    expect(blocks.some((b) => b["@type"] === "Restaurant")).toBe(false);
+    const emitted =
+      blocks.some((b) => b["@type"] === "PhotographyBusiness") ||
+      blocks.some((b) => b["@type"] === "Restaurant");
+    expect(emitted).toBe(confirmed && vertical.schemaType !== "Organization");
   });
 
   it("points its canonical at the final hostname, never the preview host", () => {

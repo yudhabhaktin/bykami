@@ -30,14 +30,25 @@ export const studio: Vertical = {
   nap: {
     legalName: "studio by KAMI",
     displayName: "studio by KAMI",
-    address: unverified(
+    // The first owner-confirmed fact in the catalogue, and the one that opens
+    // the LocalBusiness block.
+    //
+    // Two sources disagreed on the village: the price list says Jajag, and the
+    // studio's own TikTok captions say Wringinagung. Both are in Gambiran
+    // district, so neither is obviously a typo for the other and picking by
+    // recency would have picked the wrong one — the captions are newer and they
+    // are the ones that are wrong. The owner settled it: Jajag.
+    //
+    // Still no postal code. It is printed nowhere and a guessed one is a fake,
+    // which is why the field is optional rather than filled in.
+    address: verified(
       {
         streetAddress: "Jalan Yos Sudarso, Jajag Barat (Hotel Surya)",
         addressLocality: "Jajag, Gambiran",
         addressRegion: "Banyuwangi, Jawa Timur",
         addressCountry: "ID" as const,
       },
-      `${PDF} — footer line, no postal code printed`,
+      "owner, 2026-08-09 — confirmed Jajag against the Wringinagung in the TikTok captions",
     ),
     mapsUrl: blocked("No Google Maps link in any source. Owner must supply."),
     openingHours: blocked(
