@@ -11,30 +11,56 @@ import TiktokVideos from "@bykami/ui/TiktokVideos.astro";
 const vertical = byId("studio");
 
 /**
- * Owner-supplied, and generated rather than shot — these are not photographs of
- * the Jajag room or of customers in it. Frame 06 is the exception and the one to
- * keep: a real strip in the house layout, carrying the real lockup.
+ * Real sessions, from the studio's own Instagram — the generated stand-ins these
+ * replaced are gone. Downloaded at full resolution rather than screenshotted:
+ * Instagram serves 1440 × 1800 to the embed, which is well past what a 360px
+ * grid cell needs, so nothing here is the soft re-encode `assets-needed.md`
+ * warns about. Sources, in display order: DU5jfnbjxp8, DWtQq5ID3zM,
+ * DVVdg2UD9wF, DJivXHkx9N0, DJiwujMRnba, DWyYzefjzRq.
  *
- * That distinction matters most at 05. A picture of an empty studio is read as
- * *this* studio, and this page ships a LocalBusiness block with the actual
- * address attached, so the room in frame 05 is the room a first-timer turns up
- * expecting. Frames 01–04 carry less weight — nobody reads a model as a named
- * customer — but 04 is still standing in for the ten-person capacity BIG MAXI
- * sells. Replacing all five with the real room and real sessions stays open in
- * `design/assets-needed.md`; the file names are the same, so it is a drop-in.
+ * That order is monochrome and colour interleaved rather than grouped. Grouped,
+ * the grid split into a black-and-white half and a colour half and read as two
+ * gallerias stacked; strict alternation only moves the seam, making a solid row
+ * at three columns or a solid column at two. This pattern leaves no uniform row
+ * at either width.
  *
- * Alt text describes what is in each frame and asserts nothing about where it
- * was taken or who is in it.
+ * 04 and 05 were posted as photographs of framed prints, hung and lit. Cropped
+ * to the picture inside, because the mat and the wall are packaging and this
+ * grid is meant to show results — and because two frames among six unframed
+ * ones reads as an accident rather than a choice.
+ *
+ * Half are black and white and half are in colour, which is the studio's actual
+ * range and so is left alone. Four carry the studio's own overlaid type — these
+ * are the posts as published, not retouched copies of them.
+ *
+ * Recognisable customers appear here. They are already public on the studio's
+ * own account, but a website is a different surface from a feed; if anyone asks
+ * to come down, drop a replacement over the same file name.
  */
 const gallery = [
-  { src: "/img/studio-01.jpg", alt: "Potret hitam putih seorang pria berjas duduk di kursi" },
-  { src: "/img/studio-02.jpg", alt: "Potret hitam putih seorang pria bersandar di dinding beton" },
-  { src: "/img/studio-03.jpg", alt: "Dua orang berbusana hitam duduk bersama, foto hitam putih" },
-  { src: "/img/studio-04.jpg", alt: "Empat orang berbusana hitam duduk berkelompok, foto hitam putih" },
-  { src: "/img/studio-05.jpg", alt: "Ruang studio kosong dengan dua lampu dan backdrop, hitam putih" },
+  {
+    src: "/img/studio-01.jpg",
+    alt: "Hasil foto hitam putih: seorang perempuan duduk santai di kursi lipat studio",
+  },
+  {
+    src: "/img/studio-02.jpg",
+    alt: "Hasil foto sesi Lebaran: sepasang orang berbusana muslim di depan latar kain",
+  },
+  {
+    src: "/img/studio-03.jpg",
+    alt: "Hasil foto konsep New Look: seorang perempuan berblazer hitam berpose jongkok",
+  },
+  {
+    src: "/img/studio-04.jpg",
+    alt: "Hasil foto hitam putih: dua orang berpose di bawah lampu sorot bulat",
+  },
+  {
+    src: "/img/studio-05.jpg",
+    alt: "Hasil foto hitam putih: satu keluarga dengan anak di bawah lampu sorot",
+  },
   {
     src: "/img/studio-06.jpg",
-    alt: "Tangan memegang hasil cetak strip empat panel berlogo studio by KAMI",
+    alt: "Hasil sesi yearbook: tiga perempuan berkebaya berpose bersama dalam tiga panel",
   },
 ];
 ---

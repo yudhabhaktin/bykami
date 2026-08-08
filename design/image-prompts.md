@@ -1,10 +1,16 @@
-# Image prompts — the gallery on studio.bykami.id
+# Image prompts — generated stand-ins
 
-Prompts for regenerating the six frames in `sites/studio/public/img/`. Written
-against the shot list in `assets-needed.md`; each frame there has a job, and a
-picture that does not do that job is decoration however good it looks.
+> **The gallery no longer needs these.** It holds six real sessions from the
+> studio's own Instagram, and a real photograph beats the best prompt here every
+> time. Kept for the two frames `assets-needed.md` still has open — the empty
+> room and the printed strip — and for whenever something is needed before it
+> can be shot.
+>
+> Read rule 1 and rule 3 even for a single frame. Rule 2 is why the first
+> generated set had to be thrown away.
 
-Read the three rules first. They fix more than any individual prompt does.
+Written against the shot list in `assets-needed.md`; each frame there has a job,
+and a picture that does not do that job is decoration however good it looks.
 
 ---
 
