@@ -82,37 +82,45 @@ export const studio: Vertical = {
       "owner, 2026-08-08 — https://www.tiktok.com/@studiobykami/video/7660164668975107346",
     ),
     /*
-     * The owner's own selection, pasted as permalinks and stored newest-first in
-     * the order they were sent — which is also roughly reverse-chronological,
-     * since a shortcode encodes when it was minted.
+     * Three, chosen by the owner, down from twelve. Each embed is an iframe and
+     * a script, so twelve of them was the heaviest thing on the page by a wide
+     * margin, spent on content that is not indexable as this page's own. Three
+     * is what the TikTok section carries and it is enough to show the account is
+     * active, which is the whole job.
      *
-     * No captions. Instagram serves the signup wall to anything not logged in,
-     * so nobody here has seen these posts; a caption written from the URL would
-     * be a description of a photograph nobody looked at, which is the one thing
-     * this package exists to prevent. The fallback text carries the generic
-     * line until someone who can see them supplies the real ones.
+     * These have captions where the twelve did not, and the difference is that
+     * these have been looked at. Instagram serves the signup wall to a logged-out
+     * browser, but `/embed/captioned/` is public — it renders the post and its
+     * caption, which is how each of these was read and how each was checked to
+     * be portrait and to be this account's.
+     *
+     * Trimmed to the sentence a human wrote, the same rule the videos below
+     * follow: the hashtag block, the booking links and the repeated address are
+     * noise in a fallback line. The first post's caption also sells a
+     * differently-named studio at this address — an older post, before the
+     * rename — and the trim drops that too rather than putting another brand's
+     * name on this page.
      */
     posts: verified(
       [
-        { kind: "p", shortcode: "DbGWkLRvPbQ" },
-        { kind: "p", shortcode: "Da7aotSP667" },
-        { kind: "p", shortcode: "DbmTvrMEqXd" },
-        { kind: "p", shortcode: "DbiET7oE79V" },
-        { kind: "p", shortcode: "DbLFSYAD0Gr" },
-        // DbA-dqUEgTT was here and was withdrawn: it is a landscape post, and a
-        // grid of portrait ones with a single wide row in the middle reads as a
-        // mistake rather than as variety. The first thing anyone could tell us
-        // about what these pictures actually look like, which is the check no
-        // amount of URL validation was ever going to substitute for.
-        { kind: "p", shortcode: "DaoaYU4k9v1" },
-        { kind: "p", shortcode: "DZe8P0xD3w4" },
-        { kind: "p", shortcode: "DZFN3IjH5gL" },
-        { kind: "p", shortcode: "DZSKRCdH_Ou" },
-        { kind: "p", shortcode: "DZC0pZbkubD" },
-        { kind: "p", shortcode: "DYj7W_BE2Hx" },
-        { kind: "p", shortcode: "DXOtRgOD1mI" },
+        {
+          kind: "p",
+          shortcode: "C_ZhSLqSUXx",
+          caption: "Pengen pas foto tapi juga bisa sambil seru-seruan di self photo studio?",
+        },
+        {
+          kind: "p",
+          shortcode: "DCOuh9ZSz_Y",
+          caption: "Abadikan moment bersama keluarga tercinta di studio by KAMI.",
+        },
+        {
+          kind: "p",
+          shortcode: "DJB9l4DPRN0",
+          caption:
+            "Kebahagiaan adalah momen spesial yang akan selalu berkesan di hati, diabadikan melalui foto bersama studio by KAMI.",
+        },
       ],
-      "owner, 2026-08-08 — permalinks supplied directly; each one checked to resolve",
+      "owner, 2026-08-09 — permalinks supplied directly; each rendered via /embed/captioned/ and its caption read back",
     ),
     /*
      * Captions here are real, unlike the Instagram set above, and the difference

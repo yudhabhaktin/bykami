@@ -19,7 +19,7 @@ const home = verticals.find((v) => v.id === current)!;
 
 <header class="nav">
   <div class="wrap nav-inner">
-    <a href="/" class="brand ui">{home.displayName}</a>
+    <a href="/" class="brand">{home.displayName}</a>
     <nav aria-label="Vertikal lain">
       <ul>
         {
@@ -52,9 +52,17 @@ const home = verticals.find((v) => v.id === current)!;
     padding-block: var(--space-3);
   }
 
+  /*
+   * The brand carried `.ui` too, which made it 14px — the same size as the three
+   * links to other properties, separated only by colour. That reads as four
+   * peers, and they are not: one is where you are, three are somewhere else.
+   * Size is what says so.
+   */
   .brand {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
     text-decoration: none;
-    letter-spacing: -0.2px;
   }
 
   ul {
@@ -78,5 +86,16 @@ const home = verticals.find((v) => v.id === current)!;
   a:hover,
   a:focus-visible {
     color: var(--text);
+  }
+
+  /*
+   * Underline on hover, not just a colour shift. Muted-to-ink is a small enough
+   * change that it reads as ambiguous on a phone with a low-brightness screen in
+   * daylight, which is most of this traffic.
+   */
+  nav a:hover,
+  nav a:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 4px;
   }
 </style>
