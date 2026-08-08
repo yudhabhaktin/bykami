@@ -30,18 +30,38 @@ export const studio: Vertical = {
   nap: {
     legalName: "studio by KAMI",
     displayName: "studio by KAMI",
-    address: unverified(
+    // The first owner-confirmed fact in the catalogue, and the one that opens
+    // the LocalBusiness block.
+    //
+    // Two sources disagreed on the village: the price list says Jajag, and the
+    // studio's own TikTok captions say Wringinagung. Both are in Gambiran
+    // district, so neither is obviously a typo for the other and picking by
+    // recency would have picked the wrong one — the captions are newer and they
+    // are the ones that are wrong. The owner settled it: Jajag.
+    //
+    // Still no postal code. It is printed nowhere and a guessed one is a fake,
+    // which is why the field is optional rather than filled in.
+    address: verified(
       {
         streetAddress: "Jalan Yos Sudarso, Jajag Barat (Hotel Surya)",
         addressLocality: "Jajag, Gambiran",
         addressRegion: "Banyuwangi, Jawa Timur",
         addressCountry: "ID" as const,
       },
-      `${PDF} — footer line, no postal code printed`,
+      "owner, 2026-08-09 — confirmed Jajag against the Wringinagung in the TikTok captions",
     ),
     mapsUrl: blocked("No Google Maps link in any source. Owner must supply."),
-    openingHours: blocked(
-      "Hours appear in no PDF or capture. Owner must supply, including weekend/holiday variation.",
+    // Every day, 09.00–21.00. The studio's own TikTok captions say so and the
+    // owner confirmed it — which is the order that mattered, because those same
+    // captions were the source that got the village wrong. A source being right
+    // about one fact and wrong about another is the ordinary case, not a
+    // surprise, and it is why confirmation is per-fact rather than per-source.
+    //
+    // No holiday or Lebaran variation recorded. "Mo-Su" claims there is none, so
+    // if the studio closes for Idulfitri this is the line that will be wrong.
+    openingHours: verified(
+      ["Mo-Su 09:00-21:00"],
+      "owner, 2026-08-09 — confirming the hours in the TikTok captions; no holiday variation given",
     ),
     whatsapp: unverified(
       "62811377710",

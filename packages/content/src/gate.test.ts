@@ -59,7 +59,26 @@ describe("the gate blocks unconfirmed facts from structured data", () => {
 
 describe("LocalBusiness requires a verified address", () => {
   it("emits nothing while the address is only unverified", () => {
-    expect(localBusinessLd(studio)).toBeNull();
+    // Deliberately synthetic. This asserts the rule, so it must not depend on
+    // whether the real studio address happens to be confirmed yet — otherwise
+    // the day an owner confirms one, a test about the gate fails for a reason
+    // that has nothing to do with the gate.
+    const pending: Vertical = {
+      ...studio,
+      nap: {
+        ...studio.nap!,
+        address: unverified(
+          {
+            streetAddress: "Jalan Yos Sudarso",
+            addressLocality: "Jajag",
+            addressRegion: "Banyuwangi",
+            addressCountry: "ID",
+          },
+          "a PDF",
+        ),
+      },
+    };
+    expect(localBusinessLd(pending)).toBeNull();
   });
 
   it("emits once the address is verified", () => {
