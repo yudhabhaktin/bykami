@@ -3,6 +3,7 @@ package instagram
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -482,5 +483,88 @@ func TestFeedRequestAsksForTheFieldsTheMirrorNeeds(t *testing.T) {
 		if !strings.Contains(asked.Get("fields"), field) {
 			t.Errorf("the feed request does not ask for %q", field)
 		}
+	}
+}
+
+// A network failure is the normal failure here, not an exotic one: this polls a
+// foreign API from a shop's internet connection. net/http reports it as a
+// *url.Error carrying the whole URL, and the credential is a query parameter,
+// so without scrubbing every such failure writes the token to the journal.
+func TestTheTokenNeverReachesAnErrorAnyoneLogs(t *testing.T) {
+	const secret = "IGAAsuperSecretTokenValue123"
+
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	cache := New(db)
+
+	// Nothing is listening, which is what a dropped connection looks like.
+	w, err := NewWorker(context.Background(), cache, secret, "http://127.0.0.1:1", time.Hour, 0,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncErr := w.Sync(context.Background())
+	if syncErr == nil {
+		t.Fatal("expected the sync to fail against a dead endpoint")
+	}
+	if strings.Contains(syncErr.Error(), secret) {
+		t.Errorf("the access token is in the error Run logs verbatim:\n%s", syncErr)
+	}
+	if !strings.Contains(syncErr.Error(), "[redacted]") {
+		t.Errorf("expected the token to be replaced rather than dropped:\n%s", syncErr)
+	}
+}
+
+// The refresh call carries the token too, and its failure is logged on its own
+// path rather than through the one above.
+func TestTheTokenIsScrubbedFromRefreshFailuresToo(t *testing.T) {
+	const secret = "IGAArefreshPathSecret456"
+
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	cache := New(db)
+
+	w, err := NewWorker(context.Background(), cache, secret, "http://127.0.0.1:1", time.Hour, 0,
+		slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Due for refresh, so Sync takes that branch first.
+	if err := cache.putToken(context.Background(), secret, time.Now().Add(48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, refreshErr := w.refresh(context.Background(), secret)
+	if refreshErr == nil {
+		t.Fatal("expected the refresh to fail")
+	}
+	if strings.Contains(refreshErr.Error(), secret) {
+		t.Errorf("the token is in the refresh error:\n%s", refreshErr)
+	}
+}
+
+// Scrubbing must not flatten the error, because Run tests for this to keep a
+// normal shutdown from logging a warning.
+func TestScrubbingKeepsCancellationRecognisable(t *testing.T) {
+	m := newMeta(t)
+	m.feed()
+	w, _ := newWorker(t, m, "seed-token")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := w.Sync(ctx)
+	if err == nil {
+		t.Fatal("expected the cancelled sync to fail")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("errors.Is lost context.Canceled through redaction: %v", err)
 	}
 }
