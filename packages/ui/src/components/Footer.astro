@@ -31,9 +31,9 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
 <footer class="footer">
   <div class="wrap">
     <div class="cols">
-      <div>
-        <h2 class="ui">{vertical.displayName}</h2>
-        <p class="muted">{vertical.tagline}</p>
+      <div class="lead">
+        <h2 class="brand">{vertical.displayName}</h2>
+        <p class="muted tagline">{vertical.tagline}</p>
         {
           (instagram || tiktok) && (
             <ul class="social">
@@ -59,7 +59,7 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
       {
         (address || hours) && (
           <div>
-            <h2 class="ui">Lokasi</h2>
+            <h2 class="eyebrow">Lokasi</h2>
             {address && (
               <p class="muted">
                 {address.streetAddress}
@@ -75,7 +75,7 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
       }
 
       <div>
-        <h2 class="ui">bykami</h2>
+        <h2 class="eyebrow">bykami</h2>
         <ul>
           {
             others.map((v) => (
@@ -107,16 +107,40 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
     gap: var(--space-8);
   }
 
+  /*
+   * The brand column is given the wider track. Three equal columns made the
+   * footer read as three lists of equal weight, when one of them is who this is
+   * and the other two are where to find things.
+   */
   @media (min-width: 768px) {
     .cols {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+      gap: var(--space-12);
     }
   }
 
   h2 {
-    margin-bottom: var(--space-2);
-    font-size: 14px;
+    margin-block: 0 var(--space-3);
     letter-spacing: 0;
+  }
+
+  /*
+   * All three headings used to be 14px `.ui`, which left the footer with no
+   * anchor — the studio's name sat at exactly the weight of the word "Lokasi".
+   * The name now carries the block and the other two became section labels, the
+   * same marker the page uses above every section, so the footer is built from
+   * the same parts as everything above it.
+   */
+  .brand {
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+
+  .tagline {
+    margin: 0;
+    max-width: 34ch;
   }
 
   ul {
@@ -133,11 +157,25 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
   }
 
   .social {
-    margin-top: var(--space-2);
+    margin-top: var(--space-4);
   }
 
+  /*
+   * A rule rather than a gap. The copyright line was floating below three
+   * columns of the same muted grey with nothing to say it belonged to a
+   * different register.
+   */
   .fine {
-    margin-top: var(--space-8);
+    /*
+     * `max-width` is reset because the global `p` rule caps every paragraph at
+     * the 68ch measure — right for prose, wrong for a rule that is supposed to
+     * span the footer. Without this the border stops two thirds of the way
+     * across and reads as a mistake.
+     */
+    max-width: none;
+    margin-top: var(--space-12);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--line);
     font-size: 14px;
   }
 </style>
