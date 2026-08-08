@@ -62,13 +62,33 @@ export const studio: Vertical = {
       "owner, 2026-08-08 — https://www.tiktok.com/@studiobykami/video/7660164668975107346",
     ),
     /*
-     * The grid is readable in refs/screenshots/01-profile-grid.png, but a
-     * screenshot carries no permalinks and every logged-out fetch of the profile
-     * returns the signup wall — so the shortcodes can only come from someone
-     * logged in.
+     * The owner's own selection, pasted as permalinks and stored newest-first in
+     * the order they were sent — which is also roughly reverse-chronological,
+     * since a shortcode encodes when it was minted.
+     *
+     * No captions. Instagram serves the signup wall to anything not logged in,
+     * so nobody here has seen these posts; a caption written from the URL would
+     * be a description of a photograph nobody looked at, which is the one thing
+     * this package exists to prevent. The fallback text carries the generic
+     * line until someone who can see them supplies the real ones.
      */
-    posts: blocked(
-      "Owner must supply post permalinks: open each post on the web, ⋯ → Copy link.",
+    posts: verified(
+      [
+        { kind: "p", shortcode: "DbGWkLRvPbQ" },
+        { kind: "p", shortcode: "Da7aotSP667" },
+        { kind: "p", shortcode: "DbmTvrMEqXd" },
+        { kind: "p", shortcode: "DbiET7oE79V" },
+        { kind: "p", shortcode: "DbLFSYAD0Gr" },
+        { kind: "p", shortcode: "DbA-dqUEgTT" },
+        { kind: "p", shortcode: "DaoaYU4k9v1" },
+        { kind: "p", shortcode: "DZe8P0xD3w4" },
+        { kind: "p", shortcode: "DZFN3IjH5gL" },
+        { kind: "p", shortcode: "DZSKRCdH_Ou" },
+        { kind: "p", shortcode: "DZC0pZbkubD" },
+        { kind: "p", shortcode: "DYj7W_BE2Hx" },
+        { kind: "p", shortcode: "DXOtRgOD1mI" },
+      ],
+      "owner, 2026-08-08 — permalinks supplied directly; each one checked to resolve",
     ),
   },
 

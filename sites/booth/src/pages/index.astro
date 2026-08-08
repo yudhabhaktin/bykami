@@ -2,6 +2,7 @@
 import { byId } from "@bykami/content";
 import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
+import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import PriceList from "@bykami/ui/PriceList.astro";
 
 const vertical = byId("booth");
@@ -37,12 +38,14 @@ const vertical = byId("booth");
 
   <PriceList vertical={vertical} heading="Paket photobooth" />
 
+  <InstagramPosts vertical={vertical} />
+
   <Faq vertical={vertical} />
 </BaseLayout>
 
 <style>
   .hero {
-    margin-block: var(--space-12) var(--space-16);
+    margin-block: var(--space-12) var(--space-section);
   }
 
   .lede {
@@ -51,7 +54,7 @@ const vertical = byId("booth");
   }
 
   .section {
-    margin-block: var(--space-16);
+    margin-block: var(--space-section);
   }
 
   .lines {
