@@ -366,7 +366,7 @@ func (w *Worker) feed(ctx context.Context, token string) ([]item, error) {
 	q.Set("limit", fmt.Sprint(w.limit))
 	q.Set("access_token", token)
 
-	body, err := w.get(ctx, w.base+"/me/media?"+q.Encode())
+	body, err := w.get(ctx, w.base+"/me/media?"+q.Encode(), token)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +402,7 @@ func (w *Worker) refresh(ctx context.Context, token string) (string, time.Time, 
 	q.Set("grant_type", "ig_refresh_token")
 	q.Set("access_token", token)
 
-	body, err := w.get(ctx, w.base+"/refresh_access_token?"+q.Encode())
+	body, err := w.get(ctx, w.base+"/refresh_access_token?"+q.Encode(), token)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -420,7 +420,52 @@ func (w *Worker) refresh(ctx context.Context, token string) (string, time.Time, 
 	return payload.AccessToken, time.Now().Add(time.Duration(payload.ExpiresIn) * time.Second).UTC(), nil
 }
 
-func (w *Worker) get(ctx context.Context, endpoint string) ([]byte, error) {
+// redacted hides a secret in an error's text without hiding the error itself.
+//
+// net/http reports a failed request as a *url.Error carrying the whole URL, and
+// this API takes its credential as a query parameter — so a connection refused,
+// a DNS failure, or a timeout produces an error whose text contains the access
+// token. Every one of those is logged by Run, which on this deployment means
+// the systemd journal, and the shop's internet having a bad afternoon is the
+// single most likely thing to ever go wrong here. Not an edge case: the normal
+// failure path.
+//
+// Unwrap is what makes this safe to wrap everything in — Run tests the result
+// with errors.Is(err, context.Canceled) to keep shutdown quiet, and flattening
+// the error to a string would turn every deploy into a spurious warning.
+type redacted struct {
+	err    error
+	secret string
+}
+
+func (e *redacted) Error() string {
+	if e.secret == "" {
+		return e.err.Error()
+	}
+	return strings.ReplaceAll(e.err.Error(), e.secret, "[redacted]")
+}
+
+func (e *redacted) Unwrap() error { return e.err }
+
+// get performs one API call, with token named separately from the endpoint it
+// is already embedded in so that every error leaving here can be scrubbed of it.
+//
+// The token stays a query parameter rather than moving to an Authorization
+// header, which would keep it out of the URL structurally. That is the better
+// shape and it is not taken here: this endpoint is documented as taking
+// access_token, nothing in the repo can exercise the real API to confirm the
+// header is honoured, and a mirror that silently stops working is worse than
+// one whose errors need scrubbing. Worth revisiting the first time anyone holds
+// a live token.
+func (w *Worker) get(ctx context.Context, endpoint, token string) ([]byte, error) {
+	body, err := w.do(ctx, endpoint)
+	if err != nil {
+		return nil, &redacted{err: err, secret: token}
+	}
+	return body, nil
+}
+
+func (w *Worker) do(ctx context.Context, endpoint string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
