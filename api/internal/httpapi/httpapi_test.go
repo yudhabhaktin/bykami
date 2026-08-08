@@ -15,6 +15,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
+	"github.com/bhaktiyudha/bykami/api/internal/instagram"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
 )
@@ -58,7 +59,7 @@ func newTestAPI(t *testing.T, authEnabled bool) (http.Handler, *capturingSender,
 	// would bury the actual failures under expected noise.
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	return httpapi.New(identity.New(db, sender), ledger, frames.New(db), health, log, authEnabled, ""), sender, db, ledger
+	return httpapi.New(identity.New(db, sender), ledger, frames.New(db), instagram.New(db), "", health, log, authEnabled, ""), sender, db, ledger
 }
 
 func do(t *testing.T, h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
@@ -381,7 +382,7 @@ func TestExistingSessionsSurviveTheGate(t *testing.T) {
 	health := func(ctx context.Context) error { return db.PingContext(ctx) }
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	open := httpapi.New(ident, ledger, frames.New(db), health, log, true, "")
+	open := httpapi.New(ident, ledger, frames.New(db), instagram.New(db), "", health, log, true, "")
 	do(t, open, http.MethodPost, "/v1/auth/code", "", `{"phone":"081234567890"}`)
 	w := do(t, open, http.MethodPost, "/v1/auth/session", "",
 		`{"phone":"081234567890","code":"`+sender.last()+`"}`)
@@ -390,7 +391,7 @@ func TestExistingSessionsSurviveTheGate(t *testing.T) {
 	}](t, w).Token
 
 	// Same database, same sessions, delivery switched off.
-	closed := httpapi.New(ident, ledger, frames.New(db), health, log, false, "")
+	closed := httpapi.New(ident, ledger, frames.New(db), instagram.New(db), "", health, log, false, "")
 	if w := do(t, closed, http.MethodGet, "/v1/me", token, ""); w.Code != http.StatusOK {
 		t.Errorf("me = %d, want 200", w.Code)
 	}

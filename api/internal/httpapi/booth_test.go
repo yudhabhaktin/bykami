@@ -16,6 +16,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
+	"github.com/bhaktiyudha/bykami/api/internal/instagram"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
 )
@@ -56,6 +57,7 @@ func newBoothAPI(t *testing.T, token string) (http.Handler, *frames.Catalogue) {
 	cat := frames.New(db)
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	h := httpapi.New(identity.New(db, &capturingSender{}), loyalty.New(db), cat,
+		instagram.New(db), "",
 		func(ctx context.Context) error { return db.PingContext(ctx) }, log, false, token)
 	return h, cat
 }

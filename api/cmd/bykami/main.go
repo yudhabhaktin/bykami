@@ -28,6 +28,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
+	"github.com/bhaktiyudha/bykami/api/internal/instagram"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
 )
@@ -83,6 +84,15 @@ func usage() {
 	fmt.Fprintln(out, "  bykami -db … frames import strip-4.png \"Klasik Empat\" klasik")
 	fmt.Fprintln(out, "  bykami -db … frames publish klasik-empat")
 	fmt.Fprintln(out, "  bykami -db … frames season ramadan-2027 2027-02-08 2027-03-09")
+	fmt.Fprintln(out, "\nEnvironment (secrets belong here, not in argv, where ps would show them):")
+	fmt.Fprintln(out, "  BYKAMI_BOOTH_TOKEN         shared secret booths present; unset leaves /v1/booth/* at 503")
+	fmt.Fprintln(out, "  BYKAMI_INSTAGRAM_TOKEN     long-lived Instagram token; unset disables the mirror")
+	fmt.Fprintln(out, "  BYKAMI_INSTAGRAM_ACCOUNT   the handle being mirrored, for labelling only")
+	fmt.Fprintln(out, "  BYKAMI_INSTAGRAM_BASE      override Meta's API host and version")
+	fmt.Fprintln(out, "\nThe Instagram token rotates. What is in the environment is only a seed:")
+	fmt.Fprintln(out, "it is written to the database on first start and refreshed there from then")
+	fmt.Fprintln(out, "on, so changing it here does nothing until the stored row is cleared:")
+	fmt.Fprintln(out, "  sqlite3 bykami.db 'DELETE FROM instagram_token'")
 	fmt.Fprintln(out, "\nFlags:")
 	flag.PrintDefaults()
 }
@@ -116,7 +126,16 @@ func run(addr, dsn, otpDelivery, adminPhones string, log *slog.Logger) error {
 	boothToken := os.Getenv("BYKAMI_BOOTH_TOKEN")
 	log.Info("booth sync configured", "enabled", boothToken != "")
 
-	api := httpapi.New(ident, ledger, catalogue, db.PingContext, log, authEnabled, boothToken)
+	// The Instagram mirror, from the environment for the same reason as the
+	// booth token, plus one of its own: this one rotates. What is read here is
+	// only ever a seed — after the first refresh the database holds a token
+	// this file has never seen, so changing the value here does nothing until
+	// the stored row is cleared as well.
+	mirror := instagram.New(db)
+	igToken := os.Getenv("BYKAMI_INSTAGRAM_TOKEN")
+	igAccount := os.Getenv("BYKAMI_INSTAGRAM_ACCOUNT")
+
+	api := httpapi.New(ident, ledger, catalogue, mirror, igAccount, db.PingContext, log, authEnabled, boothToken)
 
 	console, err := admin.New(ident, ledger, catalogue, log, splitPhones(adminPhones), authEnabled)
 	if err != nil {
@@ -149,6 +168,25 @@ func run(addr, dsn, otpDelivery, adminPhones string, log *slog.Logger) error {
 	// deploy does not fail whatever request happened to be in flight.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+
+	// Nil when no token is configured, which is the normal state of a
+	// deployment nobody has connected to Instagram. The mirror still serves
+	// whatever is already stored, so a token that finally expires costs the
+	// next update rather than the posts already saved.
+	igWorker, err := instagram.NewWorker(ctx, mirror, igToken, os.Getenv("BYKAMI_INSTAGRAM_BASE"), 0, 0, log)
+	if err != nil {
+		return fmt.Errorf("instagram mirror: %w", err)
+	}
+	log.Info("instagram mirror configured", "enabled", igWorker != nil, "account", igAccount)
+	if igWorker != nil {
+		// Not in the errCh select below: a mirror that gives up must not take
+		// the platform down with it. Run only returns when ctx is cancelled.
+		go func() {
+			if err := igWorker.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error("instagram mirror stopped", "err", err)
+			}
+		}()
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
