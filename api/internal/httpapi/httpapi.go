@@ -27,6 +27,7 @@ import (
 
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
+	"github.com/bhaktiyudha/bykami/api/internal/instagram"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/phone"
 )
@@ -51,6 +52,14 @@ type API struct {
 	health   HealthFunc
 	log      *slog.Logger
 
+	// The mirrored Instagram feed, and the handle it was mirrored from. The
+	// handle is carried through so the sites can label the section without
+	// holding the same string in two repositories — packages/content has it as
+	// a fact about the vertical, and this is the copy that travels with the
+	// posts themselves.
+	instagram        *instagram.Cache
+	instagramAccount string
+
 	// boothToken is the SHA-256 of the shared secret a booth presents, or nil
 	// when none is configured. The hash rather than the secret so that a heap
 	// dump or a stray log of this struct does not carry the token itself.
@@ -74,9 +83,10 @@ type HealthFunc func(ctx context.Context) error
 // boothToken is the shared secret booths present, in plain text. Empty leaves
 // the sync routes answering 503 — the same shape as authEnabled, so a box
 // nobody configured cannot serve a catalogue.
-func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, health HealthFunc, log *slog.Logger, authEnabled bool, boothToken string) http.Handler {
+func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, mirror *instagram.Cache, instagramAccount string, health HealthFunc, log *slog.Logger, authEnabled bool, boothToken string) http.Handler {
 	a := &API{
 		identity: ident, loyalty: ledger, frames: cat,
+		instagram: mirror, instagramAccount: instagramAccount,
 		health: health, log: log, authEnabled: authEnabled,
 	}
 	if boothToken != "" {
@@ -104,6 +114,12 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 	// than a session — see booth.go for why a booth is not a user.
 	mux.HandleFunc("GET /v1/booth/frames", a.booth(a.boothFrames))
 	mux.HandleFunc("GET /v1/booth/frames/{id}", a.booth(a.boothArtwork))
+
+	// The social mirror. Public on purpose — see social.go: it is a copy of
+	// content that is already public, fetched by the browser of anyone reading
+	// a marketing page.
+	mux.HandleFunc("GET /v1/social/instagram", a.instagramFeed)
+	mux.HandleFunc("GET /v1/social/instagram/{id}", a.instagramMedia)
 
 	return mux
 }

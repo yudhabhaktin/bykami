@@ -40,6 +40,14 @@ export const booth: Vertical = {
     bookingUrl: blocked("No booking URL recorded for the photobooth service."),
   },
 
+  social: {
+    instagram: unverified(
+      "boothbykami",
+      "design/direction.md — read out of the studio bio as a sister account, never opened",
+    ),
+    tiktok: blocked("Owner has not said whether a TikTok account exists."),
+  },
+
   brand: {
     logoSvg: blocked("Original vector never supplied. See design/assets-needed.md."),
     accentColor: blocked("Derived from the logo vector, which is blocked."),

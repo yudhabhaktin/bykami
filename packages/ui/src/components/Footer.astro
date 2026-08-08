@@ -1,5 +1,11 @@
 ---
-import { valueOf, verticals, type Vertical } from "@bykami/content";
+import {
+  instagramUrl,
+  tiktokUrl,
+  valueOf,
+  verticals,
+  type Vertical,
+} from "@bykami/content";
 
 interface Props {
   vertical: Vertical;
@@ -10,6 +16,15 @@ const others = verticals.filter((v) => v.id !== vertical.id);
 
 const address = vertical.nap ? valueOf(vertical.nap.address) : undefined;
 const hours = vertical.nap ? valueOf(vertical.nap.openingHours) : undefined;
+
+/*
+ * Unverified handles still render, on the same rule the price list follows: the
+ * gate governs structured data, not what a human sees. A visitor who follows a
+ * wrong link finds a wrong profile and backs out; an answer engine told the same
+ * thing repeats it as fact. So `valueOf` here, `publishedValueOf` in the JSON-LD.
+ */
+const instagram = vertical.social?.instagram ? valueOf(vertical.social.instagram) : undefined;
+const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undefined;
 ---
 
 <footer class="footer">
@@ -18,6 +33,26 @@ const hours = vertical.nap ? valueOf(vertical.nap.openingHours) : undefined;
       <div>
         <h2 class="ui">{vertical.displayName}</h2>
         <p class="muted">{vertical.tagline}</p>
+        {
+          (instagram || tiktok) && (
+            <ul class="social">
+              {instagram && (
+                <li>
+                  <a class="muted" href={instagramUrl(instagram)} rel="me noopener">
+                    Instagram @{instagram}
+                  </a>
+                </li>
+              )}
+              {tiktok && (
+                <li>
+                  <a class="muted" href={tiktokUrl(tiktok)} rel="me noopener">
+                    TikTok @{tiktok}
+                  </a>
+                </li>
+              )}
+            </ul>
+          )
+        }
       </div>
 
       {
@@ -94,6 +129,10 @@ const hours = vertical.nap ? valueOf(vertical.nap.openingHours) : undefined;
     align-items: center;
     min-height: var(--tap);
     text-decoration: none;
+  }
+
+  .social {
+    margin-top: var(--space-2);
   }
 
   .fine {

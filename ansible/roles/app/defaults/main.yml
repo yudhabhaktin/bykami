@@ -44,6 +44,28 @@ app_admin_phones: ""
 #   ansible-playbook site.yml --tags app -e @app.vars.yml
 app_booth_token: ""
 
+# The Instagram mirror. Empty leaves it off, and off is the deployed default:
+# the sites render no feed section rather than an empty one, and /v1/social/*
+# answers with an empty list.
+#
+# This one is a seed, not a setting, and that is the difference worth knowing
+# before changing it. Meta issues a long-lived token good for 60 days and the
+# app exchanges it for a fresh one before it lapses — the new token is written
+# to the database, which from then on is the authority. Editing the value here
+# and re-running the playbook therefore does nothing on a box that has already
+# refreshed once. To genuinely replace it:
+#
+#   sqlite3 /var/lib/bykami/bykami.db 'DELETE FROM instagram_token'
+#
+# Pass it from the same vars file as the booth token, never from the inventory:
+#   ansible-playbook site.yml --tags app -e @app.vars.yml
+app_instagram_token: ""
+
+# The handle being mirrored, without the @. Labelling only — the token decides
+# which account is actually read, so a mismatch here mislabels a feed rather
+# than fetching the wrong one.
+app_instagram_account: ""
+
 app_backup_dir: /var/backups/bykami
 app_backup_keep: 7
 app_backup_oncalendar: "*-*-* 03:30:00"

@@ -155,10 +155,17 @@
     mode: "0755"
 
 - name: Write the environment file
-  # The booth sync secret only. Everything else the app needs is a flag, because
-  # only this one is a credential.
+  # Credentials only. Everything else the app needs is a flag; these are here
+  # because argv is readable by every local user through ps.
+  #
+  # BYKAMI_INSTAGRAM_ACCOUNT is not a credential and is here anyway, to keep the
+  # mirror's configuration in one place rather than splitting a two-line feature
+  # across a unit file and an environment file.
   ansible.builtin.copy:
-    content: "BYKAMI_BOOTH_TOKEN={{ app_booth_token }}\n"
+    content: |
+      BYKAMI_BOOTH_TOKEN={{ app_booth_token }}
+      BYKAMI_INSTAGRAM_TOKEN={{ app_instagram_token }}
+      BYKAMI_INSTAGRAM_ACCOUNT={{ app_instagram_account }}
     dest: /etc/bykami.env
     owner: root
     group: root

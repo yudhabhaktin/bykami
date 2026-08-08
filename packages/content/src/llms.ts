@@ -1,4 +1,4 @@
-import type { Vertical } from "./schema.ts";
+import { instagramUrl, tiktokUrl, type Vertical } from "./schema.ts";
 import { valueOf } from "./sourced.ts";
 
 const idr = new Intl.NumberFormat("id-ID", {
@@ -23,23 +23,34 @@ const idr = new Intl.NumberFormat("id-ID", {
 export const llmsTxt = (v: Vertical): string => {
   const out: string[] = [`# ${v.displayName}`, "", `> ${v.tagline}`, "", v.description, ""];
 
+  /*
+   * Collected before the heading is written, because a vertical can have social
+   * accounts without a `nap` block and an empty "Kontak & lokasi" heading is
+   * worse than no heading.
+   */
+  const contact: string[] = [];
+
   if (v.nap) {
     const address = valueOf(v.nap.address);
     const hours = valueOf(v.nap.openingHours);
     const whatsapp = valueOf(v.nap.whatsapp);
 
-    if (address || hours || whatsapp) {
-      out.push("## Kontak & lokasi", "");
-      if (address) {
-        out.push(
-          `- Alamat: ${address.streetAddress}, ${address.addressLocality}, ${address.addressRegion}`,
-        );
-      }
-      if (hours) out.push(`- Jam buka: ${hours.join(", ")}`);
-      if (whatsapp) out.push(`- WhatsApp: +${whatsapp}`);
-      out.push("");
+    if (address) {
+      contact.push(
+        `- Alamat: ${address.streetAddress}, ${address.addressLocality}, ${address.addressRegion}`,
+      );
     }
+    if (hours) contact.push(`- Jam buka: ${hours.join(", ")}`);
+    if (whatsapp) contact.push(`- WhatsApp: +${whatsapp}`);
   }
+
+  const instagram = v.social?.instagram ? valueOf(v.social.instagram) : undefined;
+  if (instagram) contact.push(`- Instagram: @${instagram} — ${instagramUrl(instagram)}`);
+
+  const tiktok = v.social?.tiktok ? valueOf(v.social.tiktok) : undefined;
+  if (tiktok) contact.push(`- TikTok: @${tiktok} — ${tiktokUrl(tiktok)}`);
+
+  if (contact.length > 0) out.push("## Kontak & lokasi", "", ...contact, "");
 
   const offerings = v.offerings
     .slice()

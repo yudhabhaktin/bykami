@@ -1,0 +1,117 @@
+---
+import { postUrl, valueOf, type Vertical } from "@bykami/content";
+
+/**
+ * A few hand-picked Instagram posts, embedded.
+ *
+ * This is the cheap route to social proof: Instagram's own embed markup needs no
+ * API, no Meta app, and no access token, so nothing here expires and nobody has
+ * to refresh a credential every 60 days. The cost is that the content lives on
+ * instagram.com — an embed is an iframe, and none of what it shows is indexable
+ * as this page's content. It earns its place as proof the studio is busy, not as
+ * a way to make a thin page look full.
+ *
+ * Renders nothing until the owner supplies permalinks, so the section cannot
+ * appear as an empty heading.
+ */
+interface Props {
+  vertical: Vertical;
+  heading?: string;
+}
+
+const { vertical, heading = "Dari Instagram" } = Astro.props;
+
+const posts = vertical.social?.posts ? valueOf(vertical.social.posts) : undefined;
+const handle = vertical.social?.instagram ? valueOf(vertical.social.instagram) : undefined;
+---
+
+{
+  posts && posts.length > 0 && (
+    <section class="wrap section" id="instagram-posts">
+      <h2>{heading}</h2>
+
+      <div class="grid">
+        {posts.map((p) => (
+          <blockquote
+            class="instagram-media"
+            data-instgrm-permalink={postUrl(p)}
+            data-instgrm-version="14"
+          >
+            {/*
+             * Real markup, not a placeholder: this is what shows before the
+             * script runs, and all there is if it never does. Instagram replaces
+             * the whole blockquote once embed.js loads.
+             */}
+            <a href={postUrl(p)} rel="noopener">
+              {p.caption ?? "Lihat postingan ini di Instagram"}
+            </a>
+          </blockquote>
+        ))}
+      </div>
+
+      {handle && (
+        <p class="muted more">
+          <a href={`https://www.instagram.com/${handle}/`} rel="me noopener">
+            Lihat semua di Instagram @{handle}
+          </a>
+        </p>
+      )}
+
+      {/*
+       * Deferred until the section is nearly in view. These pages ship almost no
+       * JavaScript, and embed.js plus one iframe per post is by far the heaviest
+       * thing on any of them — charging every visitor for it, including the ones
+       * who never scroll this far, would cost more in Core Web Vitals than the
+       * section is worth. `is:inline` keeps Astro from bundling a script whose
+       * only job is to fetch someone else's.
+       */}
+      <script is:inline>
+        (() => {
+          const section = document.getElementById("instagram-posts");
+          if (!section) return;
+
+          const load = () => {
+            const s = document.createElement("script");
+            s.async = true;
+            s.src = "https://www.instagram.com/embed.js";
+            document.body.appendChild(s);
+          };
+
+          if (!("IntersectionObserver" in window)) return load();
+
+          const io = new IntersectionObserver(
+            (entries) => {
+              if (!entries.some((e) => e.isIntersecting)) return;
+              io.disconnect();
+              load();
+            },
+            { rootMargin: "400px" },
+          );
+          io.observe(section);
+        })();
+      </script>
+    </section>
+  )
+}
+
+<style>
+  .grid {
+    display: grid;
+    gap: var(--space-4);
+    /*
+     * Instagram's iframe refuses to go below 326px and caps itself at 540px, so
+     * the track is sized to what the embed will actually take rather than to a
+     * number of columns it would then overflow.
+     */
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 326px), 1fr));
+    align-items: start;
+  }
+
+  .instagram-media {
+    margin: 0;
+  }
+
+  .more {
+    margin-top: var(--space-6);
+  }
+</style>

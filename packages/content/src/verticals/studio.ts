@@ -52,6 +52,26 @@ export const studio: Vertical = {
     ),
   },
 
+  social: {
+    instagram: verified(
+      "studiobykami",
+      "owner, 2026-08-08 — https://www.instagram.com/studiobykami/",
+    ),
+    tiktok: verified(
+      "studiobykami",
+      "owner, 2026-08-08 — https://www.tiktok.com/@studiobykami/video/7660164668975107346",
+    ),
+    /*
+     * The grid is readable in refs/screenshots/01-profile-grid.png, but a
+     * screenshot carries no permalinks and every logged-out fetch of the profile
+     * returns the signup wall — so the shortcodes can only come from someone
+     * logged in.
+     */
+    posts: blocked(
+      "Owner must supply post permalinks: open each post on the web, ⋯ → Copy link.",
+    ),
+  },
+
   brand: {
     logoSvg: blocked("Original vector never supplied. See design/assets-needed.md."),
     accentColor: blocked("Derived from the logo vector, which is blocked."),

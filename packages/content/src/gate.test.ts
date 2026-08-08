@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { gaps, launchReady } from "./coverage.ts";
 import { faqPageLd, localBusinessLd, offerLd, organizationLd } from "./jsonld.ts";
-import type { Faq, Offering, Vertical } from "./schema.ts";
+import { postUrl, vertical, type Faq, type Offering, type Vertical } from "./schema.ts";
 import { blocked, unverified, verified } from "./sourced.ts";
 import { byId, verticals } from "./verticals/index.ts";
 
@@ -111,6 +111,76 @@ describe("LocalBusiness requires a verified address", () => {
 
   it("never emits a LocalBusiness subtype for the platform root", () => {
     expect(localBusinessLd(byId("root"))).toBeNull();
+  });
+});
+
+describe("social profiles reach sameAs only when verified", () => {
+  const withSocial = (social: Vertical["social"]): Vertical => ({ ...studio, social });
+
+  it("emits sameAs for an owner-verified handle", () => {
+    const ld = organizationLd(
+      withSocial({ instagram: verified("studiobykami", "owner") }),
+    );
+    expect(ld["sameAs"]).toEqual(["https://www.instagram.com/studiobykami/"]);
+  });
+
+  it("keeps an unverified handle out of sameAs", () => {
+    const ld = organizationLd(
+      withSocial({ instagram: unverified("boothbykami", "design notes") }),
+    );
+    expect(ld["sameAs"]).toBeUndefined();
+  });
+
+  it("builds a TikTok profile URL from the bare handle", () => {
+    const ld = organizationLd(withSocial({ tiktok: verified("studiobykami", "owner") }));
+    expect(ld["sameAs"]).toEqual(["https://www.tiktok.com/@studiobykami"]);
+  });
+
+  it("omits sameAs entirely for a vertical with no accounts", () => {
+    expect(organizationLd(byId("root"))["sameAs"]).toBeUndefined();
+  });
+
+  it("rejects a URL where a handle belongs", () => {
+    expect(() =>
+      vertical.parse(
+        withSocial({ instagram: verified("https://instagram.com/studiobykami", "owner") }),
+      ),
+    ).toThrow();
+  });
+
+  it("rejects a handle carrying its own @", () => {
+    expect(() => vertical.parse(withSocial({ instagram: verified("@studiobykami", "owner") }))).toThrow();
+  });
+});
+
+describe("embeddable posts", () => {
+  it("builds a photo permalink under /p/ and a reel under /reel/", () => {
+    expect(postUrl({ kind: "p", shortcode: "C1a2b3c4d5e" })).toBe(
+      "https://www.instagram.com/p/C1a2b3c4d5e/",
+    );
+    expect(postUrl({ kind: "reel", shortcode: "C1a2b3c4d5e" })).toBe(
+      "https://www.instagram.com/reel/C1a2b3c4d5e/",
+    );
+  });
+
+  it("rejects a pasted permalink where a shortcode belongs", () => {
+    expect(() =>
+      vertical.parse({
+        ...studio,
+        social: {
+          posts: verified(
+            [{ kind: "p", shortcode: "https://www.instagram.com/p/C1a2b3c4d5e/" }],
+            "owner",
+          ),
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("does not let an empty list stand in for no list", () => {
+    expect(() =>
+      vertical.parse({ ...studio, social: { posts: verified([], "owner") } }),
+    ).toThrow();
   });
 });
 
