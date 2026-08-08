@@ -127,16 +127,34 @@ export const post = z.object({
   caption: z.string().min(1).optional(),
 });
 
+/**
+ * One embeddable TikTok video.
+ *
+ * A separate record from `post` rather than another `kind` on it, because the
+ * two share no structure: TikTok identifies a video by a numeric id and puts the
+ * account handle in the path, so building the URL needs the handle that Instagram
+ * does not. Collapsing them would mean a record where half the fields are always
+ * empty and the reader has to know which half.
+ */
+export const video = z.object({
+  id: z.string().regex(/^\d{6,32}$/, "numeric video id only — no URL"),
+  caption: z.string().min(1).optional(),
+});
+
 export const social = z.object({
   instagram: sourced(handle).optional(),
   tiktok: sourced(handle).optional(),
   /** Hand-picked posts to embed. Curation is the owner's call, so it carries provenance like any other supplied fact. */
   posts: sourced(z.array(post).min(1)).optional(),
+  /** The same, for TikTok. Requires `tiktok` to be set — the handle is part of every video's URL. */
+  videos: sourced(z.array(video).min(1)).optional(),
 });
 
 export const instagramUrl = (handle: string) => `https://www.instagram.com/${handle}/`;
 export const tiktokUrl = (handle: string) => `https://www.tiktok.com/@${handle}`;
 export const postUrl = (p: Post) => `https://www.instagram.com/${p.kind}/${p.shortcode}/`;
+export const videoUrl = (handle: string, v: Video) =>
+  `https://www.tiktok.com/@${handle}/video/${v.id}`;
 
 export const vertical = z.object({
   id: z.enum(["root", "studio", "dimsamcong", "booth"]),
@@ -182,6 +200,7 @@ export type Promo = z.infer<typeof promo>;
 export type Faq = z.infer<typeof faq>;
 export type Nap = z.infer<typeof nap>;
 export type Post = z.infer<typeof post>;
+export type Video = z.infer<typeof video>;
 export type Social = z.infer<typeof social>;
 export type Brand = z.infer<typeof brand>;
 export type Vertical = z.infer<typeof vertical>;
