@@ -2,11 +2,41 @@
 import { byId } from "@bykami/content";
 import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
+import Gallery from "@bykami/ui/Gallery.astro";
 import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import PriceList from "@bykami/ui/PriceList.astro";
+import SectionHeader from "@bykami/ui/SectionHeader.astro";
 import TiktokVideos from "@bykami/ui/TiktokVideos.astro";
 
 const vertical = byId("studio");
+
+/**
+ * Owner-supplied, and generated rather than shot — these are not photographs of
+ * the Jajag room or of customers in it. Frame 06 is the exception and the one to
+ * keep: a real strip in the house layout, carrying the real lockup.
+ *
+ * That distinction matters most at 05. A picture of an empty studio is read as
+ * *this* studio, and this page ships a LocalBusiness block with the actual
+ * address attached, so the room in frame 05 is the room a first-timer turns up
+ * expecting. Frames 01–04 carry less weight — nobody reads a model as a named
+ * customer — but 04 is still standing in for the ten-person capacity BIG MAXI
+ * sells. Replacing all five with the real room and real sessions stays open in
+ * `design/assets-needed.md`; the file names are the same, so it is a drop-in.
+ *
+ * Alt text describes what is in each frame and asserts nothing about where it
+ * was taken or who is in it.
+ */
+const gallery = [
+  { src: "/img/studio-01.jpg", alt: "Potret hitam putih seorang pria berjas duduk di kursi" },
+  { src: "/img/studio-02.jpg", alt: "Potret hitam putih seorang pria bersandar di dinding beton" },
+  { src: "/img/studio-03.jpg", alt: "Dua orang berbusana hitam duduk bersama, foto hitam putih" },
+  { src: "/img/studio-04.jpg", alt: "Empat orang berbusana hitam duduk berkelompok, foto hitam putih" },
+  { src: "/img/studio-05.jpg", alt: "Ruang studio kosong dengan dua lampu dan backdrop, hitam putih" },
+  {
+    src: "/img/studio-06.jpg",
+    alt: "Tangan memegang hasil cetak strip empat panel berlogo studio by KAMI",
+  },
+];
 ---
 
 <BaseLayout
@@ -23,10 +53,12 @@ const vertical = byId("studio");
     </p>
   </section>
 
+  <Gallery images={gallery} heading="Hasil di studio" label="Galeri" />
+
   <PriceList vertical={vertical} />
 
   <section class="wrap section">
-    <h2>Cara kerjanya</h2>
+    <SectionHeader heading="Cara kerjanya" label="Alur" />
     <ol>
       <li>Pilih paket sesuai jumlah orang dan durasi yang kamu mau.</li>
       <li>Chat admin lewat WhatsApp untuk memesan slot.</li>
@@ -53,9 +85,6 @@ const vertical = byId("studio");
     color: var(--muted);
   }
 
-  .section {
-    margin-block: var(--space-section);
-  }
 
   ol {
     max-width: var(--measure);

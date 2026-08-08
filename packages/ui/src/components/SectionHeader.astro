@@ -1,0 +1,76 @@
+---
+/**
+ * The heading block every section shares.
+ *
+ * Three parts, from the photography reference: the heading, an optional line of
+ * supporting text, and a small labelled square that marks the section boundary.
+ * A bare `<h2>` gives a crawler the same information but gives a reader no sense
+ * that the page has structure, which is most of the difference between a page
+ * that looks composed and one that looks transcribed.
+ *
+ * `lede` is deliberately optional and mostly unset. The reference fills it with
+ * agency copy; the equivalent here would be sentences nobody has written and
+ * that this repo has no business inventing on the owner's behalf. Where it is
+ * absent the heading and the label share one row instead of leaving a gap.
+ */
+interface Props {
+  heading: string;
+  /** Supporting sentence. Owner copy — leave unset rather than inventing it. */
+  lede?: string;
+  /** Short section label, e.g. "Harga". Factual, one or two words. */
+  label?: string;
+  id?: string;
+}
+
+const { heading, lede, label, id } = Astro.props;
+---
+
+<header class:list={["head", !lede && "no-lede"]}>
+  <h2 id={id}>{heading}</h2>
+  {lede && <p class="lede muted">{lede}</p>}
+  {label && <span class="eyebrow">{label}</span>}
+</header>
+
+<style>
+  .head {
+    display: grid;
+    gap: var(--space-3);
+    margin-bottom: var(--space-8);
+  }
+
+  h2 {
+    margin: 0;
+  }
+
+  .lede {
+    margin: 0;
+    font-size: 18px;
+    max-width: 42ch;
+  }
+
+  @media (min-width: 960px) {
+    .head {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto;
+      align-items: start;
+      gap: var(--space-8);
+    }
+
+    /*
+     * The heading sets the row height, so the two small elements need nudging
+     * down to sit against its first line rather than its box top.
+     */
+    .lede,
+    .eyebrow {
+      padding-top: 0.4em;
+    }
+
+    .head.no-lede {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: baseline;
+    }
+
+    .head.no-lede .eyebrow {
+      padding-top: 0;
+    }
+  }
+</style>

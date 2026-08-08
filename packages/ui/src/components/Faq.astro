@@ -1,5 +1,6 @@
 ---
 import { valueOf, type Vertical } from "@bykami/content";
+import SectionHeader from "./SectionHeader.astro";
 
 /**
  * FAQ depth is the LLM retrieval surface, and it is the widest gap in the local
@@ -28,7 +29,7 @@ const answered = vertical.faqs
 {
   answered.length > 0 && (
     <section id="faq" class="wrap section">
-      <h2>{heading}</h2>
+      <SectionHeader heading={heading} label="FAQ" />
       <ul>
         {answered.map((f) => (
           <li class="card">
@@ -44,9 +45,6 @@ const answered = vertical.faqs
 }
 
 <style>
-  .section {
-    margin-block: var(--space-16);
-  }
 
   ul {
     display: grid;

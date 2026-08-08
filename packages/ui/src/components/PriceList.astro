@@ -1,12 +1,22 @@
 ---
 import { valueOf, type Vertical } from "@bykami/content";
+import SectionHeader from "./SectionHeader.astro";
 
 /**
  * The catalogue, as crawlable text.
  *
- * Cards at 390px, a table from 768px. A table at phone width either overflows the
- * viewport or shrinks type below legibility, and the body must never scroll
- * horizontally.
+ * Cards at every width. This used to be cards at 390px and a table from 768px,
+ * on the reasoning that a table is the more scannable comparison — which is
+ * true, and still lost. Neither reference brand puts a table on a sales page:
+ * Cowboy shows four cards with an identical spec order and lets the repetition
+ * do the comparing. A bordered grid of figures reads as a rate sheet rather
+ * than a range of things you might buy, and it was the strongest single tell
+ * that this page was built by an engineer rather than a shop. Dropping it also
+ * removes the duplicate rendering, so there is one markup path to keep correct
+ * instead of two.
+ *
+ * What makes cards comparable without a table is that every card lists the same
+ * specs in the same order, so the eye can track down a column that is not drawn.
  *
  * Prices render whether or not they are owner-verified: they come from the
  * owner's own price list, which is the best source that exists. The verification
@@ -27,6 +37,25 @@ const idr = new Intl.NumberFormat("id-ID", {
   maximumFractionDigits: 0,
 });
 
+/**
+ * Who a package suits, in words, so a first-timer can self-select without
+ * reading every row — the job Cowboy's "The easy-rider" / "The explorer" does
+ * for four near-identical bikes that would otherwise need a comparison table.
+ *
+ * Derived from headcount rather than authored. That is deliberate: it restates
+ * a figure the card already prints, so it adds no claim the page was not
+ * already making, and it cannot drift out of step with the number beside it.
+ * Headcount is unverified and its source notes a conflict with YouCanBook.me,
+ * which is a reason not to dress it up as an independent promise.
+ */
+function roleFor(max: number): string {
+  if (max <= 1) return "Untuk sendiri";
+  if (max <= 2) return "Untuk berdua";
+  if (max <= 4) return "Untuk grup kecil";
+  if (max <= 6) return "Untuk grup";
+  return "Untuk rombongan";
+}
+
 const rows = vertical.offerings
   .slice()
   .sort((a, b) => a.orderIndex - b.orderIndex)
@@ -35,14 +64,30 @@ const rows = vertical.offerings
     const duration = o.durationMinutes ? valueOf(o.durationMinutes) : undefined;
     const heads = o.headcount ? valueOf(o.headcount) : undefined;
     const prints = o.printsIncluded ? valueOf(o.printsIncluded) : undefined;
+
+    const specs: { label: string; value: string }[] = [];
+    if (duration !== undefined) specs.push({ label: "Durasi", value: `${duration} menit` });
+    if (heads !== undefined) {
+      specs.push({
+        label: "Kapasitas",
+        value: heads.min === heads.max ? `${heads.max} orang` : `${heads.min}–${heads.max} orang`,
+      });
+    }
+    if (prints !== undefined) specs.push({ label: "Cetak", value: `${prints} cetak` });
+
+    /*
+     * One secondary line, not two. The owner's own description is the better
+     * text wherever it exists; the derived role only stands in for packages
+     * that have none, which is most of the self-photo range.
+     */
+    const blurb = o.description ?? (heads !== undefined ? roleFor(heads.max) : undefined);
+
     return {
       id: o.id,
       name: o.name,
-      description: o.description,
+      blurb,
       price: price === undefined ? null : idr.format(price),
-      duration: duration === undefined ? null : `${duration} menit`,
-      heads: heads === undefined ? null : heads.min === heads.max ? `${heads.max} orang` : `${heads.min}–${heads.max} orang`,
-      prints: prints === undefined ? null : `${prints} cetak`,
+      specs,
     };
   });
 ---
@@ -50,78 +95,39 @@ const rows = vertical.offerings
 {
   rows.length > 0 && (
     <section id="harga" class="wrap section">
-      <h2>{heading}</h2>
+      <SectionHeader heading={heading} label="Harga" />
 
       <ul class="cards">
         {rows.map((r) => (
           <li class="card item">
-            <div class="head">
-              <h3>{r.name}</h3>
-              {r.price && <span class="price tabular">{r.price}</span>}
-            </div>
-            {r.description && <p class="muted desc">{r.description}</p>}
-            <dl class="meta ui muted tabular">
-              {r.duration && (
-                <div>
-                  <dt>Durasi</dt>
-                  <dd>{r.duration}</dd>
-                </div>
-              )}
-              {r.heads && (
-                <div>
-                  <dt>Kapasitas</dt>
-                  <dd>{r.heads}</dd>
-                </div>
-              )}
-              {r.prints && (
-                <div>
-                  <dt>Cetak</dt>
-                  <dd>{r.prints}</dd>
-                </div>
-              )}
-            </dl>
+            <h3>{r.name}</h3>
+
+            {r.blurb && <p class="blurb muted">{r.blurb}</p>}
+
+            {r.price && <p class="price tabular">{r.price}</p>}
+
+            {r.specs.length > 0 && (
+              <dl class="spec ui tabular">
+                {r.specs.map((s) => (
+                  <Fragment>
+                    <dt class="muted">{s.label}</dt>
+                    <dd>{s.value}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            )}
           </li>
         ))}
       </ul>
-
-      <div class="scroll-x table-wrap">
-        <table class="tabular">
-          <thead>
-            <tr>
-              <th scope="col">Paket</th>
-              <th scope="col">Durasi</th>
-              <th scope="col">Kapasitas</th>
-              <th scope="col">Cetak</th>
-              <th scope="col">Harga</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr>
-                <th scope="row">
-                  {r.name}
-                  {r.description && <span class="muted desc-inline">{r.description}</span>}
-                </th>
-                <td>{r.duration ?? "—"}</td>
-                <td>{r.heads ?? "—"}</td>
-                <td>{r.prints ?? "—"}</td>
-                <td class="price">{r.price ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </section>
   )
 }
 
 <style>
-  .section {
-    margin-block: var(--space-16);
-  }
 
   .cards {
     display: grid;
+    grid-template-columns: 1fr;
     gap: var(--space-4);
     margin: 0;
     padding: 0;
@@ -129,14 +135,10 @@ const rows = vertical.offerings
   }
 
   .item {
-    padding: var(--space-4);
-  }
-
-  .head {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-4);
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-6);
   }
 
   h3 {
@@ -145,77 +147,60 @@ const rows = vertical.offerings
     letter-spacing: -0.3px;
   }
 
+  .blurb {
+    margin: 0;
+    font-size: 14px;
+  }
+
+  /*
+   * The price used to sit inline with the name, small and right-aligned, which
+   * made it read as a table cell. On its own line at display size it becomes
+   * the thing the card is about — the reference gives it more weight than the
+   * package name, and the package name is not what anyone is deciding between.
+   */
   .price {
+    margin: var(--space-2) 0 0;
+    font-size: 28px;
     font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
     white-space: nowrap;
   }
 
-  .desc {
-    margin: var(--space-2) 0 0;
-    font-size: 14px;
-  }
-
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2) var(--space-6);
-    margin: var(--space-3) 0 0;
-  }
-
-  .meta div {
-    display: flex;
-    gap: var(--space-2);
-  }
-
-  .meta dt,
-  .meta dd {
+  /*
+   * `margin-top: auto` drops the specs to the floor of the card, so the rules
+   * line up across a row even when one package carries a long description and
+   * its neighbour carries a two-word role. Without it the hairlines sit at
+   * three different heights and the row looks accidental.
+   */
+  .spec {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-2) var(--space-4);
     margin: 0;
+    margin-top: auto;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line);
   }
 
-  .meta dt::after {
-    content: ":";
-  }
-
-  .table-wrap {
-    display: none;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    text-align: left;
-  }
-
-  th,
-  td {
-    padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid var(--line);
-    vertical-align: top;
-  }
-
-  thead th {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--muted);
-  }
-
-  tbody th {
-    font-weight: 600;
-  }
-
-  .desc-inline {
-    display: block;
+  .spec dt {
     font-weight: 400;
-    font-size: 14px;
   }
 
-  @media (min-width: 768px) {
-    .cards {
-      display: none;
-    }
+  .spec dd {
+    margin: 0;
+    text-align: right;
+  }
 
-    .table-wrap {
-      display: block;
+  @media (min-width: 640px) {
+    .cards {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 960px) {
+    .cards {
+      grid-template-columns: repeat(3, 1fr);
     }
   }
 </style>

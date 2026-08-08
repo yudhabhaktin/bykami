@@ -1,0 +1,99 @@
+---
+import SectionHeader from "./SectionHeader.astro";
+
+/**
+ * A photo strip.
+ *
+ * The reference this borrows from is a photography site, and almost all of its
+ * impact comes from the pictures rather than the layout — full-bleed, black and
+ * white, asymmetric. A photo studio's page with no photographs on it is the
+ * single largest gap here, larger than any amount of type scale.
+ *
+ * Renders nothing when no images are supplied, so clearing the grid is a matter
+ * of passing an empty list rather than editing markup.
+ */
+interface Props {
+  images: { src: string; alt: string }[];
+  heading?: string;
+  label?: string;
+}
+
+const { images, heading = "Galeri", label = "Foto" } = Astro.props;
+---
+
+{
+  images.length > 0 && (
+    <section id="galeri" class="wrap section">
+      <SectionHeader heading={heading} label={label} />
+
+      <ul class="grid">
+        {images.map((img, i) => (
+          <li class="cell">
+            <img
+              src={img.src}
+              alt={img.alt}
+              width="1200"
+              height="800"
+              /*
+               * The first pair is close enough to the fold on a phone to be
+               * worth fetching eagerly; the rest wait. `decoding="async"`
+               * keeps a large JPEG off the main thread on the mid-range
+               * Androids this site is built for.
+               */
+              loading={i < 2 ? "eager" : "lazy"}
+              decoding="async"
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+<style>
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .cell {
+    margin: 0;
+    overflow: hidden;
+    border-radius: var(--radius);
+    background: var(--line);
+  }
+
+  img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /*
+     * 3:2, which is the ratio the pictures already are — so `cover` crops
+     * nothing and the rows still come out even. The box deciding the ratio is
+     * the same discipline the booth preview uses; here it happens to agree with
+     * the source, which is the cheapest kind of agreement to keep.
+     *
+     * It was 4:5 while the grid held portrait placeholders. Four of these six
+     * are composed edge to edge — a group across the full width, a room with a
+     * light at each margin — and a portrait box would have cut the ends off
+     * exactly the frames that exist to show scale.
+     */
+    aspect-ratio: 3 / 2;
+    object-fit: cover;
+  }
+
+  /*
+   * Two columns, not three. A landscape frame at a third of the wrap is 360px
+   * wide, and at that size four people in a row stop being four people.
+   */
+  @media (min-width: 640px) {
+    .grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--space-4);
+    }
+  }
+</style>

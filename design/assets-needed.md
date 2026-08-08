@@ -98,6 +98,54 @@ to put it.
 - [ ] Any existing brand guideline document, however rough
 - [ ] Analytics or pixel IDs to embed (Meta pixel, GA4)
 
+## Shot list — the gallery on studio.bykami.id
+
+The studio page has a photo grid, and six frames are in it at
+`sites/studio/public/img/studio-0*.jpg`. They match the brief below one for one,
+and the grid is built around them: 3:2 landscape, 1200 × 800, two columns from
+640px. Replacing any of them is dropping a file over the same name — no code
+change, so long as the replacement is 3:2.
+
+**Five of the six are generated, not shot.** That is fine as brand imagery and it
+is not fine as evidence, so the frames are not equal and the list below stays
+open rather than ticked:
+
+- [x] **06 — a printed 4-panel strip, held.** Real, house layout, real lockup.
+      Done. The only frame showing what a customer actually leaves with.
+- [ ] **05 — the room itself, empty.** The urgent one. An empty studio is read as
+      *this* studio, and this page carries a `LocalBusiness` block with the real
+      Jajag address on it, so the picture is a claim about premises a customer
+      can walk into and check. Lighting rig, backdrop and remote shutter visible,
+      lights on, nobody in frame.
+- [ ] **04 — a group of four or more.** Currently four models. It is standing in
+      for BIG MAXI's ten-person capacity, which is the one number on the price
+      list a photograph could corroborate.
+- [ ] **03 — two people.** The most-booked shape, and what "Untuk berdua" on the
+      MINI card is describing.
+- [ ] **01, 02 — two solo portraits, different backdrops.** Lowest risk of the
+      five; nobody reads a model as a named customer. Real ones would still show
+      the actual lighting and prove the backdrop is a real choice, which the
+      highlights treat as a feature.
+
+Requirements, so they survive the layout: originals from the camera, not
+Instagram re-encodes; landscape, at least 2400px on the long edge; nothing
+important in the outer 5%, because the grid fills a 3:2 box with
+`object-fit: cover`; and written consent from anyone recognisable, since these
+become marketing.
+
+If a frame is to be regenerated rather than shot in the meantime, the prompts
+are in `image-prompts.md`, along with the two things the current set gets wrong:
+the five generated frames do not look like the same building, and everyone in
+them reads as European.
+
+Also still needed for the sections that are built but empty:
+
+- [ ] **Real numbers for a trust block** — sessions shot, years open, Google
+      rating, review count. Whichever are true. The reference template ships
+      "39 projects, 0 awards, 10% success rate" as unfilled placeholders, which
+      is the failure mode to avoid: no number is better than a made-up one.
+- [ ] **One customer quote with a name and permission**, for a testimonial card.
+
 ---
 
 **Why not just pull these from Instagram:** IG re-encodes uploads and caps
