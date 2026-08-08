@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { gaps, launchReady } from "./coverage.ts";
 import { faqPageLd, localBusinessLd, offerLd, organizationLd } from "./jsonld.ts";
-import { postUrl, vertical, type Faq, type Offering, type Vertical } from "./schema.ts";
+import { postUrl, videoUrl, vertical, type Faq, type Offering, type Vertical } from "./schema.ts";
 import { blocked, unverified, verified } from "./sourced.ts";
 import { byId, verticals } from "./verticals/index.ts";
 
@@ -180,6 +180,37 @@ describe("embeddable posts", () => {
   it("does not let an empty list stand in for no list", () => {
     expect(() =>
       vertical.parse({ ...studio, social: { posts: verified([], "owner") } }),
+    ).toThrow();
+  });
+});
+
+describe("embeddable TikTok videos", () => {
+  it("builds a video URL from the handle and the numeric id", () => {
+    expect(videoUrl("studiobykami", { id: "7539932808274382087" })).toBe(
+      "https://www.tiktok.com/@studiobykami/video/7539932808274382087",
+    );
+  });
+
+  it("rejects a pasted URL where a video id belongs", () => {
+    expect(() =>
+      vertical.parse({
+        ...studio,
+        social: {
+          videos: verified(
+            [{ id: "https://www.tiktok.com/@studiobykami/video/7539932808274382087" }],
+            "owner",
+          ),
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a shortcode where a numeric id belongs", () => {
+    expect(() =>
+      vertical.parse({
+        ...studio,
+        social: { videos: verified([{ id: "DbGWkLRvPbQ" }], "owner") },
+      }),
     ).toThrow();
   });
 });

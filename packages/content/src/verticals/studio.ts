@@ -90,6 +90,25 @@ export const studio: Vertical = {
       ],
       "owner, 2026-08-08 — permalinks supplied directly; each one checked to resolve",
     ),
+    /*
+     * Captions here are real, unlike the Instagram set above, and the difference
+     * is worth naming: TikTok publishes an unauthenticated oembed endpoint, so
+     * each video's own caption could be read back from tiktok.com rather than
+     * guessed. Trimmed to the sentence a human wrote — the hashtag block and the
+     * repeated address are noise in a fallback line.
+     */
+    videos: verified(
+      [
+        {
+          id: "7539932808274382087",
+          caption:
+            "Terimakasih atas partisipasi Kamu yang sangat luar biasa. Kami tunggu kehadiran Kamu di lain waktu.",
+        },
+        { id: "7535857483055729928", caption: "Booking ur photo session now" },
+        { id: "7535315445877001480", caption: "Booking ur photo session now" },
+      ],
+      "owner, 2026-08-08 — video URLs supplied directly; captions read from tiktok.com/oembed",
+    ),
   },
 
   brand: {

@@ -1,0 +1,127 @@
+---
+import { tiktokUrl, valueOf, videoUrl, type Vertical } from "@bykami/content";
+
+/**
+ * A few hand-picked TikTok videos, embedded.
+ *
+ * The same trade as InstagramPosts, with the same shape: no API, no app, no
+ * token, and an iframe whose contents belong to tiktok.com rather than to this
+ * page. Kept as its own component because the markup and the script are
+ * TikTok's, and one component branching on provider would be a component that
+ * knows about two of them.
+ *
+ * Unlike Instagram, the attribute shape here is not guessed: TikTok publishes an
+ * unauthenticated oembed endpoint, so what a blockquote needs to carry —
+ * `tiktok-embed`, `cite`, `data-video-id` — was read off a real response for one
+ * of these very videos rather than inferred.
+ *
+ * The blockquote is written here instead of pasting oembed's HTML because that
+ * HTML carries its own inline <script> tag per video. Three of those is three
+ * copies of the same loader on one page, and none of them deferred.
+ */
+interface Props {
+  vertical: Vertical;
+  heading?: string;
+}
+
+const { vertical, heading = "Dari TikTok" } = Astro.props;
+
+const handle = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undefined;
+const videos = vertical.social?.videos ? valueOf(vertical.social.videos) : undefined;
+
+// The handle is part of every video's URL, so a video list without one is not
+// renderable at all. Nothing to warn about — the schema comment says as much,
+// and this simply falls through to rendering no section.
+const show = handle && videos && videos.length > 0;
+---
+
+{
+  show && (
+    <section class="wrap section" id="tiktok-videos">
+      <h2>{heading}</h2>
+
+      <div class="grid">
+        {videos.map((v) => (
+          <blockquote
+            class="tiktok-embed"
+            cite={videoUrl(handle, v)}
+            data-video-id={v.id}
+          >
+            <section>
+              {/*
+               * Real markup, not a placeholder: this is what shows before
+               * embed.js runs and all there is if it never does. TikTok replaces
+               * the whole blockquote once its script loads.
+               */}
+              <a href={videoUrl(handle, v)} rel="noopener">
+                {v.caption ?? "Lihat video ini di TikTok"}
+              </a>
+            </section>
+          </blockquote>
+        ))}
+      </div>
+
+      <p class="muted more">
+        <a href={tiktokUrl(handle)} rel="me noopener">
+          Lihat semua di TikTok @{handle}
+        </a>
+      </p>
+
+      {/*
+       * Deferred until the section is nearly in view, for the same reason as the
+       * Instagram section: these pages ship almost no JavaScript of their own,
+       * and a video player per embed is the heaviest thing on any of them.
+       */}
+      <script is:inline>
+        (() => {
+          const section = document.getElementById("tiktok-videos");
+          if (!section) return;
+
+          const load = () => {
+            const s = document.createElement("script");
+            s.async = true;
+            s.src = "https://www.tiktok.com/embed.js";
+            document.body.appendChild(s);
+          };
+
+          if (!("IntersectionObserver" in window)) return load();
+
+          const io = new IntersectionObserver(
+            (entries) => {
+              if (!entries.some((e) => e.isIntersecting)) return;
+              io.disconnect();
+              load();
+            },
+            { rootMargin: "400px" },
+          );
+          io.observe(section);
+        })();
+      </script>
+    </section>
+  )
+}
+
+<style>
+  .grid {
+    display: grid;
+    gap: var(--space-4);
+    /*
+     * 325px is TikTok's own declared minimum — its oembed response sets
+     * `min-width:325px` on the blockquote — so the track is sized to what the
+     * embed will actually take rather than to a column count it would overflow.
+     * A TikTok video is portrait and tall, so these stay one per column.
+     */
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 325px), 1fr));
+    align-items: start;
+  }
+
+  .tiktok-embed {
+    margin: 0;
+    /* TikTok's own ceiling, from the same response. */
+    max-width: 605px;
+  }
+
+  .more {
+    margin-top: var(--space-6);
+  }
+</style>
