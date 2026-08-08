@@ -107,13 +107,36 @@ const handle = z
   .string()
   .regex(/^[A-Za-z0-9._]{1,30}$/, "handle only — no leading @, no URL");
 
+/**
+ * One embeddable post.
+ *
+ * `kind` is stored rather than derived because it is the one part of the
+ * permalink the shortcode does not tell you — Instagram serves a reel under
+ * `/reel/` and a photo under `/p/`, and guessing wrong is an embed that renders
+ * as a dead link. Only public posts can be embedded at all.
+ */
+export const post = z.object({
+  kind: z.enum(["p", "reel"]),
+  shortcode: z.string().regex(/^[A-Za-z0-9_-]{5,24}$/, "shortcode only — no URL"),
+  /**
+   * Fallback text, shown before the embed script runs and to anyone it never
+   * runs for. Instagram's own default is "View this post on Instagram", which
+   * tells a crawler nothing — a real description is the only indexable text an
+   * embed contributes.
+   */
+  caption: z.string().min(1).optional(),
+});
+
 export const social = z.object({
   instagram: sourced(handle).optional(),
   tiktok: sourced(handle).optional(),
+  /** Hand-picked posts to embed. Curation is the owner's call, so it carries provenance like any other supplied fact. */
+  posts: sourced(z.array(post).min(1)).optional(),
 });
 
 export const instagramUrl = (handle: string) => `https://www.instagram.com/${handle}/`;
 export const tiktokUrl = (handle: string) => `https://www.tiktok.com/@${handle}`;
+export const postUrl = (p: Post) => `https://www.instagram.com/${p.kind}/${p.shortcode}/`;
 
 export const vertical = z.object({
   id: z.enum(["root", "studio", "dimsamcong", "booth"]),
@@ -158,6 +181,7 @@ export type Backdrop = z.infer<typeof backdrop>;
 export type Promo = z.infer<typeof promo>;
 export type Faq = z.infer<typeof faq>;
 export type Nap = z.infer<typeof nap>;
+export type Post = z.infer<typeof post>;
 export type Social = z.infer<typeof social>;
 export type Brand = z.infer<typeof brand>;
 export type Vertical = z.infer<typeof vertical>;

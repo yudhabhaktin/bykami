@@ -2,6 +2,7 @@
 import { byId } from "@bykami/content";
 import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
+import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import PriceList from "@bykami/ui/PriceList.astro";
 
 const vertical = byId("studio");
@@ -33,6 +34,8 @@ const vertical = byId("studio");
       <li>Pilih foto terbaik untuk dicetak sebelum pulang.</li>
     </ol>
   </section>
+
+  <InstagramPosts vertical={vertical} />
 
   <Faq vertical={vertical} />
 </BaseLayout>

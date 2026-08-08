@@ -49,6 +49,7 @@ export const gaps = (verticals: Vertical[]): Gap[] => {
     if (v.social) {
       inspect(v.id, "social.instagram", v.social.instagram, out);
       inspect(v.id, "social.tiktok", v.social.tiktok, out);
+      inspect(v.id, "social.posts", v.social.posts, out);
     }
 
     for (const o of v.offerings) {
