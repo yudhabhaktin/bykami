@@ -98,6 +98,46 @@ to put it.
 - [ ] Any existing brand guideline document, however rough
 - [ ] Analytics or pixel IDs to embed (Meta pixel, GA4)
 
+## Shot list — the gallery on studio.bykami.id
+
+The studio page now has a photo grid, and it is filled with **placeholders taken
+from a Framer template**. They are in `sites/studio/public/img/studio-0*.jpg` and
+they are not the studio's work. They must be replaced before the page is
+indexed, for two separate reasons: they carry the template's licence, and a page
+showing somebody else's photographs as this studio's output is the same class of
+unverified claim the price gate exists to stop. Swapping them is a matter of
+dropping six files over the same names — no code change.
+
+Six frames, in the order they appear. Portrait or square, shot in the studio,
+black and white to match the grid on `@studiobykami`:
+
+- [ ] **01 — a single person, lit and posed.** The one that has to carry the
+      grid; strongest frame goes first.
+- [ ] **02 — a second solo portrait, different backdrop.** Proves the backdrop
+      is a real choice, which the highlights treat as a feature.
+- [ ] **03 — two people.** The most-booked shape, and what "Untuk berdua" on the
+      MINI card is describing.
+- [ ] **04 — a group of four or more.** Shows BIG MAXI's ten-person capacity is
+      real rather than a number on a card.
+- [ ] **05 — the room itself, empty.** Lighting rig, backdrop, remote shutter
+      visible. First-timers are buying a room they have never seen.
+- [ ] **06 — a printed 4-panel strip, held or on a surface.** The signature
+      format per `direction.md`, and the only frame that shows what a customer
+      leaves with.
+
+Requirements, so they survive the layout: originals from the camera, not
+Instagram re-encodes; at least 1600px on the short edge; nothing important
+within 10% of any edge, because the grid crops to 4:5 with `object-fit: cover`;
+and written consent from anyone recognisable, since these become marketing.
+
+Also still needed for the sections that are built but empty:
+
+- [ ] **Real numbers for a trust block** — sessions shot, years open, Google
+      rating, review count. Whichever are true. The reference template ships
+      "39 projects, 0 awards, 10% success rate" as unfilled placeholders, which
+      is the failure mode to avoid: no number is better than a made-up one.
+- [ ] **One customer quote with a name and permission**, for a testimonial card.
+
 ---
 
 **Why not just pull these from Instagram:** IG re-encodes uploads and caps

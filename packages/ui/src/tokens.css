@@ -104,15 +104,25 @@ h1 {
    * -0.9px this rule set at 36px, and 1.1 lands within half a pixel of the 40px
    * it replaces, so nothing moves at phone width.
    */
-  font-size: clamp(36px, 4vw + 20px, 52px);
-  line-height: 1.1;
-  letter-spacing: -0.025em;
+  font-size: clamp(36px, 6vw + 8px, 76px);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
 }
 
+/*
+ * Section headings were 24px and did not scale, which is half what the
+ * photography reference gives them (48px desktop, 32px phone) and the reason
+ * this page read as documentation rather than design. Ratios rather than pixels
+ * so the whole rule tracks the clamp.
+ *
+ * Footer headings carry `.ui`, whose 14px wins on specificity, so they keep
+ * their size and only inherit the tighter ratios — which at 14px is 16px of
+ * leading rather than the 32px they had, and reads better in a narrow column.
+ */
 h2 {
-  font-size: 24px;
-  line-height: 32px;
-  letter-spacing: -0.6px;
+  font-size: clamp(32px, 3vw + 20px, 44px);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
 }
 
 p {
@@ -168,6 +178,30 @@ img {
 .ui {
   font-size: 14px;
   font-weight: 600;
+}
+
+/*
+ * Section label. The reference marks every section with a small filled square
+ * and a word — it is what tells you a heading is a section boundary rather than
+ * a sentence that happens to be large. Drawn with a pseudo-element rather than
+ * an icon so it costs no request and inherits the ink colour.
+ */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.eyebrow::before {
+  content: "";
+  flex: none;
+  width: 9px;
+  height: 9px;
+  background: var(--text);
 }
 
 /*

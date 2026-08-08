@@ -1,5 +1,6 @@
 ---
 import { postUrl, valueOf, type Vertical } from "@bykami/content";
+import SectionHeader from "./SectionHeader.astro";
 
 /**
  * A few hand-picked Instagram posts, embedded.
@@ -28,7 +29,7 @@ const handle = vertical.social?.instagram ? valueOf(vertical.social.instagram) :
 {
   posts && posts.length > 0 && (
     <section class="wrap section" id="instagram-posts">
-      <h2>{heading}</h2>
+      <SectionHeader heading={heading} label="Instagram" />
 
       <div class="grid">
         {posts.map((p) => (

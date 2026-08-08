@@ -1,5 +1,6 @@
 ---
 import { valueOf, type Vertical } from "@bykami/content";
+import SectionHeader from "./SectionHeader.astro";
 
 /**
  * The catalogue, as crawlable text.
@@ -94,17 +95,16 @@ const rows = vertical.offerings
 {
   rows.length > 0 && (
     <section id="harga" class="wrap section">
-      <h2>{heading}</h2>
+      <SectionHeader heading={heading} label="Harga" />
 
       <ul class="cards">
         {rows.map((r) => (
           <li class="card item">
-            <div class="head">
-              <h3>{r.name}</h3>
-              {r.price && <span class="price tabular">{r.price}</span>}
-            </div>
+            <h3>{r.name}</h3>
 
             {r.blurb && <p class="blurb muted">{r.blurb}</p>}
+
+            {r.price && <p class="price tabular">{r.price}</p>}
 
             {r.specs.length > 0 && (
               <dl class="spec ui tabular">
@@ -141,28 +141,30 @@ const rows = vertical.offerings
     padding: var(--space-6);
   }
 
-  .head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-3);
-  }
-
   h3 {
     margin: 0;
     font-size: 18px;
     letter-spacing: -0.3px;
   }
 
-  .price {
-    font-size: 18px;
-    font-weight: 700;
-    white-space: nowrap;
-  }
-
   .blurb {
     margin: 0;
     font-size: 14px;
+  }
+
+  /*
+   * The price used to sit inline with the name, small and right-aligned, which
+   * made it read as a table cell. On its own line at display size it becomes
+   * the thing the card is about — the reference gives it more weight than the
+   * package name, and the package name is not what anyone is deciding between.
+   */
+  .price {
+    margin: var(--space-2) 0 0;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
   }
 
   /*

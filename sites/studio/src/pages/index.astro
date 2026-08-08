@@ -2,11 +2,30 @@
 import { byId } from "@bykami/content";
 import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
+import Gallery from "@bykami/ui/Gallery.astro";
 import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import PriceList from "@bykami/ui/PriceList.astro";
+import SectionHeader from "@bykami/ui/SectionHeader.astro";
 import TiktokVideos from "@bykami/ui/TiktokVideos.astro";
 
 const vertical = byId("studio");
+
+/**
+ * PLACEHOLDERS. These six photographs come from a Framer template and are not
+ * the studio's work — they stand in so the layout can be judged with pictures in
+ * it. They must be swapped for the owner's own before this page is indexed; the
+ * shot list is in `design/assets-needed.md`.
+ *
+ * Alt text describes what is in each frame and claims nothing about who made it.
+ */
+const gallery = [
+  { src: "/img/studio-01.jpg", alt: "Potret hitam putih seorang model di studio" },
+  { src: "/img/studio-02.jpg", alt: "Potret hitam putih perempuan berkemeja putih" },
+  { src: "/img/studio-03.jpg", alt: "Dua orang berjalan, diambil hitam putih" },
+  { src: "/img/studio-04.jpg", alt: "Seseorang menari di dalam studio, hitam putih" },
+  { src: "/img/studio-05.jpg", alt: "Siluet seseorang dengan efek blur, hitam putih" },
+  { src: "/img/studio-06.jpg", alt: "Close up wajah dalam nuansa hitam putih" },
+];
 ---
 
 <BaseLayout
@@ -23,10 +42,12 @@ const vertical = byId("studio");
     </p>
   </section>
 
+  <Gallery images={gallery} heading="Hasil di studio" label="Galeri" />
+
   <PriceList vertical={vertical} />
 
   <section class="wrap section">
-    <h2>Cara kerjanya</h2>
+    <SectionHeader heading="Cara kerjanya" label="Alur" />
     <ol>
       <li>Pilih paket sesuai jumlah orang dan durasi yang kamu mau.</li>
       <li>Chat admin lewat WhatsApp untuk memesan slot.</li>

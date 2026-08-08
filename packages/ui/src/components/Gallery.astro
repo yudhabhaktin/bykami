@@ -1,0 +1,97 @@
+---
+import SectionHeader from "./SectionHeader.astro";
+
+/**
+ * A photo strip.
+ *
+ * The reference this borrows from is a photography site, and almost all of its
+ * impact comes from the pictures rather than the layout — full-bleed, black and
+ * white, asymmetric. A photo studio's page with no photographs on it is the
+ * single largest gap here, larger than any amount of type scale.
+ *
+ * The images passed in today are placeholders lifted from a Framer template.
+ * They are not the studio's work and must not reach a live page presenting them
+ * as a portfolio: they carry the template's licence, and a page that shows
+ * somebody else's photographs as this studio's output is exactly the kind of
+ * unverified claim the catalogue gate exists to prevent. See the image to-do in
+ * `design/assets-needed.md`.
+ *
+ * Renders nothing when no images are supplied, so removing the placeholders is
+ * a matter of passing an empty list rather than editing markup.
+ */
+interface Props {
+  images: { src: string; alt: string }[];
+  heading?: string;
+  label?: string;
+}
+
+const { images, heading = "Galeri", label = "Foto" } = Astro.props;
+---
+
+{
+  images.length > 0 && (
+    <section id="galeri" class="wrap section">
+      <SectionHeader heading={heading} label={label} />
+
+      <ul class="grid">
+        {images.map((img, i) => (
+          <li class="cell">
+            <img
+              src={img.src}
+              alt={img.alt}
+              width="720"
+              height="900"
+              /*
+               * The first pair is close enough to the fold on a phone to be
+               * worth fetching eagerly; the rest wait. `decoding="async"`
+               * keeps a large JPEG off the main thread on the mid-range
+               * Androids this site is built for.
+               */
+              loading={i < 2 ? "eager" : "lazy"}
+              decoding="async"
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+<style>
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .cell {
+    margin: 0;
+    overflow: hidden;
+    border-radius: var(--radius);
+    background: var(--line);
+  }
+
+  img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /*
+     * The photographs are a mix of portrait ratios. A fixed 4:5 box with cover
+     * keeps the rows even without letterboxing, and matches the crop discipline
+     * used in the booth preview — the box decides the ratio, the picture fills
+     * it.
+     */
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+  }
+
+  @media (min-width: 640px) {
+    .grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-4);
+    }
+  }
+</style>
