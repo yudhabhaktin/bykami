@@ -84,6 +84,17 @@ body {
   padding-bottom: calc(var(--bar-height) + env(safe-area-inset-bottom, 0px));
 }
 
+/*
+ * Above 768px the bar is a corner button rather than a full-width strip, so it
+ * covers nothing and this reservation would just be dead space at the foot of
+ * every page. Same breakpoint as the collapse itself, in StickyBar.astro.
+ */
+@media (min-width: 768px) {
+  body {
+    padding-bottom: 0;
+  }
+}
+
 h1,
 h2,
 h3 {

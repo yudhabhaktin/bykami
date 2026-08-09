@@ -11,6 +11,12 @@ import { valueOf, type Vertical } from "@bykami/content";
  * self-hosted booking system — that swap then changes a URL, not a habit.
  *
  * Renders nothing when neither route is known, rather than showing a dead button.
+ *
+ * Two shapes, one component. A full-width bottom bar is a phone pattern — it
+ * earns a permanent strip of a 390px screen because the thumb is already there.
+ * On a desktop pointer that same strip is a band of chrome across a page whose
+ * whitespace is doing the work, so above 768px it collapses to a circular button
+ * in the corner and the page gets its full height back.
  */
 interface Props {
   vertical: Vertical;
@@ -33,7 +39,18 @@ const waHref = whatsapp
       <div class="bar-inner">
         {waHref && (
           <a class="btn primary ui" href={waHref} rel="noopener">
-            Chat WhatsApp
+            {/*
+             * The glyph is what makes the desktop circle readable once the label
+             * is gone — a bare disc says nothing. Inline rather than an <img> so
+             * it costs no request and takes its colour from the button.
+             */}
+            <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                fill="currentColor"
+                d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"
+              />
+            </svg>
+            <span class="label">Chat WhatsApp</span>
           </a>
         )}
         {booking && (
@@ -94,9 +111,92 @@ const waHref = whatsapp
     color: var(--text);
   }
 
+  /* Only ever drawn as the desktop circle's icon. */
+  .glyph {
+    display: none;
+    width: 24px;
+    height: 24px;
+  }
+
   @supports not (backdrop-filter: blur(8px)) {
     .bar {
       background: var(--surface);
+    }
+  }
+
+  /*
+   * Desktop: the bar stops being a bar.
+   *
+   * 768px is where the footer already switches to its desktop layout, so the
+   * whole page chrome changes at one width rather than at three.
+   */
+  @media (min-width: 768px) {
+    .bar {
+      /* Corner-anchored, so the strip of chrome and everything drawing it go. */
+      inset: auto var(--space-6) var(--space-6) auto;
+      border-top: 0;
+      background: none;
+      backdrop-filter: none;
+      padding-bottom: 0;
+    }
+
+    .bar-inner {
+      /*
+       * column-reverse keeps WhatsApp at the bottom — nearest the pointer and in
+       * the position the circle is expected in — without moving it ahead of the
+       * booking link in the DOM, where it is the first thing reached by tab.
+       */
+      flex-direction: column-reverse;
+      align-items: flex-end;
+      width: auto;
+      min-height: 0;
+      padding: 0;
+    }
+
+    .btn {
+      flex: none;
+    }
+
+    .primary {
+      position: relative;
+      width: 56px;
+      height: 56px;
+      padding-inline: 0;
+      border-radius: 50%;
+      /*
+       * The one element on the site that floats over content rather than sitting
+       * in the flow, so it is the one that needs to read as lifted off the page —
+       * the --shadow token is `none` for cards, which do sit in the flow. Kept
+       * soft enough to stay legible over a photograph in the gallery.
+       */
+      box-shadow: 0 4px 16px rgba(10, 10, 10, 0.24);
+    }
+
+    .primary .glyph {
+      display: block;
+    }
+
+    /*
+     * The label stays in the DOM as the button's accessible name — an icon-only
+     * link with nothing to read is unusable on a screen reader.
+     */
+    .primary .label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .secondary {
+      background: var(--surface);
+    }
+
+    .btn:focus-visible {
+      outline: 2px solid var(--text);
+      outline-offset: 3px;
     }
   }
 </style>
