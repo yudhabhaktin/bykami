@@ -52,23 +52,28 @@ export const booth: Vertical = {
      * set: the booth is the thing being sold here, and a photobooth post on the
      * studio page would be advertising a different product to someone reading
      * about studio hire.
+     *
+     * Six, cut from the nineteen the owner has supplied, on three rules. One
+     * post per event, because the booth posts a wedding three or four times and
+     * a visitor learns nothing from the second strip of the same couple. Two per
+     * occasion, so the feed carries the same three claims the page makes above
+     * it. And none of the three events already shown as a photograph in "Cocok
+     * untuk" — a feed that repeats the pictures beside it is length, not proof.
+     *
+     * The cost of a long list is real: every post is an iframe, and this section
+     * is the heaviest thing on the page by a wide margin.
      */
     posts: verified(
       [
-        { kind: "p", shortcode: "DbastU-vOKa" },
         { kind: "p", shortcode: "DbLXcJIgcpz" },
-        { kind: "p", shortcode: "DbLWz9SBm-k" },
-        { kind: "p", shortcode: "DbLWhrjgdUl" },
-        { kind: "p", shortcode: "Da91AfggUM_" },
         { kind: "p", shortcode: "DaKfMk7AVpe" },
         { kind: "p", shortcode: "DZcqWOwh2nL" },
-        { kind: "p", shortcode: "DZcaIkQAcp8" },
         { kind: "p", shortcode: "DZY8fBKgZRj" },
-        { kind: "p", shortcode: "DZQCD2qAesG" },
-        { kind: "p", shortcode: "DZNP3G4AfJi" },
-        { kind: "p", shortcode: "DYylxEkgUmF" },
+        { kind: "p", shortcode: "DTRgLKVAZLE" },
+        { kind: "p", shortcode: "DRSRBF9AeIQ" },
       ],
-      "owner, 2026-08-08 and 2026-08-09 — permalinks supplied directly; each one checked to resolve",
+      "owner, 2026-08-08 and 2026-08-09 — permalinks supplied directly; each one checked to " +
+        "resolve. Which six of them run here is a repo cut, not the owner's",
     ),
   },
 

@@ -6,6 +6,40 @@ import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import PriceList from "@bykami/ui/PriceList.astro";
 
 const vertical = byId("booth");
+
+/**
+ * One real job per occasion, shown as the thing the customer walks away with.
+ *
+ * Every picture is the booth's own printed output from an event it worked —
+ * the school's frame, the couple's strip, the tournament's backdrop — pulled
+ * from @boothbykami. That makes this section proof rather than decoration: the
+ * three claims below used to be three sentences, and a sentence saying the
+ * booth suits a wedding is worth less than the strip it printed at one.
+ *
+ * Self-hosted rather than embedded, for the same reason the studio gallery is:
+ * an Instagram iframe is someone else's markup, costs a third-party script, and
+ * shows nothing to a crawler. To swap a picture, drop a 4:5 JPEG over the file.
+ */
+const occasions = [
+  {
+    src: "/img/sekolah-01.jpg",
+    alt: "Hasil cetak photobooth Hari Batik Nasional SMPN 10 Jember: dua siswa berbatik dan bertopi berpose di dalam frame bertema batik",
+    title: "Acara sekolah",
+    body: "mengabadikan momen bersama teman-teman dan guru.",
+  },
+  {
+    src: "/img/pernikahan-01.jpg",
+    alt: "Dua strip foto pernikahan Diana dan Hildan dengan nama pasangan, tanggal, dan kode QR galeri",
+    title: "Pernikahan",
+    body: "kenangan bersama keluarga dan tamu di hari bahagia.",
+  },
+  {
+    src: "/img/event-01.jpg",
+    alt: "Hasil cetak photobooth turnamen padel: empat pemain memegang raket di dalam frame bertema lapangan",
+    title: "Event",
+    body: "pameran, konser, ulang tahun, sampai acara perusahaan.",
+  },
+];
 ---
 
 <BaseLayout
@@ -31,15 +65,42 @@ const vertical = byId("booth");
   <section class="wrap section">
     <h2 data-reveal>Cocok untuk</h2>
     <ul class="lines">
-      <li data-reveal data-reveal-y="16">
-        <strong>Acara sekolah</strong> — mengabadikan momen bersama teman-teman dan guru.
-      </li>
-      <li data-reveal data-reveal-y="16" style="--reveal-delay: 0.07s">
-        <strong>Pernikahan</strong> — kenangan bersama keluarga dan tamu di hari bahagia.
-      </li>
-      <li data-reveal data-reveal-y="16" style="--reveal-delay: 0.14s">
-        <strong>Event</strong> — pameran, konser, ulang tahun, sampai acara perusahaan.
-      </li>
+      {
+        occasions.map((o, i) => (
+          <li>
+            {/*
+             * Drift on the outer element, resolve on the inner one — the split
+             * the team strip on the root page uses, and for the same reason:
+             * one node carrying both transforms would have them overwrite each
+             * other. `data-reveal-media` is the picture half of the reveal
+             * system, a photograph resolving rather than rising, which is the
+             * treatment the studio gallery already gives its cells.
+             *
+             * The middle column drifts at half the rate of the two beside it.
+             * Three cells travelling the same distance at the same time are not
+             * a parallax — they are one slab sliding, and the depth only
+             * appears when a cell moves against its neighbour. Halving rather
+             * than reversing keeps the travel a positive number, which is what
+             * the reserved margin in tokens.css is sized from.
+             */}
+            <div data-parallax style={i === 1 ? "--drift-scale: 0.5" : undefined}>
+              <div class="shot" data-reveal-media style={`--reveal-delay: ${i * 0.07}s`}>
+                <img
+                  src={o.src}
+                  alt={o.alt}
+                  width="900"
+                  height="1125"
+                  loading={i === 0 ? "eager" : "lazy"}
+                  decoding="async"
+                />
+              </div>
+            </div>
+            <p data-reveal data-reveal-y="16" style={`--reveal-delay: ${i * 0.07}s`}>
+              <strong>{o.title}</strong> — {o.body}
+            </p>
+          </li>
+        ))
+      }
     </ul>
   </section>
 
@@ -62,14 +123,77 @@ const vertical = byId("booth");
 
 
   .lines {
-    max-width: var(--measure);
+    display: grid;
+    gap: var(--space-6);
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
+  /*
+   * On a phone the picture leads and the line sits under it. Three full-width
+   * 4:5 photographs would push the price list most of a screen further down,
+   * so the row is split — the shot takes the left of the line rather than the
+   * whole width, and the section stays about as tall as the three sentences it
+   * replaced. From 640px there is room for all three side by side, and the
+   * photograph takes the top of its own card.
+   */
   .lines li {
-    padding: var(--space-3) 0;
-    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+    gap: var(--space-4);
+    align-items: center;
+  }
+
+  .shot {
+    overflow: hidden;
+    border-radius: var(--radius);
+    background: var(--line);
+  }
+
+  .shot img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /*
+     * 4:5, which is what Instagram serves and therefore what every one of these
+     * already is — so the box crops nothing off a frame design whose border is
+     * part of what it is showing.
+     */
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+  }
+
+  .lines p {
+    margin: 0;
+  }
+
+  /*
+   * No drift on a phone. The row there is a thumbnail beside its line, and the
+   * travel is reserved as margin — 32px of it above and below each of three
+   * rows is a screenful of new whitespace bought for a movement too small to
+   * read at 134px wide. From 640px the pictures are cards with room around
+   * them, which is where the effect starts being worth its space.
+   */
+  @media (max-width: 639px) {
+    [data-parallax] {
+      margin-block: 0;
+      animation: none;
+    }
+  }
+
+  @media (min-width: 640px) {
+    .lines {
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-4);
+    }
+
+    .lines li {
+      display: block;
+    }
+
+    .lines p {
+      margin-top: var(--space-4);
+    }
   }
 </style>
