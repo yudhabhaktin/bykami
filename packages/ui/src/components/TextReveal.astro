@@ -1,0 +1,51 @@
+---
+/**
+ * A line of type set a word at a time.
+ *
+ * Chimera reserves this for the lines it wants read rather than scanned, and it
+ * is the one effect here that needs real markup rather than a class: each word
+ * has to be its own masked box. That markup is generated at build time, so the
+ * page ships the finished spans and no script splits anything.
+ *
+ * It was an island before, and that is what put the words together. Motion's
+ * split emitted `<span>word </span>` with the separating space *inside* an
+ * inline-block, where CSS strips trailing whitespace — so the rendered line read
+ * "Biasanyasibukbikin…". The same shape also removed every break opportunity,
+ * since a line can only wrap between two inline-blocks where there is
+ * whitespace between them, so the sentence had nowhere to break either.
+ *
+ * The space is therefore a text node *between* the masks, which is where inline
+ * layout expects it: it renders, it wraps, it survives copy-paste, and
+ * find-in-page still matches across the spans.
+ *
+ * No ARIA. The tokens used to be `aria-hidden` under an `aria-label` on the
+ * container, which was papering over the missing spaces — and on a `<p>` an
+ * author-supplied name is not reliably honoured anyway. Real text nodes
+ * separated by real spaces are read correctly with no help.
+ */
+interface Props {
+  /** The line. Split on spaces; punctuation travels with its word. */
+  text: string;
+  /** Which element it is set in. The type scale does the rest. */
+  as?: "h1" | "h2" | "h3" | "p";
+  /** Per-word stagger, in seconds. The reference ships 0.05 and 0.1. */
+  stagger?: number;
+  class?: string;
+}
+
+const { text, as: Tag = "h2", stagger = 0.05, class: className } = Astro.props;
+
+const words = text.split(" ");
+---
+
+<Tag class={className} data-reveal-text style={`--tok-stagger: ${stagger}s`}>
+  {
+    words.map((word, i) => (
+      <Fragment>
+        {/* prettier-ignore — the mask must contain the word and nothing else. */}
+        <span class="tok" style={`--tok: ${i}`}><span>{word}</span></span>
+        {i < words.length - 1 ? " " : ""}
+      </Fragment>
+    ))
+  }
+</Tag>

@@ -28,7 +28,18 @@ const { images, heading = "Galeri", label = "Foto" } = Astro.props;
 
       <ul class="grid">
         {images.map((img, i) => (
-          <li class="cell">
+          /*
+           * Each cell resolves on its own, and the box that clips the 10%
+           * oversize is the one that already clips for the radius.
+           *
+           * The stagger runs across a row rather than down the whole list.
+           * Cells are revealed individually as they come into view, so an
+           * index-wide ramp would put a two-second delay on the twentieth
+           * picture for no reason anyone could see; three steps of Chimera's
+           * 70ms read as a left-to-right cascade on desktop and as an
+           * alternation on the two-column phone layout.
+           */
+          <li class="cell" data-reveal-media style={`--reveal-delay: ${(i % 3) * 0.07}s`}>
             <img
               src={img.src}
               alt={img.alt}

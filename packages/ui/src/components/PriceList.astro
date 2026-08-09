@@ -98,8 +98,19 @@ const rows = vertical.offerings
       <SectionHeader heading={heading} label="Harga" />
 
       <ul class="cards">
-        {rows.map((r) => (
-          <li class="card item">
+        {rows.map((r, i) => (
+          /*
+           * 16px of travel, not 24: these sit in a row of three and a card that
+           * rises the full distance beside two others reads as the row being
+           * unstable. Chimera's own 0/100/200ms across three, indexed by column
+           * so the ramp restarts on each row rather than compounding.
+           */
+          <li
+            class="card item"
+            data-reveal
+            data-reveal-y="16"
+            style={`--reveal-delay: ${(i % 3) * 0.1}s`}
+          >
             <h3>{r.name}</h3>
 
             {r.blurb && <p class="blurb muted">{r.blurb}</p>}

@@ -31,7 +31,12 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
 
 <footer class="footer">
   <div class="wrap">
-    <div class="cols">
+    {/*
+     * The footer arrives as two pieces, not four: the three columns together,
+     * then the fine print behind them. Revealing each column separately would
+     * animate a block that is already the quietest thing on the page.
+     */}
+    <div class="cols" data-reveal>
       <div class="lead">
         <h2 class="brand">
           <Mark size={32} />
@@ -94,7 +99,9 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
       </div>
     </div>
 
-    <p class="muted fine">© {new Date().getFullYear()} by KAMI · Banyuwangi, Jawa Timur</p>
+    <p class="muted fine" data-reveal data-reveal-y="16" style="--reveal-delay: 0.1s">
+      © {new Date().getFullYear()} by KAMI · Banyuwangi, Jawa Timur
+    </p>
   </div>
 </footer>
 

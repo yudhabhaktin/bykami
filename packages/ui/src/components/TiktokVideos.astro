@@ -41,7 +41,9 @@ const show = handle && videos && videos.length > 0;
     <section class="wrap section" id="tiktok-videos">
       <SectionHeader heading={heading} label="TikTok" />
 
-      <div class="grid">
+      {/* On the container for the same reason as the Instagram grid: embed.js
+         replaces each blockquote outright. */}
+      <div class="grid" data-reveal>
         {videos.map((v) => (
           <blockquote
             class="tiktok-embed"
@@ -62,7 +64,7 @@ const show = handle && videos && videos.length > 0;
         ))}
       </div>
 
-      <p class="muted more">
+      <p class="muted more" data-reveal data-reveal-y="16">
         <a href={tiktokUrl(handle)} rel="me noopener">
           Lihat semua di TikTok @{handle}
         </a>

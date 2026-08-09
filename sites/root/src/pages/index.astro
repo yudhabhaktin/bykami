@@ -4,9 +4,7 @@ import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
 import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import SectionHeader from "@bykami/ui/SectionHeader.astro";
-import ImageReveal from "@bykami/ui/motion/ImageReveal";
-import Reveal from "@bykami/ui/motion/Reveal";
-import TextReveal from "@bykami/ui/motion/TextReveal";
+import TextReveal from "@bykami/ui/TextReveal.astro";
 
 const vertical = byId("root");
 const others = verticals.filter((v) => v.id !== "root");
@@ -122,12 +120,10 @@ const teamPosts: Post[] = [
      * with no marketing type in them at all.
      */}
     {/*
-     * Not wrapped in ImageReveal, and that is the point of the comment below
-     * about priority. This photograph is the LCP element on a phone, and the
-     * media reveal starts its subject at half opacity behind a hydration
-     * boundary — which would hand the metric to a JavaScript chunk for the sake
-     * of an effect on the one image that cannot afford it. The strip further
-     * down carries the treatment instead.
+     * No media reveal on this one. It is the LCP element on a phone, and
+     * starting the largest thing above the fold at half opacity is a directly
+     * measurable regression on the metric this whole stack is tuned for. The
+     * strip further down carries the treatment instead.
      */}
     <figure class="plate">
       {/*
@@ -160,18 +156,21 @@ const teamPosts: Post[] = [
      * the only display-sized copy below the fold, and the only line here nobody
      * on this project wrote. Setting it a word at a time is the closest the
      * type system gets to reading it aloud.
-     *
-     * `client:visible` and not `client:load`: it sits below two photographs, so
-     * the chunk has the whole first screen to arrive.
      */}
     <blockquote class="pull">
       <TextReveal
-        client:visible={{ rootMargin: "200px" }}
         as="p"
         stagger={0.05}
         text="Biasanya sibuk bikin momen indah buat orang lain, kali ini giliran memori kami sendiri yang diabadikan."
       />
-      <cite class="muted ui">studio by KAMI, di Instagram</cite>
+      {/*
+       * The attribution follows the sentence rather than arriving with it. Its
+       * delay is the length of the word stagger, so it lands as the last word
+       * of the quote settles instead of sitting there waiting to be credited.
+       */}
+      <cite class="muted ui" data-reveal data-reveal-y="16" style="--reveal-delay: 0.5s">
+        studio by KAMI, di Instagram
+      </cite>
     </blockquote>
 
     {/*
@@ -185,15 +184,12 @@ const teamPosts: Post[] = [
      * lazy, and not the LCP element.
      *
      * The drift is on the outer element and the resolve on the inner one, so
-     * the scroll transform moves the clipping box while the spring plays out
+     * the scroll transform moves the clipping box while the picture settles
      * inside it. Two elements rather than one on purpose — a single node
      * carrying both would have the two transforms overwriting each other.
-     *
-     * The drift itself is a plain CSS rule keyed off `data-parallax`; see
-     * tokens.css for the travel distance and for why it is no longer an island.
      */}
     <div data-parallax>
-      <ImageReveal client:visible={{ rootMargin: "200px" }} className="strip">
+      <figure class="strip" data-reveal-media>
         <img
           src="/img/tim-02.jpg"
           alt="Tim studio by KAMI berpegangan tangan membentuk satu barisan panjang di tepi air Pulau Tabuhan"
@@ -202,7 +198,7 @@ const teamPosts: Post[] = [
           loading="lazy"
           decoding="async"
         />
-      </ImageReveal>
+      </figure>
     </div>
   </section>
 
@@ -224,34 +220,25 @@ const teamPosts: Post[] = [
     <ul class="grid">
       {
         others.map((v, i) => (
-          <li>
+          <li
+            class="card tile"
+            data-reveal
+            data-reveal-y="16"
+            style={`--reveal-delay: ${[0, 0.1, 0.2][i] ?? 0.2}s`}
+          >
+            <h3>{v.displayName}</h3>
             {/*
-             * The card itself is the island, rather than something inside it.
-             * `.tile` is a flex column whose link is pushed to the bottom edge
-             * with `margin-top: auto`, so an extra wrapper between the two
-             * would take over as the flex child and drop every link back up
-             * against its paragraph.
+             * The description rather than the tagline. Both are in the
+             * catalogue and they overlap — "Self photo studio di Banyuwangi"
+             * against "Self photo studio, photobox, dan pas foto di Jajag,
+             * Banyuwangi…" — so printing both put the same sentence on the
+             * card twice, once shorter. The longer one is the one that
+             * answers whether this is the business you were looking for.
              */}
-            <Reveal
-              client:visible={{ rootMargin: "200px" }}
-              y={16}
-              delay={[0, 0.1, 0.2][i] ?? 0.2}
-              className="card tile"
-            >
-              <h3>{v.displayName}</h3>
-              {/*
-               * The description rather than the tagline. Both are in the
-               * catalogue and they overlap — "Self photo studio di Banyuwangi"
-               * against "Self photo studio, photobox, dan pas foto di Jajag,
-               * Banyuwangi…" — so printing both put the same sentence on the
-               * card twice, once shorter. The longer one is the one that
-               * answers whether this is the business you were looking for.
-               */}
-              <p class="muted">{v.description}</p>
-              <a class="ui go" href={`https://${v.hostname}`}>
-                Buka {v.hostname}
-              </a>
-            </Reveal>
+            <p class="muted">{v.description}</p>
+            <a class="ui go" href={`https://${v.hostname}`}>
+              Buka {v.hostname}
+            </a>
           </li>
         ))
       }
@@ -297,23 +284,25 @@ const teamPosts: Post[] = [
   }
 
   /*
-   * `:global` because these two elements are rendered inside islands rather
-   * than by this template, so Astro's scoping attribute never reaches them and
-   * a plain `.strip` would match nothing. The class names stay as they were —
-   * the selectors are what had to change, not the markup's vocabulary.
+   * The figure clips and carries the radius, because the picture inside it
+   * starts 10% oversized — see `[data-reveal-media]` in tokens.css. Clipping a
+   * scaled child against a square box would show square corners for a second
+   * and a half on an image the page rounds, so the radius has to sit on the
+   * box that does the clipping rather than on the image.
    */
-  :global(.strip) {
+  .strip {
     margin: var(--space-8) 0 0;
+    overflow: hidden;
+    border-radius: var(--radius);
+    background: var(--line);
   }
 
-  :global(.strip img) {
+  .strip img {
     display: block;
     width: 100%;
     height: auto;
     aspect-ratio: 12 / 5;
     object-fit: cover;
-    border-radius: var(--radius);
-    background: var(--line);
   }
 
   .pull {
@@ -330,6 +319,13 @@ const teamPosts: Post[] = [
   }
 
   cite {
+    /*
+     * Block, and not only for the line break. `cite` is inline by default, and
+     * transforms do not apply to non-replaced inline boxes — the reveal's
+     * translate would be silently dropped and this line alone would fade
+     * without moving.
+     */
+    display: block;
     font-style: normal;
   }
 
@@ -362,32 +358,31 @@ const teamPosts: Post[] = [
   }
 
   /*
-   * `:global` for the same reason `.strip` is — the tile is rendered by an
-   * island now, so the scoping attribute never lands on it. `height: 100%` is
-   * new and load-bearing: the `li` is the grid item and stretches to the row,
-   * and without this the card inside it would only be as tall as its own text,
-   * leaving three cards of different heights in a row that used to be even.
+   * The card is the grid item itself. It used to be a `div` inside the `li`,
+   * because the reveal needed an element of its own to animate; a plain
+   * attribute needs no such wrapper, so the extra box is gone and with it the
+   * `height: 100%` that was propping the row up. Flex stretch does that now,
+   * which is what it was always for.
    */
-  :global(.tile) {
+  .tile {
     display: flex;
     flex-direction: column;
-    height: 100%;
     padding: var(--space-6);
   }
 
-  :global(.tile h3) {
+  .tile h3 {
     margin-bottom: var(--space-2);
     font-size: 20px;
     letter-spacing: -0.02em;
   }
 
-  :global(.tile p) {
+  .tile p {
     /* The global 68ch measure is wider than the column, so it never applies. */
     margin-bottom: var(--space-6);
     font-size: 15px;
   }
 
-  :global(.tile a) {
+  .tile a {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
@@ -401,7 +396,7 @@ const teamPosts: Post[] = [
    * Drawn rather than typed, so it cannot be read out as the word "arrow" by a
    * screen reader announcing the link.
    */
-  :global(.go::after) {
+  .go::after {
     content: "";
     width: 0.5em;
     height: 0.5em;
@@ -412,13 +407,13 @@ const teamPosts: Post[] = [
     transition: transform var(--dur-ui) var(--ease-reveal);
   }
 
-  :global(.tile a:hover),
-  :global(.tile a:focus-visible) {
+  .tile a:hover,
+  .tile a:focus-visible {
     text-decoration: underline;
     text-underline-offset: 4px;
   }
 
-  :global(.tile:hover .go::after) {
+  .tile:hover .go::after {
     transform: rotate(45deg) translate(2px, -2px);
   }
 </style>

@@ -13,8 +13,6 @@
  * that this repo has no business inventing on the owner's behalf. Where it is
  * absent the heading and the label share one row instead of leaving a gap.
  */
-import Reveal from "./motion/Reveal";
-
 interface Props {
   heading: string;
   /** Supporting sentence. Owner copy — leave unset rather than inventing it. */
@@ -28,29 +26,21 @@ const { heading, lede, label, id } = Astro.props;
 ---
 
 {/*
-  One island per section heading, which is what puts the Chimera reveal on every
-  section of all four sites from a single edit — this component is the heading
-  block each of them already shares.
+  One attribute here is what puts the Chimera reveal on every section of all
+  four sites, because this component is the heading block each of them shares.
 
-  It wraps the whole header rather than animating the three parts separately.
+  The whole header rises as one rather than its three parts arriving separately.
   Chimera does stagger them, but its version of this block is three positioned
-  nodes and this one is a grid whose columns are these exact children; wrapping
-  each child would make the wrapper the grid item and hand the layout to the
-  animation code. A section heading arriving as one block is the part of the
-  effect worth having, and it costs no layout risk.
-
-  `rootMargin` starts hydration 200px before the header is on screen. Without
-  it, the chunk begins downloading at the moment the CSS is already hiding the
-  header, and on the 3G end of this traffic that reads as a section that is
-  briefly missing. The reveal itself still waits for 50% visibility.
+  nodes and this one is a grid whose columns are these exact children — a
+  wrapper around each would become the grid item and hand the layout to the
+  animation. A section heading arriving as one block is the part of the effect
+  worth having, and it costs no layout risk.
 */}
-<Reveal client:visible={{ rootMargin: "200px" }}>
-  <header class:list={["head", !lede && "no-lede"]}>
-    <h2 id={id}>{heading}</h2>
-    {lede && <p class="lede muted">{lede}</p>}
-    {label && <span class="eyebrow">{label}</span>}
-  </header>
-</Reveal>
+<header class:list={["head", !lede && "no-lede"]} data-reveal>
+  <h2 id={id}>{heading}</h2>
+  {lede && <p class="lede muted">{lede}</p>}
+  {label && <span class="eyebrow">{label}</span>}
+</header>
 
 <style>
   .head {
