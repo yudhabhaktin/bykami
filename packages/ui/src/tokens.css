@@ -451,4 +451,65 @@ img {
     animation: enter-rise var(--dur-reveal) var(--ease-reveal) var(--enter-delay, 0s)
       backwards;
   }
+
+  /*
+   * Parallax — driven by the scroll itself rather than by a script watching it.
+   *
+   * This started as a motion island: `useScroll` into `useTransform` into
+   * `useSpring`, at the stiffness/damping/mass Chimera states on its own scroll
+   * transform. Two things were wrong with it on a real page, and both were
+   * measured rather than guessed.
+   *
+   * The spring is overdamped, so the value trails the scroll — that is what a
+   * spring is for, and the argument for keeping it was that a parallax locked
+   * exactly to scroll position reads as a rendering artefact. On the reference
+   * that may hold. Here it read as the page failing to keep up: about 25px
+   * behind for the whole of a normal scroll, and still travelling for ~1.4s
+   * after the scroll stopped, which is a photograph that carries on sliding
+   * when you have already stopped moving. The owner called it, and they are
+   * right — the effect was never the lag, it was the depth.
+   *
+   * The second fault was structural and worse. The island armed itself after
+   * mount so that no-JS visitors would not get a baked-in transform, but by the
+   * time it hydrated the scroll was already partway through its range, so the
+   * strip jumped the whole 80px in one frame — a visible jolt at the exact
+   * moment the element came into view.
+   *
+   * A view timeline has neither problem. The progress is the scroll offset, so
+   * there is nothing to fall behind and nothing to catch up; Chrome runs it off
+   * the main thread; and with no hydration boundary there is no frame at which
+   * the position changes discontinuously. It also needs no JavaScript at all,
+   * which is why this is the one rule in this block with no `.js` gate — a
+   * visitor whose chunk never arrives gets the drift too, correctly placed.
+   *
+   * `cover` is the whole time the element intersects the scrollport, which is
+   * the range the island asked for as `["start end", "end start"]`. Longhands
+   * rather than the shorthand, because `animation:` resets `animation-timeline`
+   * to `auto` and would silently turn this back into a time-based animation.
+   *
+   * 80px each way, which is half of Chimera's ±160. It runs a pair of columns
+   * against each other and this strip has no partner to play against; the full
+   * travel on a lone element reads as the page having lost its place.
+   *
+   * Where `view()` is unsupported the element simply sits still, which is the
+   * correct thing for it to do.
+   */
+  @supports (animation-timeline: view()) {
+    @keyframes parallax-drift {
+      from {
+        transform: translateY(80px);
+      }
+      to {
+        transform: translateY(-80px);
+      }
+    }
+
+    [data-parallax] {
+      animation-name: parallax-drift;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: view();
+      animation-range: cover;
+    }
+  }
 }

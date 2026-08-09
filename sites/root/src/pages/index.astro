@@ -5,7 +5,6 @@ import Faq from "@bykami/ui/Faq.astro";
 import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import SectionHeader from "@bykami/ui/SectionHeader.astro";
 import ImageReveal from "@bykami/ui/motion/ImageReveal";
-import Parallax from "@bykami/ui/motion/Parallax";
 import Reveal from "@bykami/ui/motion/Reveal";
 import TextReveal from "@bykami/ui/motion/TextReveal";
 
@@ -183,17 +182,17 @@ const teamPosts: Post[] = [
      */}
     {/*
      * The full treatment, on the one image that can carry it: below the fold,
-     * lazy, and not the LCP element. Parallax outside ImageReveal so the drift
-     * moves the clipping box and the resolve happens inside it — nesting them
-     * the other way would have the spring fighting the scroll transform on the
-     * same node.
+     * lazy, and not the LCP element.
      *
-     * Drifting up at half strength. Chimera runs its pair at ±160px against
-     * each other, and this strip has no partner column to play against; 80px of
-     * travel on a 12:5 band reads as depth, where the full 160 on a lone
-     * element reads as the page having lost its place.
+     * The drift is on the outer element and the resolve on the inner one, so
+     * the scroll transform moves the clipping box while the spring plays out
+     * inside it. Two elements rather than one on purpose — a single node
+     * carrying both would have the two transforms overwriting each other.
+     *
+     * The drift itself is a plain CSS rule keyed off `data-parallax`; see
+     * tokens.css for the travel distance and for why it is no longer an island.
      */}
-    <Parallax client:visible={{ rootMargin: "200px" }} direction="up" strength={0.5}>
+    <div data-parallax>
       <ImageReveal client:visible={{ rootMargin: "200px" }} className="strip">
         <img
           src="/img/tim-02.jpg"
@@ -204,7 +203,7 @@ const teamPosts: Post[] = [
           decoding="async"
         />
       </ImageReveal>
-    </Parallax>
+    </div>
   </section>
 
   <InstagramPosts
