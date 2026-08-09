@@ -1,48 +1,140 @@
 import type { Vertical } from "../schema.ts";
-import { blocked } from "../sourced.ts";
+import { blocked, unverified, verified } from "../sourced.ts";
 
 /**
  * Dimsamcong — the F&B vertical.
  *
- * There is no source material for this business anywhere in the project. The
- * other three verticals have owner PDFs; this one has an Instagram mention and
- * nothing else. So every fact is `blocked`, the menu is empty, and the site will
- * render a real but small page rather than an empty menu table.
+ * Unlike the other three, this is not a by KAMI brand. Dimsamcong is an existing
+ * Jember business; by KAMI runs its Banyuwangi branch (owner, 2026-08-09). The
+ * brand's own outlets — Jl. Sumatra, PB Sudirman, Pasar Sabtuan, Mastrip, Roxy,
+ * Bondowoso, Kalisat — belong to the franchisor, not to this property, so they
+ * are recorded here as context and never published as this vertical's locations.
+ *
+ * That ownership split is why the copy says by KAMI *runs the outlet* rather
+ * than that Dimsamcong is *part of* by KAMI, and why every field here is careful
+ * to describe the branch and not the brand.
+ *
+ * The outlet shares premises with studio by KAMI in Jajag, which is what opened
+ * the address, the location FAQ, and with them the `LocalBusiness` block.
+ *
+ * There is still no menu source anywhere in the project, so `offerings` is empty
+ * and the page stays deliberately small rather than padded with invented dishes.
  *
  * Spelling is "Dimsamcong" throughout, matching README.md and
  * design/platform-architecture.md.
  */
 export const dimsamcong: Vertical = {
   id: "dimsamcong",
-  displayName: "Dimsamcong",
+  /**
+   * The outlet, not the brand. `organizationLd` names this node and hands it
+   * `parentOrganization: bykami.id`, so "Dimsamcong" alone published the claim
+   * that the Jember brand is a by KAMI subsidiary. Naming the branch by KAMI
+   * actually runs makes that claim true as written.
+   */
+  displayName: "Dimsamcong Banyuwangi",
   hostname: "dimsamcong.bykami.id",
-  tagline: "Dimsum di Banyuwangi",
+  tagline: "Dimsum di Jajag, Banyuwangi",
   description:
-    "Dimsamcong — dimsum dan makanan ringan di Banyuwangi, bagian dari by KAMI.",
+    "Dimsamcong — dimsum dan makanan ringan di Jajag, Banyuwangi. Outlet yang dijalankan oleh by KAMI, satu lokasi dengan studio by KAMI.",
   schemaType: "Restaurant",
   /**
-   * Held back deliberately. Every fact on this property is still `blocked` and
-   * `offerings` is empty, so the page has nothing a searcher could want. Letting
-   * it in would trade a permanent thin-content judgement for zero traffic.
-   * Flip this in the same commit that lands the menu.
+   * Held back deliberately, and now for one reason rather than several. The
+   * address and the location FAQ are answered, so the page is no longer empty —
+   * but `offerings` is still empty, and a Restaurant with no menu is the thin
+   * page a searcher bounces off. Flip this in the same commit that lands the
+   * menu, not before.
    */
   indexable: false,
 
   nap: {
-    legalName: "Dimsamcong",
-    displayName: "Dimsamcong",
-    address: blocked("No outlet address recorded anywhere in the project."),
+    /**
+     * The trade name, not a registered company — the entity that operates the
+     * outlet has never been recorded. That follows `studio.ts`, where `legalName`
+     * is likewise the name over the door, and it is the branch rather than the
+     * brand for the same reason `displayName` is.
+     */
+    legalName: "Dimsamcong Banyuwangi",
+    displayName: "Dimsamcong Banyuwangi",
+    /**
+     * The same premises as studio by KAMI — owner, 2026-08-09, and the one fact
+     * two independent Instagram sources agree on: @culinary.mince announced the
+     * opening "di depan studio by KAMI", and the outlet's own account gives its
+     * location as "barat NEW Surya Hotel, Jajag".
+     *
+     * Copied from `studio.ts` rather than shared, because these are two
+     * businesses that happen to sit at one address, not one address used twice —
+     * either could move without the other. If one does move, this comment is how
+     * the next person finds the other copy.
+     *
+     * Still no postal code, for the same reason as the studio: it is printed
+     * nowhere and a guessed one is a fake.
+     */
+    address: verified(
+      {
+        streetAddress: "Jalan Yos Sudarso, Jajag Barat (Hotel Surya)",
+        addressLocality: "Jajag, Gambiran",
+        addressRegion: "Banyuwangi, Jawa Timur",
+        addressCountry: "ID" as const,
+      },
+      "owner, 2026-08-09 — same premises as studio by KAMI",
+    ),
     mapsUrl: blocked("No Google Maps link."),
-    openingHours: blocked("Opening hours unknown."),
-    whatsapp: blocked("No contact number recorded for the F&B vertical."),
+    openingHours: blocked(
+      "The brand account says \"BUKA SETIAP HARI BANGET\", which is a slogan and not hours. The outlet's own account lists none.",
+    ),
+    /**
+     * @dimsamcong.jajag lists 0811-222-521. Held back until the owner says it is
+     * the line by KAMI actually answers for this outlet — `StickyBar` turns this
+     * field into a WhatsApp button, so a wrong number is a customer sent
+     * somewhere else. (The brand account's 0811-311-1888-1 is the franchisor's
+     * and is not a candidate.)
+     */
+    whatsapp: blocked("0811-222-521 is listed by the outlet's account but is not owner-confirmed."),
     bookingUrl: blocked("Not applicable until ordering exists."),
   },
 
   social: {
-    instagram: blocked(
-      "The vertical is known to have an Instagram account, but no handle was ever recorded.",
+    /**
+     * The outlet's own account, not the brand's. @dimsamcong.idn is the
+     * franchisor — its bio lists the Jember outlets and a different WhatsApp —
+     * and this field is an identity claim in two renderers (`Footer.astro` links
+     * it `rel="me"`, `jsonld.ts` would publish it as `sameAs`), so pointing it at
+     * the franchisor would hand this property's authority to another business.
+     *
+     * @dimsamcong.jajag is the right account — full name "DIMSAMCONG JAJAG
+     * BANYUWANGI", bio "Part of @dimsamcong.idn", location "barat NEW Surya
+     * Hotel". Unverified rather than verified because it was read off Instagram
+     * on 2026-08-09, not confirmed by the owner, which keeps it out of `sameAs`
+     * while still linking it for a human.
+     */
+    instagram: unverified(
+      "dimsamcong.jajag",
+      "read off https://www.instagram.com/dimsamcong.jajag/ on 2026-08-09 — profile names the Jajag outlet and credits @dimsamcong.idn as the brand",
     ),
     tiktok: blocked("Owner has not said whether a TikTok account exists."),
+    /**
+     * Owner-supplied permalinks, so the curation is confirmed even though two of
+     * the three are other people's posts — @culinary.mince covering the opening
+     * and @dimsamcong.jajag's own. Captions are trimmed from the real ones and
+     * drop the hashtag tails; the buy-1-get-1 in the opening post is deliberately
+     * left out, being a dated promo that has long since expired.
+     */
+    posts: verified(
+      [
+        {
+          kind: "p" as const,
+          shortcode: "DaotxbWzXnS",
+          caption: "Dimsamcong buka di Jajag, tepat di depan studio by KAMI.",
+        },
+        { kind: "p" as const, shortcode: "DauHblpPrS5" },
+        {
+          kind: "p" as const,
+          shortcode: "DboFBxZk6ls",
+          caption: "Dimsamcong resmi hadir di Banyuwangi — dimsum dan mentai.",
+        },
+      ],
+      "owner, 2026-08-09 — supplied these three permalinks",
+    ),
   },
 
   brand: {
@@ -72,7 +164,10 @@ export const dimsamcong: Vertical = {
       id: "lokasi-dimsamcong",
       question: "Di mana lokasinya?",
       topic: "location",
-      answer: blocked("Outlet address unknown."),
+      answer: verified(
+        "Di Jalan Yos Sudarso, Jajag Barat, Gambiran, Banyuwangi — sebelah barat Hotel Surya, satu lokasi dengan studio by KAMI.",
+        "owner, 2026-08-09 — same premises as studio by KAMI",
+      ),
     },
     {
       id: "delivery-dimsamcong",
