@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    /*
+     * The islands are authored against the React API and run on Preact.
+     *
+     * `jsxImportSource` sends JSX to `preact/jsx-runtime`, and the two `paths`
+     * entries point the literal `import ... from "react"` in these components —
+     * and, more to the point, the same imports inside `motion/react` itself —
+     * at `preact/compat`. Vite is told the same thing by `preact({ compat:
+     * true })` in each site's config; this file is what makes the types agree
+     * with what the bundler is already doing.
+     *
+     * The components keep importing from "react" rather than from
+     * "preact/compat" directly. Motion's own imports have to be aliased no
+     * matter what, so aliasing is load-bearing either way, and writing the
+     * standard name keeps them readable to anyone who knows the React API.
+     */
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "baseUrl": ".",
+    "paths": {
+      "react": ["./node_modules/preact/compat/"],
+      "react-dom": ["./node_modules/preact/compat/"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

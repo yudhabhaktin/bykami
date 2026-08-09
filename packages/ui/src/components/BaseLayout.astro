@@ -73,22 +73,24 @@ const blocks = pageLd(vertical, trail);
 
     <JsonLd blocks={blocks} />
 
-    <style is:global>
-      /*
-       * Self-hosted rather than Google's CDN: avoids a third-party connection and
-       * a render-blocking request on a page whose entire point is fast, crawlable
-       * HTML. Files are fetched by `pnpm fonts` into each site's public/fonts.
-       * Until they exist the stack falls back to the system sans, which is why
-       * the fallback in --font-sans is a real stack and not a bare serif.
-       */
-      @font-face {
-        font-family: "Plus Jakarta Sans";
-        src: url("/fonts/plus-jakarta-sans-variable.woff2") format("woff2-variations");
-        font-weight: 200 800;
-        font-style: normal;
-        font-display: swap;
-      }
-    </style>
+    {/*
+      Marks the document as scripted, before first paint.
+
+      tokens.css hides anything carrying `data-reveal` behind `.js`, so this one
+      line is what decides whether a visitor sees an animated page or simply a
+      visible one. It has to be inline and it has to be here: a deferred or
+      bundled script runs after the first paint, which would show every reveal
+      target at full opacity and then blink it away as the class landed.
+
+      `set:html` because Astro would otherwise process this as a module and
+      defer it, which is exactly the timing this needs to avoid.
+
+      The font itself is no longer declared here. Its @font-face sits in
+      tokens.css beside the --font-sans that names it, with a relative URL the
+      bundler resolves — see fonts/README.md for why the rule that used to live
+      here never actually loaded anything.
+    */}
+    <script is:inline set:html="document.documentElement.classList.add('js')" />
   </head>
 
   <body>

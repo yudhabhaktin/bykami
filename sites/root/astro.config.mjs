@@ -1,4 +1,4 @@
-import react from "@astrojs/react";
+import preact from "@astrojs/preact";
 import sitemap from "@astrojs/sitemap";
 import { brandAssets } from "@bykami/ui/brand";
 import { pagesHeaders } from "@bykami/ui/headers";
@@ -9,7 +9,7 @@ import { defineConfig } from "astro/config";
 // domain and cutover is a DNS change rather than a content migration.
 export default defineConfig({
   site: "https://bykami.id",
-  integrations: [react(), sitemap(), brandAssets(), pagesHeaders("root")],
+  integrations: [preact({ compat: true }), sitemap(), brandAssets(), pagesHeaders("root")],
   build: { inlineStylesheets: "always" },
   compressHTML: true,
 });

@@ -3,60 +3,122 @@
  *
  * Direction: light, single type family, opaque surfaces. Mobile-first at 390px.
  *
+ * Ported from the Chimera Framer project, which is the reference the owner
+ * chose. Every value below that carries a Chimera name — the five greys, the
+ * type ramp, the 24/48 gap pair, the 16/20 radii, the easing curve and its
+ * stagger steps — was read out of that project rather than invented here, so
+ * the two can be diffed later instead of argued about.
+ *
  * Deliberately not frosted glass. That treatment is cyclical — Vista Aero, iOS 7,
  * Big Sur, Liquid Glass — current for about three years each and then visibly
  * dated. What survives is the restraint underneath: near-neutral ground, one
  * hairline weight, muted secondary text, tight tracking on large headings,
- * generous whitespace.
+ * generous whitespace. Chimera agrees: it ships no shadow and no backdrop blur
+ * on any node of its home page.
  *
- * Two local reasons too: `backdrop-filter: blur()` forces layer compositing and
+ * One local reason too: `backdrop-filter: blur()` forces layer compositing and
  * costs scroll FPS on the mid-range Androids that dominate Indonesian traffic,
- * which threatens the Lighthouse target; and for a photo studio, translucent
- * chrome competes with the photography, which is the product.
+ * which threatens the Lighthouse target.
  */
 
+/*
+ * The family the whole system is set in. Relative URL on purpose — Vite
+ * resolves it while processing this stylesheet, hashes the file into `_astro/`
+ * and rewrites the reference, which is what makes it load in `astro dev` as
+ * well as in a build. See fonts/README.md for why latin alone, and for what was
+ * wrong with the rule this replaces.
+ */
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/geist-latin.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  /* Warm neutrals, not blue-tinted greys — they age better and flatter skin tones. */
-  --ground: #fafaf9;
+  /*
+   * Chimera's five greys, at its own values. Cooler than the warm neutrals this
+   * replaces — its ink is rgb(20, 24, 26), which carries a few points of blue
+   * rather than of red. The warm ground was chosen here to flatter skin tones,
+   * which mattered because the product is photography; the owner has taken that
+   * trade knowingly in exchange for matching the reference. Worth watching on
+   * the studio gallery, where portraits now sit on white rather than on #fafaf9.
+   */
+  --ground: #ffffff;
   --surface: #ffffff;
-  --line: rgba(10, 10, 10, 0.1);
-  --text: rgba(10, 10, 10, 0.92);
-  --muted: rgba(10, 10, 10, 0.6);
+  --line: rgb(212, 212, 212);
+  --text: rgb(20, 24, 26);
+  --muted: rgb(73, 73, 73);
+  /* Chimera's light-gray, for type that must recede behind --muted. */
+  --faint: rgb(173, 173, 173);
 
   /*
-   * Accent is blocked on the logo vector. Until it lands, the interface uses ink
-   * only — colour is meant to arrive from the photographs, never from chrome.
+   * Still ink only. Chimera is monochrome end to end — five greys and no hue
+   * anywhere — so the note that used to stand here, that colour should arrive
+   * from the photographs and never from chrome, survives the port unchanged.
    */
   --accent: var(--text);
 
-  --radius: 10px;
+  /* Chimera rounds cards at 16 and its largest surfaces at 20. */
+  --radius: 16px;
+  --radius-lg: 20px;
   --shadow: none;
 
   --font-sans:
-    "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    Roboto, sans-serif;
-
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-12: 3rem;
+    "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
 
   /*
-   * Section rhythm, and the one spacing value that is not a fixed step on the
-   * scale above. A flat 4rem was wrong at both ends: on a 390px phone it spends
-   * a third of a screen on gaps and pushes the price list below another scroll,
-   * and on desktop it is too tight to read as considered — the whitespace is
-   * what makes a page look expensive. Bellroy and Cowboy both scale this;
-   * Cowboy ships 2.5rem → 6.9rem.
-   *
-   * Fluid rather than a breakpoint because there is no width at which the gap
-   * should visibly jump, and a clamp is one line where a media query is five.
-   * Lower bound holds to ~570px, upper bound lands just past the 72rem wrap.
+   * The steps Chimera actually uses, in its own pixels. 24 and 48 carry the
+   * page — 75 and 60 nodes on its home page respectively — and the rest are
+   * detail spacing. Names are unchanged from the previous scale, and every
+   * value that had a name before keeps its pixel size, so no component had to
+   * be touched to re-space it; 10 and 20 are new because Chimera needs 40px and
+   * 80px and this scale had neither.
    */
-  --space-section: clamp(2.5rem, 7vw + 0.75rem, 6rem);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-20: 80px;
+
+  /*
+   * Section rhythm. Chimera pads every section 100px top and bottom and does
+   * not vary that by breakpoint — its phone layout keeps the full 100px and
+   * only drops the horizontal padding, 40px to 20px.
+   *
+   * Held to 72px at 390px rather than the flat 100. Two full 100px gaps plus a
+   * heading is most of a phone screen spent on nothing, and this traffic is
+   * overwhelmingly phones; the clamp reaches Chimera's 100px by 810px, which is
+   * its own tablet breakpoint, so every width it designed for gets its value.
+   */
+  --space-section: clamp(72px, 8vw + 40px, 100px);
+
+  /*
+   * Motion, read out of Chimera's node transitions.
+   *
+   * --ease-reveal is the curve on 14 of its appear effects, and it is the whole
+   * character of the thing: a hard-braking ease-out that covers most of the
+   * distance early and settles slowly. --ease-through is its symmetric curve,
+   * used where an element moves without arriving.
+   *
+   * The stagger steps are the delays it actually ships — 0, 70, 100, 150, 200ms
+   * — rather than a computed ramp. Kept as tokens so the CSS and the motion
+   * islands animate off one set of numbers instead of two that drift.
+   */
+  --ease-reveal: cubic-bezier(0.12, 0.23, 0.5, 1);
+  --ease-through: cubic-bezier(0.44, 0, 0.56, 1);
+  --dur-reveal: 0.6s;
+  --dur-ui: 0.4s;
+  --stagger-1: 0.07s;
+  --stagger-2: 0.1s;
+  --stagger-3: 0.15s;
+  --stagger-4: 0.2s;
 
   --tap: 44px;
   --bar-height: 64px;
@@ -73,13 +135,20 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/*
+ * Chimera's B16: 16px, 1.5em leading, -0.5px tracking. The tracking is stated
+ * in pixels and not in em because that is how the reference states it — on body
+ * copy the two are within a rounding error of each other, and matching the
+ * source makes the next diff against it readable.
+ */
 body {
   margin: 0;
   background: var(--ground);
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 16px;
-  line-height: 1.55;
+  line-height: 1.5;
+  letter-spacing: -0.5px;
   /* The sticky bar must never cover the last section. */
   padding-bottom: calc(var(--bar-height) + env(safe-area-inset-bottom, 0px));
 }
@@ -95,45 +164,80 @@ body {
   }
 }
 
+/*
+ * Chimera sets every heading in Geist 600, not 700. The weight is most of why
+ * its display type reads as expensive rather than loud: at 10rem, 700 is a slab
+ * and 600 still has counters.
+ */
 h1,
 h2,
-h3 {
+h3,
+h4 {
   margin: 0 0 var(--space-4);
-  font-weight: 700;
+  font-weight: 600;
   text-wrap: balance;
+}
+
+/*
+ * Display type needs more air under it than 16px. At the top of the h1 clamp
+ * the heading is over 100px tall and a --space-4 gap put the lede hard against
+ * its last baseline, which read as a caption that had slipped rather than as a
+ * subtitle.
+ */
+h1 {
+  margin-bottom: var(--space-8);
 }
 
 h1 {
   /*
-   * 36px is a heading size, not a display size — Cowboy reserves 2.25rem for
-   * section headers and gives its hero 3.75rem. Mobile deliberately stays at
-   * 36px: Indonesian headings run long ("Self photo studio di Banyuwangi"
-   * already takes two lines at 390px) and a larger size buys a third. All the
-   * growth happens above ~800px, where there is room for the page to open up.
+   * Chimera's Heading LG Hero: 10rem, -0.04em, 1em leading. 160px is a real
+   * display size and it is the single biggest reason its home page reads the
+   * way it does, so the top of this clamp is its number exactly.
    *
-   * Ratios rather than pixels so both track the clamp. -0.025em is exactly the
-   * -0.9px this rule set at 36px, and 1.1 lands within half a pixel of the 40px
-   * it replaces, so nothing moves at phone width.
+   * Neither end of the curve to it is, and for one reason at both ends:
+   * Chimera is an English agency site whose hero is a short phrase, and these
+   * four run a six-word Indonesian tagline through the same slot. At the floor,
+   * 38px holds "Studio foto, photobooth, dan kuliner di Banyuwangi" to four
+   * lines at 390px where 44px bought a fifth. At the top, the literal 10rem put
+   * that tagline across four lines of 131px at 1440 — taller than the viewport,
+   * with the lede pushed off the fold — so the slope is set to reach ~95px
+   * there and arrive at the reference's full 160px only past 2500px, where a
+   * long line finally fits on two.
+   *
+   * Restore `clamp(38px, 9vw + 2px, 160px)` for Chimera's own curve if the
+   * taglines are ever shortened to match the reference's.
    */
-  font-size: clamp(36px, 6vw + 8px, 76px);
-  line-height: 1.05;
-  letter-spacing: -0.035em;
+  font-size: clamp(38px, 5.5vw + 16px, 160px);
+  line-height: 1;
+  letter-spacing: -0.04em;
 }
 
 /*
- * Section headings were 24px and did not scale, which is half what the
- * photography reference gives them (48px desktop, 32px phone) and the reason
- * this page read as documentation rather than design. Ratios rather than pixels
- * so the whole rule tracks the clamp.
+ * Chimera's H64, clamped. Its phone breakpoint drops section headings to 40px
+ * — the H40 style, same 600 weight and -0.04em — so the floor here is that
+ * style rather than a shrunk version of the desktop one.
  *
  * Footer headings carry `.ui`, whose 14px wins on specificity, so they keep
- * their size and only inherit the tighter ratios — which at 14px is 16px of
- * leading rather than the 32px they had, and reads better in a narrow column.
+ * their size and only inherit the tighter ratios.
  */
 h2 {
-  font-size: clamp(32px, 3vw + 20px, 44px);
-  line-height: 1.15;
+  font-size: clamp(40px, 3vw + 28px, 64px);
+  line-height: 1.2;
   letter-spacing: -0.03em;
+}
+
+/* H32 on phones, H40 above — both Geist 600 at -0.04em with 1.4em leading. */
+h3 {
+  font-size: clamp(32px, 1.5vw + 26px, 40px);
+  line-height: 1.4;
+  letter-spacing: -0.04em;
+}
+
+/* H24. */
+h4 {
+  font-size: 24px;
+  line-height: 1.4;
+  letter-spacing: -0.04em;
 }
 
 p {
@@ -155,11 +259,17 @@ img {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Chimera pads its page 40px at desktop and 20px at phone. Fluid between the
+ * two rather than a breakpoint, for the same reason --space-section is: there
+ * is no width at which the gutter should visibly jump. Reaches 40px at 1333px,
+ * just past the 72rem wrap, so the widest layouts get its full gutter.
+ */
 .wrap {
   width: 100%;
   max-width: 72rem;
   margin-inline: auto;
-  padding-inline: var(--space-4);
+  padding-inline: clamp(20px, 3vw, 40px);
 }
 
 /*
@@ -235,69 +345,110 @@ img {
 }
 
 /*
- * Section entry reveal.
+ * Entry reveal — the hidden half.
  *
- * Scroll-driven, so it costs no JavaScript. Bellroy and Cowboy both do this
- * with a hand-rolled IntersectionObserver — neither ships an animation library
- * — but the CSS timeline did not exist when they built.
+ * The scroll-driven CSS reveal that used to live here is gone, and the motion
+ * islands in components/motion/ own the effect now. Both at once would have
+ * double-animated every section, and the two do not agree on shape: the CSS one
+ * was tied to scroll position and replayed whenever you scrolled back up, where
+ * Chimera's appear effect is a one-shot that fires at 50% visibility and stays
+ * done. The reference wins; that is what the port is for.
  *
- * Purely decorative: a section that does not fade in is simply a section that
- * is visible, which is the behaviour everywhere this is unsupported. So there
- * is no fallback path — Firefox has none at all, and Chrome/Edge below 115 and
- * Safari below 26 fall out of the @supports gate. The (animation-range) half of
- * that gate is load-bearing: it filters browsers that ship animation-timeline
- * without the range syntax, which would otherwise match here and animate wrong.
+ * What stays in CSS is the starting state, and the `.js` gate on it is the
+ * whole safety story. BaseLayout sets that class in an inline script in <head>,
+ * so it lands before first paint — no flash of hidden content — and it can only
+ * land if scripting is on. A crawler, a reader-mode pass, a phone whose JS
+ * chunk never arrives on 3G: none of them match `.js`, so none of them apply
+ * `opacity: 0`, and every one of them renders the page fully visible. The
+ * animation is decoration and is allowed to not happen; the words are not.
  *
- * The reduce block above cannot govern this on its own. It works by forcing
- * animation-duration to 0.01ms, and a scroll-driven animation has no duration —
- * progress comes from scroll position — so the override is a no-op against it.
- * Hence the explicit no-preference wrapper. Verified: under forced reduced
- * motion no animations are created at all and every section renders opaque.
+ * Once an island hydrates, motion writes inline styles that outrank this rule,
+ * and from that point the element's opacity is motion's to own.
+ *
+ * The reduce block above cannot govern this on its own — it caps durations, and
+ * an element sitting at opacity 0 with no animation attached has no duration to
+ * cap. Hence the explicit no-preference wrapper: under forced reduced motion
+ * the starting state is never applied at all, and every section renders opaque
+ * and still whether or not JavaScript ever runs. The islands agree from the
+ * other side — they read the same preference and mount without animating.
  */
 @media (prefers-reduced-motion: no-preference) {
-  @supports ((animation-timeline: view()) and (animation-range: entry)) {
-    @keyframes reveal-fade {
-      from {
-        opacity: 0;
-      }
-    }
+  /*
+   * Both halves of the starting state, not just the opacity.
+   *
+   * This rule is the animation's "from" keyframe, and that is a stronger claim
+   * than it looks. Motion applies its `initial` prop when the element mounts,
+   * and these elements mount before they are armed — so `initial` arrives one
+   * render too late and is ignored. Whatever the DOM says at the moment the
+   * effect triggers is what motion animates out of. Setting only `opacity: 0`
+   * here therefore produced a fade with no movement at all, which is a
+   * different and much cheaper-looking effect than the one being ported.
+   *
+   * Reveal sets --reveal-y per instance, so the four travel distances Chimera
+   * uses all come out of this one declaration.
+   */
+  .js [data-reveal] {
+    opacity: 0;
+    transform: translateY(var(--reveal-y, 24px));
+  }
 
-    @keyframes reveal-rise {
-      from {
-        transform: translate3d(0, 1rem, 0);
-      }
-    }
+  /*
+   * Chimera's four travel distances. Reveal picks one with `data-reveal-y` and
+   * its prop type admits nothing else, so these four rules are the whole set —
+   * 16 for small type, 24 for most blocks, 32 and 48 for whole sections and
+   * whatever should arrive last.
+   */
+  .js [data-reveal-y="16"] {
+    --reveal-y: 16px;
+  }
 
-    .section {
-      /*
-       * Longhands, not the `animation` shorthand. The shorthand does not carry
-       * animation-timeline, so it resets it — and this build's CSS minifier
-       * folds a following `animation-timeline: view()` back *into* the
-       * shorthand, emitting `animation: linear backwards reveal-fade view()`.
-       * Chrome rejects `view()` there and drops the whole declaration, so the
-       * reveal silently does not run. Authoring order alone does not survive
-       * minification; longhands do.
-       */
-      animation-name: reveal-fade, reveal-rise;
-      animation-duration: auto, auto;
-      animation-timing-function: linear;
-      animation-fill-mode: backwards;
-      animation-timeline: view(), view();
+  .js [data-reveal-y="32"] {
+    --reveal-y: 32px;
+  }
 
-      /*
-       * Cowboy desyncs its hero reveal by giving opacity and transform
-       * different durations (.85s against 1.15s) — the fade lands before the
-       * movement settles, and that lag is most of why it reads as expensive. A
-       * scroll-driven animation has no duration to vary, so the same shape
-       * comes from ending the fade earlier in the range than the rise.
-       *
-       * Both finish well inside `entry` so a section taller than the viewport
-       * still completes its reveal as it arrives, rather than dragging out
-       * across the whole scroll past it.
-       */
-      animation-range:
-        entry 0% entry 40%,
-        entry 0% entry 70%;
+  .js [data-reveal-y="48"] {
+    --reveal-y: 48px;
+  }
+
+  /*
+   * The same contract for images, at the values ImageReveal animates from
+   * rather than at zero — Chimera resolves a photograph from 50% and 110%, and
+   * this rule exists to make sure the frames before hydration look identical to
+   * the first frame after it.
+   */
+  .js [data-reveal-media] {
+    opacity: 0.5;
+    transform: scale(1.1);
+  }
+
+  /*
+   * Hero entry — the one reveal on these sites that is deliberately not an
+   * island.
+   *
+   * Everything below the fold can wait for JavaScript, because by the time you
+   * have scrolled to it the chunk has landed. The hero cannot: it is the first
+   * thing painted and, on every one of these four pages, the `h1` is the LCP
+   * element. Hanging it on a 26KB animation library behind a 57KB renderer
+   * means the largest text on the page stays blank until both arrive, which on
+   * the mid-range Android and the 4G this traffic actually runs on is most of a
+   * second of empty screen and a directly measurable LCP regression. No
+   * animation is worth buying with the metric the whole stack is tuned for.
+   *
+   * So it is keyframes, off the same tokens the islands use — the curve, the
+   * duration and the stagger steps are Chimera's, and the result is the same
+   * movement arriving at first paint for free. `backwards` fill holds the
+   * from-state during the delay, and the `.js` gate keeps the whole thing away
+   * from anyone whose JavaScript never ran, exactly as the island path does.
+   */
+  @keyframes enter-rise {
+    from {
+      opacity: 0;
+      transform: translateY(var(--enter-y, 24px));
     }
+  }
+
+  .js .enter {
+    animation: enter-rise var(--dur-reveal) var(--ease-reveal) var(--enter-delay, 0s)
+      backwards;
   }
 }

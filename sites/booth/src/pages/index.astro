@@ -4,6 +4,7 @@ import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
 import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import PriceList from "@bykami/ui/PriceList.astro";
+import Reveal from "@bykami/ui/motion/Reveal";
 
 const vertical = byId("booth");
 ---
@@ -13,28 +14,37 @@ const vertical = byId("booth");
   title="Sewa Photobooth Banyuwangi, Jember, Bondowoso — booth by KAMI"
   description="Sewa photobooth untuk acara sekolah, pernikahan, dan event. Paket unlimited photo, limited print, dan unlimited print dengan harga lengkap."
 >
+  {/* `.enter` is the CSS half of the reveal system — see tokens.css. */}
   <section class="wrap hero">
-    <h1>Photobooth untuk acaramu</h1>
-    <p class="lede">
+    <h1 class="enter" style="--enter-y: 32px">Photobooth untuk acaramu</h1>
+    <p class="lede enter" style="--enter-delay: 0.1s">
       Kami bawa photobooth ke lokasi acaramu di Banyuwangi, Jember, dan Bondowoso.
       Semua paket sudah termasuk backdrop standar dan desain frame.
     </p>
   </section>
 
-  <section class="wrap section">
-    <h2>Cocok untuk</h2>
-    <ul class="lines">
-      <li>
-        <strong>Acara sekolah</strong> — mengabadikan momen bersama teman-teman dan guru.
-      </li>
-      <li>
-        <strong>Pernikahan</strong> — kenangan bersama keluarga dan tamu di hari bahagia.
-      </li>
-      <li>
-        <strong>Event</strong> — pameran, konser, ulang tahun, sampai acara perusahaan.
-      </li>
-    </ul>
-  </section>
+  {/*
+   * This is the one section on the four sites with a bare `h2` rather than a
+   * SectionHeader, so it is also the one that does not inherit that component's
+   * reveal. Wrapped here so the page has no section that arrives differently
+   * from its neighbours.
+   */}
+  <Reveal client:visible={{ rootMargin: "200px" }}>
+    <section class="wrap section">
+      <h2>Cocok untuk</h2>
+      <ul class="lines">
+        <li>
+          <strong>Acara sekolah</strong> — mengabadikan momen bersama teman-teman dan guru.
+        </li>
+        <li>
+          <strong>Pernikahan</strong> — kenangan bersama keluarga dan tamu di hari bahagia.
+        </li>
+        <li>
+          <strong>Event</strong> — pameran, konser, ulang tahun, sampai acara perusahaan.
+        </li>
+      </ul>
+    </section>
+  </Reveal>
 
   <PriceList vertical={vertical} heading="Paket photobooth" />
 

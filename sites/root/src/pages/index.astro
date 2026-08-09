@@ -4,6 +4,10 @@ import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
 import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import SectionHeader from "@bykami/ui/SectionHeader.astro";
+import ImageReveal from "@bykami/ui/motion/ImageReveal";
+import Parallax from "@bykami/ui/motion/Parallax";
+import Reveal from "@bykami/ui/motion/Reveal";
+import TextReveal from "@bykami/ui/motion/TextReveal";
 
 const vertical = byId("root");
 const others = verticals.filter((v) => v.id !== "root");
@@ -84,9 +88,10 @@ const teamPosts: Post[] = [
    * carries the tagline instead, so the largest words on the page say what the
    * company does rather than repeat its name a third time.
    */}
+  {/* `.enter` is the CSS half of the reveal system — see tokens.css. */}
   <section class="wrap hero">
-    <h1>{vertical.tagline}</h1>
-    <p class="lede">{vertical.description}</p>
+    <h1 class="enter" style="--enter-y: 32px">{vertical.tagline}</h1>
+    <p class="lede enter" style="--enter-delay: 0.1s">{vertical.description}</p>
   </section>
 
   {/*
@@ -117,6 +122,14 @@ const teamPosts: Post[] = [
      * than showing who they are. These two are photographs of the same people
      * with no marketing type in them at all.
      */}
+    {/*
+     * Not wrapped in ImageReveal, and that is the point of the comment below
+     * about priority. This photograph is the LCP element on a phone, and the
+     * media reveal starts its subject at half opacity behind a hydration
+     * boundary — which would hand the metric to a JavaScript chunk for the sake
+     * of an effect on the one image that cannot afford it. The strip further
+     * down carries the treatment instead.
+     */}
     <figure class="plate">
       {/*
        * Eager and high priority: on a phone this is the largest thing above the
@@ -140,11 +153,25 @@ const teamPosts: Post[] = [
      * to: the caption on DZAFszjvvb6 says the thing a paragraph of agency copy
      * would have been trying to say.
      */}
+    {/*
+     * The one place the per-word text effect is used.
+     *
+     * Chimera reserves its tokenized reveal for the lines it wants read rather
+     * than scanned, and on this page that is the team's own sentence — it is
+     * the only display-sized copy below the fold, and the only line here nobody
+     * on this project wrote. Setting it a word at a time is the closest the
+     * type system gets to reading it aloud.
+     *
+     * `client:visible` and not `client:load`: it sits below two photographs, so
+     * the chunk has the whole first screen to arrive.
+     */}
     <blockquote class="pull">
-      <p>
-        Biasanya sibuk bikin momen indah buat orang lain, kali ini giliran memori
-        kami sendiri yang diabadikan.
-      </p>
+      <TextReveal
+        client:visible={{ rootMargin: "200px" }}
+        as="p"
+        stagger={0.05}
+        text="Biasanya sibuk bikin momen indah buat orang lain, kali ini giliran memori kami sendiri yang diabadikan."
+      />
       <cite class="muted ui">studio by KAMI, di Instagram</cite>
     </blockquote>
 
@@ -154,16 +181,30 @@ const teamPosts: Post[] = [
      * them into anything squarer would cut the ends off the line. Lazy: it sits
      * below the quote and nobody sees it before they scroll.
      */}
-    <figure class="strip">
-      <img
-        src="/img/tim-02.jpg"
-        alt="Tim studio by KAMI berpegangan tangan membentuk satu barisan panjang di tepi air Pulau Tabuhan"
-        width="1440"
-        height="600"
-        loading="lazy"
-        decoding="async"
-      />
-    </figure>
+    {/*
+     * The full treatment, on the one image that can carry it: below the fold,
+     * lazy, and not the LCP element. Parallax outside ImageReveal so the drift
+     * moves the clipping box and the resolve happens inside it — nesting them
+     * the other way would have the spring fighting the scroll transform on the
+     * same node.
+     *
+     * Drifting up at half strength. Chimera runs its pair at ±160px against
+     * each other, and this strip has no partner column to play against; 80px of
+     * travel on a 12:5 band reads as depth, where the full 160 on a lone
+     * element reads as the page having lost its place.
+     */}
+    <Parallax client:visible={{ rootMargin: "200px" }} direction="up" strength={0.5}>
+      <ImageReveal client:visible={{ rootMargin: "200px" }} className="strip">
+        <img
+          src="/img/tim-02.jpg"
+          alt="Tim studio by KAMI berpegangan tangan membentuk satu barisan panjang di tepi air Pulau Tabuhan"
+          width="1440"
+          height="600"
+          loading="lazy"
+          decoding="async"
+        />
+      </ImageReveal>
+    </Parallax>
   </section>
 
   <InstagramPosts
@@ -175,23 +216,43 @@ const teamPosts: Post[] = [
 
   <section class="wrap section">
     <SectionHeader heading="Usaha kami" label="Vertikal" />
+    {/*
+     * The stagger, at Chimera's own steps: 0, 0.1s, 0.2s across three tiles.
+     * The reference hand-sets these per element rather than computing a ramp,
+     * and three is exactly the count its own card rows use, so the delays are
+     * indexed off its list instead of multiplied out.
+     */}
     <ul class="grid">
       {
-        others.map((v) => (
-          <li class="card tile">
-            <h3>{v.displayName}</h3>
+        others.map((v, i) => (
+          <li>
             {/*
-             * The description rather than the tagline. Both are in the
-             * catalogue and they overlap — "Self photo studio di Banyuwangi"
-             * against "Self photo studio, photobox, dan pas foto di Jajag,
-             * Banyuwangi…" — so printing both put the same sentence on the card
-             * twice, once shorter. The longer one is the one that answers
-             * whether this is the business you were looking for.
+             * The card itself is the island, rather than something inside it.
+             * `.tile` is a flex column whose link is pushed to the bottom edge
+             * with `margin-top: auto`, so an extra wrapper between the two
+             * would take over as the flex child and drop every link back up
+             * against its paragraph.
              */}
-            <p class="muted">{v.description}</p>
-            <a class="ui go" href={`https://${v.hostname}`}>
-              Buka {v.hostname}
-            </a>
+            <Reveal
+              client:visible={{ rootMargin: "200px" }}
+              y={16}
+              delay={[0, 0.1, 0.2][i] ?? 0.2}
+              className="card tile"
+            >
+              <h3>{v.displayName}</h3>
+              {/*
+               * The description rather than the tagline. Both are in the
+               * catalogue and they overlap — "Self photo studio di Banyuwangi"
+               * against "Self photo studio, photobox, dan pas foto di Jajag,
+               * Banyuwangi…" — so printing both put the same sentence on the
+               * card twice, once shorter. The longer one is the one that
+               * answers whether this is the business you were looking for.
+               */}
+              <p class="muted">{v.description}</p>
+              <a class="ui go" href={`https://${v.hostname}`}>
+                Buka {v.hostname}
+              </a>
+            </Reveal>
           </li>
         ))
       }
@@ -236,11 +297,17 @@ const teamPosts: Post[] = [
     font-size: 14px;
   }
 
-  .strip {
+  /*
+   * `:global` because these two elements are rendered inside islands rather
+   * than by this template, so Astro's scoping attribute never reaches them and
+   * a plain `.strip` would match nothing. The class names stay as they were —
+   * the selectors are what had to change, not the markup's vocabulary.
+   */
+  :global(.strip) {
     margin: var(--space-8) 0 0;
   }
 
-  .strip img {
+  :global(.strip img) {
     display: block;
     width: 100%;
     height: auto;
@@ -255,7 +322,7 @@ const teamPosts: Post[] = [
     max-width: 30ch;
   }
 
-  .pull p {
+  .pull :global(p) {
     margin: 0 0 var(--space-3);
     font-size: clamp(22px, 1.6vw + 16px, 30px);
     line-height: 1.25;
@@ -295,25 +362,33 @@ const teamPosts: Post[] = [
     }
   }
 
-  .tile {
+  /*
+   * `:global` for the same reason `.strip` is — the tile is rendered by an
+   * island now, so the scoping attribute never lands on it. `height: 100%` is
+   * new and load-bearing: the `li` is the grid item and stretches to the row,
+   * and without this the card inside it would only be as tall as its own text,
+   * leaving three cards of different heights in a row that used to be even.
+   */
+  :global(.tile) {
     display: flex;
     flex-direction: column;
+    height: 100%;
     padding: var(--space-6);
   }
 
-  h3 {
+  :global(.tile h3) {
     margin-bottom: var(--space-2);
     font-size: 20px;
     letter-spacing: -0.02em;
   }
 
-  .tile p {
+  :global(.tile p) {
     /* The global 68ch measure is wider than the column, so it never applies. */
     margin-bottom: var(--space-6);
     font-size: 15px;
   }
 
-  .tile a {
+  :global(.tile a) {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
@@ -327,23 +402,24 @@ const teamPosts: Post[] = [
    * Drawn rather than typed, so it cannot be read out as the word "arrow" by a
    * screen reader announcing the link.
    */
-  .go::after {
+  :global(.go::after) {
     content: "";
     width: 0.5em;
     height: 0.5em;
     border-top: 1.5px solid currentColor;
     border-right: 1.5px solid currentColor;
     transform: rotate(45deg);
-    transition: transform 0.15s ease;
+    /* Chimera's UI transition: 0.4s, its own curve. */
+    transition: transform var(--dur-ui) var(--ease-reveal);
   }
 
-  .tile a:hover,
-  .tile a:focus-visible {
+  :global(.tile a:hover),
+  :global(.tile a:focus-visible) {
     text-decoration: underline;
     text-underline-offset: 4px;
   }
 
-  .tile:hover .go::after {
+  :global(.tile:hover .go::after) {
     transform: rotate(45deg) translate(2px, -2px);
   }
 </style>
