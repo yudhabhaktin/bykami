@@ -1,10 +1,75 @@
 ---
-import { byId, verticals } from "@bykami/content";
+import { byId, valueOf, verticals, type Post } from "@bykami/content";
 import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
+import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
+import SectionHeader from "@bykami/ui/SectionHeader.astro";
 
 const vertical = byId("root");
 const others = verticals.filter((v) => v.id !== "root");
+
+/**
+ * The account these reels belong to.
+ *
+ * bykami.id has no Instagram of its own — the owner confirmed there is no group
+ * account on 2026-08-09, which matches what is registered: `@bykami.id` exists
+ * with nothing posted to it, and `@bykami` belongs to somebody else. So the
+ * handle is read off the studio, where it is owner-confirmed, rather than
+ * written here as a second copy that could drift from it. Everything below is
+ * credited to that account on the page, because a group root showing a
+ * vertical's feed unlabelled is a small lie about who made the work.
+ */
+const studio = byId("studio");
+const studioHandle = studio.social?.instagram ? valueOf(studio.social.instagram) : undefined;
+
+/**
+ * The team's own outings, from studio by KAMI's Instagram.
+ *
+ * Owner-supplied, 2026-08-09, as nine permalinks. Six were on `@studiobykami`
+ * and three on staff's personal accounts — `@bahtyarsfyn_`, `@ddnappn`,
+ * `@rama_bareng29` — and the personal three are deliberately not here. An embed
+ * is a live window into someone else's account: if that person deletes the post
+ * or goes private, this page grows a dead box, and nobody on the team should
+ * have to keep a holiday photo public because the company homepage depends on
+ * it. The owner chose the company account only.
+ *
+ * Three of the remaining six, which is the count the studio page settled on for
+ * both Instagram and TikTok: enough to show the account is alive, few enough
+ * that the script and its iframes stay off the critical path.
+ *
+ * Of the three left out — `DX6WZo8POuM` is the still above, and running the reel
+ * as well would show one beach twice; `DNf-TNfP0dN` is already on
+ * studio.bykami.id as a TikTok, and its caption still gives the address as
+ * Wringinagung, the village the owner corrected to Jajag; `DV58w1Sj7pv` is a
+ * Lebaran package promo, which is selling, and selling belongs on the vertical
+ * that does the work.
+ *
+ * `kind` is "reel" for all three and that is not cosmetic — Instagram serves
+ * these under /reel/ and a /p/ permalink is the wrong URL for the embed. The
+ * owner sent /p/ links, which is what the share sheet copies; each was resolved
+ * against its canonical og:url before being written down.
+ *
+ * Captions are each post's own first sentence, trimmed of the hashtag block the
+ * way the studio's are — a fallback line is read by crawlers and by anyone the
+ * embed never loads for, and a wall of tags tells them nothing.
+ */
+const teamPosts: Post[] = [
+  {
+    kind: "reel",
+    shortcode: "DZAFszjvvb6",
+    caption: "Menikmati jernihnya Menjangan dan tenangnya Tabuhan bareng tim.",
+  },
+  {
+    kind: "reel",
+    shortcode: "DXw0p3OP--A",
+    caption: "Menemukan inspirasi di setiap sudut Banyuwangi — Holiday Edition Part I.",
+  },
+  {
+    kind: "reel",
+    shortcode: "DX3tMwUP4Co",
+    caption: "Terima kasih untuk kerja kerasnya, Team — Holiday Edition Part II.",
+  },
+];
 ---
 
 <BaseLayout
@@ -12,20 +77,119 @@ const others = verticals.filter((v) => v.id !== "root");
   title="bykami — studio foto, photobooth, dan kuliner di Banyuwangi"
   description="bykami menaungi studio by KAMI, booth by KAMI, dan Dimsamcong di Banyuwangi, Jawa Timur."
 >
+  {/*
+   * The wordmark used to be the whole h1, at a size that clamps to 76px — a
+   * logo, set in the one slot on the page that tells a search engine what this
+   * site is for. It is already in the nav and in the footer. The heading now
+   * carries the tagline instead, so the largest words on the page say what the
+   * company does rather than repeat its name a third time.
+   */}
   <section class="wrap hero">
-    <h1>bykami</h1>
+    <h1>{vertical.tagline}</h1>
     <p class="lede">{vertical.description}</p>
   </section>
 
+  {/*
+   * People before packages, which is the owner's call and is right for this
+   * page specifically: bykami.id sells nothing itself. Three tiles handing off
+   * to three sites is a switchboard, and a switchboard is not a reason to
+   * remember a brand. The verticals below do the selling, and the nav has
+   * carried links to all three since the first build, so nothing is buried by
+   * putting the people first.
+   */}
   <section class="wrap section">
-    <h2>Usaha kami</h2>
+    <SectionHeader heading="Orang-orang di balik bykami" label="Tim" />
+
+    {/*
+     * Both frames were cut out of collages.
+     *
+     * The album these came from is twenty scrapbook layouts — handwriting,
+     * polaroid borders, torn paper — and as whole frames they are unusable on a
+     * page built on restraint. But several of them are a clean photograph with
+     * decoration arranged around it, and the photograph can be lifted back out.
+     * Cropped in a browser at exact pixel bounds rather than by eye, so what is
+     * here is the photographer's frame with the scrapbook removed, not a
+     * screenshot of someone's layout.
+     *
+     * This is why the reel cover that used to sit here is gone. It was sharper —
+     * 2305 × 4096 against 1354 — but its subject was a printed holiday banner
+     * held up to the camera, which announces "our staff went on a trip" rather
+     * than showing who they are. These two are photographs of the same people
+     * with no marketing type in them at all.
+     */}
+    <figure class="plate">
+      {/*
+       * Eager and high priority: on a phone this is the largest thing above the
+       * fold and therefore the LCP element.
+       */}
+      <img
+        src="/img/tim-01.jpg"
+        alt="Sebelas orang tim studio by KAMI berpose di bawah papan kayu bertuliskan Tabuhan Island Banyuwangi, di pantai berpasir putih"
+        width="1354"
+        height="1026"
+        loading="eager"
+        fetchpriority="high"
+        decoding="async"
+      />
+      <figcaption class="muted">Libur tim di Pulau Tabuhan, 2026.</figcaption>
+    </figure>
+
+    {/*
+     * Their sentence, not one written for them. This repo has no business
+     * inventing a culture statement on the owner's behalf, and it does not have
+     * to: the caption on DZAFszjvvb6 says the thing a paragraph of agency copy
+     * would have been trying to say.
+     */}
+    <blockquote class="pull">
+      <p>
+        Biasanya sibuk bikin momen indah buat orang lain, kali ini giliran memori
+        kami sendiri yang diabadikan.
+      </p>
+      <cite class="muted ui">studio by KAMI, di Instagram</cite>
+    </blockquote>
+
+    {/*
+     * A 12:5 strip, which is the shape the photograph already is rather than a
+     * crop imposed on it — eleven people in a line need the width, and boxing
+     * them into anything squarer would cut the ends off the line. Lazy: it sits
+     * below the quote and nobody sees it before they scroll.
+     */}
+    <figure class="strip">
+      <img
+        src="/img/tim-02.jpg"
+        alt="Tim studio by KAMI berpegangan tangan membentuk satu barisan panjang di tepi air Pulau Tabuhan"
+        width="1440"
+        height="600"
+        loading="lazy"
+        decoding="async"
+      />
+    </figure>
+  </section>
+
+  <InstagramPosts
+    vertical={vertical}
+    posts={teamPosts}
+    handle={studioHandle}
+    heading="Keseharian tim"
+  />
+
+  <section class="wrap section">
+    <SectionHeader heading="Usaha kami" label="Vertikal" />
     <ul class="grid">
       {
         others.map((v) => (
           <li class="card tile">
             <h3>{v.displayName}</h3>
-            <p class="muted">{v.tagline}</p>
-            <a class="ui" href={`https://${v.hostname}`}>
+            {/*
+             * The description rather than the tagline. Both are in the
+             * catalogue and they overlap — "Self photo studio di Banyuwangi"
+             * against "Self photo studio, photobox, dan pas foto di Jajag,
+             * Banyuwangi…" — so printing both put the same sentence on the card
+             * twice, once shorter. The longer one is the one that answers
+             * whether this is the business you were looking for.
+             */}
+            <p class="muted">{v.description}</p>
+            <a class="ui go" href={`https://${v.hostname}`}>
               Buka {v.hostname}
             </a>
           </li>
@@ -47,6 +211,61 @@ const others = verticals.filter((v) => v.id !== "root");
     color: var(--muted);
   }
 
+  .plate {
+    margin: 0;
+  }
+
+  .plate img {
+    display: block;
+    width: 100%;
+    height: auto;
+    /*
+     * Stated on the box as well as on the element, so the space is reserved at
+     * the right shape before the JPEG arrives. The file is already 3:2, so this
+     * crops nothing; it exists to keep the section from reflowing on a slow
+     * connection, which is most of this traffic.
+     */
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: var(--radius);
+    background: var(--line);
+  }
+
+  figcaption {
+    margin-top: var(--space-3);
+    font-size: 14px;
+  }
+
+  .strip {
+    margin: var(--space-8) 0 0;
+  }
+
+  .strip img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 12 / 5;
+    object-fit: cover;
+    border-radius: var(--radius);
+    background: var(--line);
+  }
+
+  .pull {
+    margin: var(--space-8) 0 0;
+    max-width: 30ch;
+  }
+
+  .pull p {
+    margin: 0 0 var(--space-3);
+    font-size: clamp(22px, 1.6vw + 16px, 30px);
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  cite {
+    font-style: normal;
+  }
 
   .grid {
     display: grid;
@@ -62,21 +281,69 @@ const others = verticals.filter((v) => v.id !== "root");
     }
   }
 
+  /*
+   * Pushed off the left margin on wide screens, against the full-width picture
+   * above it. The reference this borrows from is asymmetric everywhere, and a
+   * quote centred under its own photograph is the one arrangement that reads as
+   * a caption rather than as a second voice.
+   */
+  @media (min-width: 960px) {
+    .pull {
+      margin-top: var(--space-12);
+      margin-left: auto;
+      max-width: 34ch;
+    }
+  }
+
   .tile {
     display: flex;
     flex-direction: column;
-    padding: var(--space-4);
+    padding: var(--space-6);
   }
 
   h3 {
     margin-bottom: var(--space-2);
-    font-size: 18px;
+    font-size: 20px;
+    letter-spacing: -0.02em;
+  }
+
+  .tile p {
+    /* The global 68ch measure is wider than the column, so it never applies. */
+    margin-bottom: var(--space-6);
+    font-size: 15px;
   }
 
   .tile a {
     display: inline-flex;
     align-items: center;
+    gap: var(--space-2);
     min-height: var(--tap);
+    /* Holds the link to the bottom edge however long the description runs. */
     margin-top: auto;
+    text-decoration: none;
+  }
+
+  /*
+   * Drawn rather than typed, so it cannot be read out as the word "arrow" by a
+   * screen reader announcing the link.
+   */
+  .go::after {
+    content: "";
+    width: 0.5em;
+    height: 0.5em;
+    border-top: 1.5px solid currentColor;
+    border-right: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+  }
+
+  .tile a:hover,
+  .tile a:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  .tile:hover .go::after {
+    transform: rotate(45deg) translate(2px, -2px);
   }
 </style>
