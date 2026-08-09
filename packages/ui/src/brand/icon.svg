@@ -1,5 +1,5 @@
 <!--
-  The bykami app icon. One mark for every surface: the four sites, the booth
+  The by KAMI app icon. One mark for every surface: the four sites, the booth
   screen, the operator console and the customer's download page.
 
   The camera mark from the "studio by KAMI" lockup, on its own. The lockup is
@@ -33,7 +33,7 @@
   it reads as a dark rounded square rather than as a camera. Not fixable
   without thickening strokes the logo does not have.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="bykami">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="by KAMI">
   <rect width="100" height="100" rx="22" fill="#1a1a1a"/>
   <g fill="#f6efe3">
     <!-- outer frame: uprights, top rail, and the two feet -->

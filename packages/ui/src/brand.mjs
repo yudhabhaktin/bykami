@@ -21,8 +21,8 @@ const ASSETS = ["icon.svg", "apple-touch-icon.png", "icon-512.png"];
 const MANIFEST =
   JSON.stringify(
     {
-      name: "bykami",
-      short_name: "bykami",
+      name: "by KAMI",
+      short_name: "by KAMI",
       icons: [
         { src: "/icon.svg", sizes: "any", type: "image/svg+xml" },
         { src: "/icon-512.png", sizes: "512x512", type: "image/png" },

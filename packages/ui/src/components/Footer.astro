@@ -7,6 +7,7 @@ import {
   verticals,
   type Vertical,
 } from "@bykami/content";
+import Mark from "./Mark.astro";
 
 interface Props {
   vertical: Vertical;
@@ -32,7 +33,10 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
   <div class="wrap">
     <div class="cols">
       <div class="lead">
-        <h2 class="brand">{vertical.displayName}</h2>
+        <h2 class="brand">
+          <Mark size={32} />
+          {vertical.displayName}
+        </h2>
         <p class="muted tagline">{vertical.tagline}</p>
         {
           (instagram || tiktok) && (
@@ -75,7 +79,7 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
       }
 
       <div>
-        <h2 class="eyebrow">bykami</h2>
+        <h2 class="eyebrow">by KAMI</h2>
         <ul>
           {
             others.map((v) => (
@@ -90,7 +94,7 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
       </div>
     </div>
 
-    <p class="muted fine">© {new Date().getFullYear()} bykami · Banyuwangi, Jawa Timur</p>
+    <p class="muted fine">© {new Date().getFullYear()} by KAMI · Banyuwangi, Jawa Timur</p>
   </div>
 </footer>
 
@@ -132,6 +136,9 @@ const tiktok = vertical.social?.tiktok ? valueOf(vertical.social.tiktok) : undef
    * the same parts as everything above it.
    */
   .brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
     font-size: 24px;
     font-weight: 700;
     line-height: 1.15;

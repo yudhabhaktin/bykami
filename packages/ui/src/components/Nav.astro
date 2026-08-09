@@ -1,5 +1,6 @@
 ---
 import { verticals } from "@bykami/content";
+import Mark from "./Mark.astro";
 
 /**
  * Cross-property navigation.
@@ -19,7 +20,15 @@ const home = verticals.find((v) => v.id === current)!;
 
 <header class="nav">
   <div class="wrap nav-inner">
-    <a href="/" class="brand">{home.displayName}</a>
+    {/*
+     * Mark and wordmark are one link, not two. They are the same target, and a
+     * second tab stop on the same destination is noise for anyone using the
+     * keyboard.
+     */}
+    <a href="/" class="brand">
+      <Mark size={28} />
+      {home.displayName}
+    </a>
     <nav aria-label="Vertikal lain">
       <ul>
         {
@@ -59,6 +68,8 @@ const home = verticals.find((v) => v.id === current)!;
    * Size is what says so.
    */
   .brand {
+    /* Display and centring come from the `a` rule below. */
+    gap: var(--space-2);
     font-size: 17px;
     font-weight: 700;
     letter-spacing: -0.02em;

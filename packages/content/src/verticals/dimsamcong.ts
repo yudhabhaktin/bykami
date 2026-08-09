@@ -18,7 +18,7 @@ export const dimsamcong: Vertical = {
   hostname: "dimsamcong.bykami.id",
   tagline: "Dimsum di Banyuwangi",
   description:
-    "Dimsamcong — dimsum dan makanan ringan di Banyuwangi, bagian dari bykami.",
+    "Dimsamcong — dimsum dan makanan ringan di Banyuwangi, bagian dari by KAMI.",
   schemaType: "Restaurant",
   /**
    * Held back deliberately. Every fact on this property is still `blocked` and

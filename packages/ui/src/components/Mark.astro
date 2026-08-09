@@ -1,0 +1,55 @@
+---
+import iconSvg from "../brand/icon.svg?raw";
+
+/**
+ * The camera mark, inline.
+ *
+ * Not `<img src="/icon.svg">`. `brand.mjs` only writes that file into `dist/`
+ * at `astro:build:done`, so a src reference is a broken image for the whole of
+ * `astro dev` — and inlining spares a request on pages whose entire point is
+ * fast, crawlable HTML.
+ *
+ * Read out of the same file the favicon is copied from, so the mark still lives
+ * in exactly one place. See brand/README.md, which is emphatic that a logo kept
+ * in a dozen places ends up half-replaced.
+ *
+ * The rationale block at the top of that file is stripped: it is a page of prose
+ * about the geometry, and it would otherwise ship in the markup of every page on
+ * all four sites.
+ */
+const mark = iconSvg.replace(/^<!--[\s\S]*?-->\s*/, "");
+
+interface Props {
+  /** Rendered edge length in px. The mark is a square tile. */
+  size: number;
+}
+
+const { size } = Astro.props;
+---
+
+{/*
+ * aria-hidden because both callers sit the mark directly beside the wordmark,
+ * which already says the name. The SVG carries its own aria-label, so without
+ * this a screen reader announces the brand twice for one link.
+ */}
+<span class="mark" aria-hidden="true" style={`--mark-size: ${size}px`} set:html={mark} />
+
+<style>
+  .mark {
+    display: block;
+    /* Never let the tile squash when the flex row runs out of room. */
+    flex: none;
+    width: var(--mark-size);
+    height: var(--mark-size);
+  }
+
+  /*
+   * The injected SVG never passes through the scoper, so it carries no scope
+   * attribute and a bare `.mark svg` would not match it.
+   */
+  .mark :global(svg) {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>
