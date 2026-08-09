@@ -576,7 +576,15 @@ img {
     }
 
     [data-parallax] {
-      --drift: 32px;
+      /*
+       * `--drift-scale` is how a caller asks for less than the full travel,
+       * rather than setting `--drift` outright: the distance is two numbers,
+       * one per breakpoint, and an element that hard-coded its own would lose
+       * the phone figure along with the clearance reasoning behind it. The
+       * booth's occasion row uses it to run its middle column at half rate, so
+       * the three cells drift against each other instead of as one slab.
+       */
+      --drift: calc(32px * var(--drift-scale, 1));
       /*
        * The travel, reserved as space.
        *
@@ -607,7 +615,7 @@ img {
 
     @media (min-width: 810px) {
       [data-parallax] {
-        --drift: 80px;
+        --drift: calc(80px * var(--drift-scale, 1));
       }
     }
   }
