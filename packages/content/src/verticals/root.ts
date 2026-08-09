@@ -14,11 +14,11 @@ import { blocked } from "../sourced.ts";
  */
 export const root: Vertical = {
   id: "root",
-  displayName: "bykami",
+  displayName: "by KAMI",
   hostname: "bykami.id",
   tagline: "Studio foto, photobooth, dan kuliner di Banyuwangi",
   description:
-    "bykami menaungi studio by KAMI, booth by KAMI, dan Dimsamcong di Banyuwangi, Jawa Timur.",
+    "by KAMI menaungi studio by KAMI, booth by KAMI, dan Dimsamcong di Banyuwangi, Jawa Timur.",
   schemaType: "Organization",
   indexable: true,
 
@@ -34,7 +34,7 @@ export const root: Vertical = {
   faqs: [
     {
       id: "apa-itu-bykami",
-      question: "Apa itu bykami?",
+      question: "Apa itu by KAMI?",
       topic: "booking",
       answer: blocked(
         "Platform positioning copy needs owner sign-off before it is published as fact.",
@@ -42,7 +42,7 @@ export const root: Vertical = {
     },
     {
       id: "berapa-usaha",
-      question: "Usaha apa saja yang ada di bawah bykami?",
+      question: "Usaha apa saja yang ada di bawah by KAMI?",
       topic: "booking",
       answer: blocked(
         "Three are operating, but whether all should be named publicly is the owner's call.",
@@ -58,13 +58,13 @@ export const root: Vertical = {
     },
     {
       id: "kontak-bykami",
-      question: "Bagaimana cara menghubungi bykami?",
+      question: "Bagaimana cara menghubungi by KAMI?",
       topic: "booking",
       answer: blocked("No platform-level contact route decided."),
     },
     {
       id: "lokasi-bykami",
-      question: "Di mana bykami beroperasi?",
+      question: "Di mana by KAMI beroperasi?",
       topic: "location",
       answer: blocked("Owner should confirm how broadly to claim coverage."),
     },
