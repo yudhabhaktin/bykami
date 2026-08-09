@@ -115,6 +115,14 @@
   --ease-through: cubic-bezier(0.44, 0, 0.56, 1);
   --dur-reveal: 0.6s;
   --dur-ui: 0.4s;
+  /*
+   * Chimera states its image effect as `spring-duration 1.5s 0 0s` — a spring
+   * described by how long it takes, with the bounce dialled to zero. A spring
+   * with no bounce is a hard ease-out and nothing more, so it is expressed here
+   * as the duration plus --ease-reveal rather than as physics that would need a
+   * solver to run.
+   */
+  --dur-media: 1.5s;
   --stagger-1: 0.07s;
   --stagger-2: 0.1s;
   --stagger-3: 0.15s;
@@ -345,57 +353,61 @@ img {
 }
 
 /*
- * Entry reveal — the hidden half.
+ * Entry reveal.
  *
- * The scroll-driven CSS reveal that used to live here is gone, and the motion
- * islands in components/motion/ own the effect now. Both at once would have
- * double-animated every section, and the two do not agree on shape: the CSS one
- * was tied to scroll position and replayed whenever you scrolled back up, where
- * Chimera's appear effect is a one-shot that fires at 50% visibility and stays
- * done. The reference wins; that is what the port is for.
+ * Three effects — a block that rises, a photograph that resolves, a line of
+ * type set a word at a time — and one mechanism under all three: an element
+ * starts in a from-state, an observer adds `.in` when it is worth animating,
+ * and a transition carries it to rest. Chimera's own curve, duration and
+ * stagger steps throughout, since they are already tokens above.
  *
- * What stays in CSS is the starting state, and the `.js` gate on it is the
- * whole safety story. BaseLayout sets that class in an inline script in <head>,
- * so it lands before first paint — no flash of hidden content — and it can only
- * land if scripting is on. A crawler, a reader-mode pass, a phone whose JS
- * chunk never arrives on 3G: none of them match `.js`, so none of them apply
- * `opacity: 0`, and every one of them renders the page fully visible. The
- * animation is decoration and is allowed to not happen; the words are not.
+ * This was Framer Motion islands and is now plain CSS, which is a reversal
+ * worth stating rather than burying. The reason is arithmetic: an island is a
+ * hydration root, and putting the effect on every card, every price, every FAQ
+ * row and every gallery cell meant going from eight roots on a page to roughly
+ * forty. The owner had already reported the motion lagging. Forty Preact roots
+ * and a 26KB animation library, on the mid-range Android this traffic runs on,
+ * to move some boxes 24px — the library was buying nothing that a transition
+ * does not already do, and was charging the metric this whole stack is tuned
+ * for. What it genuinely offered was scroll-linked physics, and the one place
+ * that was used is now a view timeline, which is better at it.
  *
- * Once an island hydrates, motion writes inline styles that outrank this rule,
- * and from that point the element's opacity is motion's to own.
+ * The `.js` gate is the whole safety story and is unchanged. BaseLayout sets
+ * that class in an inline script in <head>, so it lands before first paint — no
+ * flash of hidden content — and it can only land if scripting is on. A crawler,
+ * a reader-mode pass, a phone whose JS never arrives: none of them match `.js`,
+ * so none of them apply `opacity: 0`, and every one of them renders the page
+ * fully visible. The animation is decoration and is allowed to not happen; the
+ * words are not.
  *
  * The reduce block above cannot govern this on its own — it caps durations, and
- * an element sitting at opacity 0 with no animation attached has no duration to
- * cap. Hence the explicit no-preference wrapper: under forced reduced motion
- * the starting state is never applied at all, and every section renders opaque
- * and still whether or not JavaScript ever runs. The islands agree from the
- * other side — they read the same preference and mount without animating.
+ * an element sitting at opacity 0 with no transition attached has no duration
+ * to cap. Hence the explicit no-preference wrapper: under forced reduced motion
+ * the from-state is never applied at all, and the observer stands down as well,
+ * so every section renders opaque and still.
  */
 @media (prefers-reduced-motion: no-preference) {
   /*
-   * Both halves of the starting state, not just the opacity.
-   *
-   * This rule is the animation's "from" keyframe, and that is a stronger claim
-   * than it looks. Motion applies its `initial` prop when the element mounts,
-   * and these elements mount before they are armed — so `initial` arrives one
-   * render too late and is ignored. Whatever the DOM says at the moment the
-   * effect triggers is what motion animates out of. Setting only `opacity: 0`
-   * here therefore produced a fade with no movement at all, which is a
-   * different and much cheaper-looking effect than the one being ported.
-   *
-   * Reveal sets --reveal-y per instance, so the four travel distances Chimera
-   * uses all come out of this one declaration.
+   * The from-state, and both halves of it rather than just the opacity. An
+   * opacity-only reveal is a cross-fade, which is a different and much cheaper
+   * effect than the one being ported.
    */
   .js [data-reveal] {
     opacity: 0;
     transform: translateY(var(--reveal-y, 24px));
   }
 
+  .js [data-reveal].in {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity var(--dur-reveal) var(--ease-reveal) var(--reveal-delay, 0s),
+      transform var(--dur-reveal) var(--ease-reveal) var(--reveal-delay, 0s);
+  }
+
   /*
-   * Chimera's four travel distances. Reveal picks one with `data-reveal-y` and
-   * its prop type admits nothing else, so these four rules are the whole set —
-   * 16 for small type, 24 for most blocks, 32 and 48 for whole sections and
+   * Chimera's four travel distances, used structurally: 16 for small type and
+   * for items in a list, 24 for most blocks, 32 and 48 for whole sections and
    * whatever should arrive last.
    */
   .js [data-reveal-y="16"] {
@@ -411,14 +423,64 @@ img {
   }
 
   /*
-   * The same contract for images, at the values ImageReveal animates from
-   * rather than at zero — Chimera resolves a photograph from 50% and 110%, and
-   * this rule exists to make sure the frames before hydration look identical to
-   * the first frame after it.
+   * Photographs resolve rather than arrive: `opacity: .5, scale: 1.1` settling
+   * over Chimera's 1.5s. It never fades from zero, which matters on a page
+   * whose product is photography — the picture is legible for the whole of the
+   * animation, so the effect reads as a resolve and not as a loading state.
+   *
+   * The element carrying this must clip, or the 10% oversize pushes its
+   * neighbours around for a second and a half. Every caller does that on its
+   * own box because the same box already carries the radius.
    */
   .js [data-reveal-media] {
     opacity: 0.5;
     transform: scale(1.1);
+  }
+
+  .js [data-reveal-media].in {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity var(--dur-media) var(--ease-reveal) var(--reveal-delay, 0s),
+      transform var(--dur-media) var(--ease-reveal) var(--reveal-delay, 0s);
+  }
+
+  /*
+   * Type set a word at a time — Chimera's text effect, reserved for the lines
+   * it wants read rather than scanned.
+   *
+   * Two nested spans per word, both inline-block. The outer one is a mask: a
+   * word that has not arrived yet sits a full line below its own baseline and
+   * is clipped by the mask rather than floating loose under the paragraph.
+   * Without the mask this reads as text sliding around the page; with it, as
+   * text being set.
+   *
+   * `translateY(100%)` rather than a pixel figure, so the travel is one of the
+   * word's own line-heights at any type size. The reference states 120px, which
+   * is right for its 10rem hero and far too much for a 30px pull-quote.
+   *
+   * The padding/margin pair extends the clip box below the baseline without
+   * changing where anything sits, because `overflow: hidden` on a tight line
+   * box would otherwise cut the descenders off every g, j and y for the length
+   * of the animation.
+   */
+  .js [data-reveal-text] .tok {
+    display: inline-block;
+    overflow: hidden;
+    vertical-align: bottom;
+    padding-bottom: 0.16em;
+    margin-bottom: -0.16em;
+  }
+
+  .js [data-reveal-text] .tok > span {
+    display: inline-block;
+    transform: translateY(100%);
+  }
+
+  .js [data-reveal-text].in .tok > span {
+    transform: none;
+    transition: transform var(--dur-reveal) var(--ease-reveal)
+      calc(var(--tok, 0) * var(--tok-stagger, 0.05s));
   }
 
   /*
@@ -487,9 +549,18 @@ img {
    * rather than the shorthand, because `animation:` resets `animation-timeline`
    * to `auto` and would silently turn this back into a time-based animation.
    *
-   * 80px each way, which is half of Chimera's ±160. It runs a pair of columns
-   * against each other and this strip has no partner to play against; the full
-   * travel on a lone element reads as the page having lost its place.
+   * The travel is 80px each way, half of Chimera's ±160: it runs a pair of
+   * columns against each other and a lone element given the full distance reads
+   * as the page having lost its place rather than as depth.
+   *
+   * On a phone it is 32px, and that is a clearance figure rather than a taste
+   * one. A drift moves an element without moving the space reserved for it, so
+   * the travel has to fit inside the gap to its neighbours. Measured at 390px,
+   * ±80px left 9px between the strip and the next section's heading at one end
+   * of the range and overlapped the quote above it by 48px at the other — the
+   * section rhythm is 72px there and the strip itself only 146px tall. 810px is
+   * Chimera's own tablet breakpoint and where --space-section reaches its full
+   * 100px, so the full travel starts where the room for it does.
    *
    * Where `view()` is unsupported the element simply sits still, which is the
    * correct thing for it to do.
@@ -497,19 +568,47 @@ img {
   @supports (animation-timeline: view()) {
     @keyframes parallax-drift {
       from {
-        transform: translateY(80px);
+        transform: translateY(var(--drift));
       }
       to {
-        transform: translateY(-80px);
+        transform: translateY(calc(var(--drift) * -1));
       }
     }
 
     [data-parallax] {
+      --drift: 32px;
+      /*
+       * The travel, reserved as space.
+       *
+       * A drift moves an element without moving the room the layout gave it,
+       * so an element that travels 80px into a 32px gap lands in whatever is
+       * next to it. Measured at 1440 before this line, the strip overlapped the
+       * pull-quote above it by 4px at the point in the scroll where both are on
+       * screen — the drift runs upward as you scroll, straight at the neighbour
+       * it shares a section with. Reserving the travel on both edges leaves the
+       * gap at its designed size at every point in the range instead of only at
+       * the middle of it.
+       *
+       * `flow-root` is what makes that reservation actually hold. Without a
+       * block formatting context the child's own top margin collapses through
+       * this one rather than adding to it, so the two 32px margins on a phone
+       * came out as 32px total and the whole reservation was cancelled by the
+       * 32px of travel — the measured gap went from 9px to 8px, which is to
+       * say the fix did nothing at all until this line was added.
+       */
+      display: flow-root;
+      margin-block: var(--drift);
       animation-name: parallax-drift;
       animation-timing-function: linear;
       animation-fill-mode: both;
       animation-timeline: view();
       animation-range: cover;
+    }
+
+    @media (min-width: 810px) {
+      [data-parallax] {
+        --drift: 80px;
+      }
     }
   }
 }

@@ -49,7 +49,13 @@ const handle =
     <section class="wrap section" id="instagram-posts">
       <SectionHeader heading={heading} label="Instagram" />
 
-      <div class="grid">
+      {/*
+       * The reveal is on the grid, not on each blockquote, because embed.js
+       * replaces every blockquote with an iframe of its own — the element
+       * carrying the from-state would stop existing partway through the
+       * effect. The container survives, so the section arrives as one block.
+       */}
+      <div class="grid" data-reveal>
         {posts.map((p) => (
           <blockquote
             class="instagram-media"
@@ -69,7 +75,7 @@ const handle =
       </div>
 
       {handle && (
-        <p class="muted more">
+        <p class="muted more" data-reveal data-reveal-y="16">
           <a href={`https://www.instagram.com/${handle}/`} rel="me noopener">
             Lihat semua di Instagram @{handle}
           </a>

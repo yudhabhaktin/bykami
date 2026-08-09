@@ -90,12 +90,25 @@ const gallery = [
 
   <section class="wrap section">
     <SectionHeader heading="Cara kerjanya" label="Alur" />
+    {/*
+     * Five steps arriving in order, at Chimera's own 70ms. This is the one
+     * list on the four sites where the stagger carries meaning rather than
+     * decoration — the delays run in the order the customer does the steps.
+     */}
     <ol>
-      <li>Pilih paket sesuai jumlah orang dan durasi yang kamu mau.</li>
-      <li>Chat admin lewat WhatsApp untuk memesan slot.</li>
-      <li>Datang ke studio, masuk ruang yang sudah siap dengan lighting.</li>
-      <li>Potret sendiri pakai remote shutter selama durasi paketmu.</li>
-      <li>Pilih foto terbaik untuk dicetak sebelum pulang.</li>
+      <li data-reveal data-reveal-y="16">Pilih paket sesuai jumlah orang dan durasi yang kamu mau.</li>
+      <li data-reveal data-reveal-y="16" style="--reveal-delay: 0.07s">
+        Chat admin lewat WhatsApp untuk memesan slot.
+      </li>
+      <li data-reveal data-reveal-y="16" style="--reveal-delay: 0.14s">
+        Datang ke studio, masuk ruang yang sudah siap dengan lighting.
+      </li>
+      <li data-reveal data-reveal-y="16" style="--reveal-delay: 0.21s">
+        Potret sendiri pakai remote shutter selama durasi paketmu.
+      </li>
+      <li data-reveal data-reveal-y="16" style="--reveal-delay: 0.28s">
+        Pilih foto terbaik untuk dicetak sebelum pulang.
+      </li>
     </ol>
   </section>
 

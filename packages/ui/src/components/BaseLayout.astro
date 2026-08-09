@@ -100,5 +100,62 @@ const blocks = pageLd(vertical, trail);
     </main>
     <Footer vertical={vertical} />
     <StickyBar vertical={vertical} />
+
+    {/*
+      The other half of the reveal system in tokens.css: the stylesheet holds
+      every element's from-state, and this decides when each one has earned its
+      `.in`.
+
+      All of it, for every section of every page, in one observer and no
+      framework. It replaces four Preact islands and 26KB of animation library
+      that were doing this same job one hydration root at a time — see the long
+      note in tokens.css for why that trade went the way it did.
+
+      `is:inline` so it is not bundled into a module: a module is deferred, and
+      a deferred script that reveals things is a script that reveals them late.
+      At the end of <body> rather than in <head> because it queries the DOM it
+      is about to observe.
+
+      Reduced motion stands down here as well as in the stylesheet. Both have to
+      agree — CSS alone would leave elements hidden with nothing to unhide them,
+      and script alone would animate things the stylesheet never hid.
+
+      Without IntersectionObserver every target is revealed at once. That is the
+      correct failure: the effect is decoration, and a browser too old to
+      observe intersections should still be handed a finished page.
+
+      The trigger is "half of it, or half the screen, whichever comes first".
+      The first half is Chimera's own `threshold: 0.5` — it fires when a block
+      is properly on screen rather than when its first pixel appears, which is
+      why its reveals read as deliberate instead of trailing the scroll. The
+      second half is what makes that safe for elements taller than the viewport,
+      which can never reach 50% of themselves: a three-screen gallery would
+      otherwise sit hidden until its bottom edge arrived, or never reveal at
+      all. A plain negative rootMargin was tried first and had the mirror-image
+      bug — it moved the trigger line up off the bottom of the screen, so the
+      last element on the page, the footer's copyright, could never cross it
+      and stayed invisible at full scroll.
+    */}
+    <script
+      is:inline
+      set:html={`(() => {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var els = document.querySelectorAll("[data-reveal],[data-reveal-media],[data-reveal-text]");
+  if (!("IntersectionObserver" in window)) {
+    for (var i = 0; i < els.length; i++) els[i].classList.add("in");
+    return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      if (!e.isIntersecting) continue;
+      if (e.intersectionRatio < 0.5 && e.intersectionRect.height < innerHeight * 0.5) continue;
+      e.target.classList.add("in");
+      io.unobserve(e.target);
+    }
+  }, { threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1] });
+  for (var j = 0; j < els.length; j++) io.observe(els[j]);
+})();`}
+    />
   </body>
 </html>

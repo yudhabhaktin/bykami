@@ -31,8 +31,14 @@ const answered = vertical.faqs
     <section id="faq" class="wrap section">
       <SectionHeader heading={heading} label="FAQ" />
       <ul>
+        {/*
+         * No stagger here, unlike the price cards. The FAQ is one column of
+         * rows, so each is observed and revealed on its own as it arrives —
+         * a delay indexed off the list would only postpone rows that are
+         * already arriving one at a time.
+         */}
         {answered.map((f) => (
-          <li class="card">
+          <li class="card" data-reveal data-reveal-y="16">
             <details>
               <summary>{f.question}</summary>
               <p class="muted">{f.text}</p>
