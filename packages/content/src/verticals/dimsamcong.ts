@@ -83,13 +83,21 @@ export const dimsamcong: Vertical = {
       "The brand account says \"BUKA SETIAP HARI BANGET\", which is a slogan and not hours. The outlet's own account lists none.",
     ),
     /**
-     * @dimsamcong.jajag lists 0811-222-521. Held back until the owner says it is
-     * the line by KAMI actually answers for this outlet — `StickyBar` turns this
-     * field into a WhatsApp button, so a wrong number is a customer sent
-     * somewhere else. (The brand account's 0811-311-1888-1 is the franchisor's
-     * and is not a candidate.)
+     * @dimsamcong.jajag lists 0811-222-521, and the owner has now confirmed it is
+     * the line by KAMI answers for this outlet (2026-08-09) — which is what
+     * released it. The caution was well placed: `StickyBar` turns this field into
+     * a WhatsApp button, so a wrong number here is a customer sent somewhere
+     * else. (The brand account's 0811-311-1888-1 is the franchisor's and was
+     * never a candidate.)
+     *
+     * The one vertical not on the shared line in verticals/contact.ts, and the
+     * franchise split explains both: by KAMI runs this branch rather than owning
+     * the brand, so a contact route of its own is the expected shape here.
      */
-    whatsapp: blocked("0811-222-521 is listed by the outlet's account but is not owner-confirmed."),
+    whatsapp: verified(
+      "62811222521",
+      "owner, 2026-08-09 — confirmed the outlet answers 0811-222-521, as published in the @dimsamcong.jajag bio",
+    ),
     bookingUrl: blocked("Not applicable until ordering exists."),
   },
 

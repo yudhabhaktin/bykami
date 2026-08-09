@@ -1,5 +1,6 @@
 import type { Vertical } from "../schema.ts";
 import { blocked, unverified, verified } from "../sourced.ts";
+import { houseWhatsapp } from "./contact.ts";
 
 const PDF = "refs/Price LIst Studio Indoor.pdf (owner PDF, not owner-confirmed)";
 
@@ -63,10 +64,10 @@ export const studio: Vertical = {
       ["Mo-Su 09:00-21:00"],
       "owner, 2026-08-09 — confirming the hours in the TikTok captions; no holiday variation given",
     ),
-    whatsapp: unverified(
-      "62811377710",
-      `${PDF} — printed as "0811-3777-10", which is short for an ID mobile number and may be clipped`,
-    ),
+    // Shared with the other three properties — see verticals/contact.ts. This is
+    // where the number came from, so the shared constant carries this PDF as its
+    // source.
+    whatsapp: houseWhatsapp,
     bookingUrl: blocked(
       "YouCanBook.me calendars exist per design/booking-phase2.md but the URLs were never recorded.",
     ),

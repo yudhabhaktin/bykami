@@ -1,5 +1,6 @@
 import type { Vertical } from "../schema.ts";
 import { blocked } from "../sourced.ts";
+import { houseWhatsapp } from "./contact.ts";
 
 /**
  * bykami.id — the platform root.
@@ -21,6 +22,24 @@ export const root: Vertical = {
     "by KAMI menaungi studio by KAMI dan booth by KAMI, serta menjalankan outlet Dimsamcong di Banyuwangi, Jawa Timur.",
   schemaType: "Organization",
   indexable: true,
+
+  /*
+   * A contact route, and deliberately nothing else. The root has no premises —
+   * that is why it is an `Organization` and never a `LocalBusiness` — so address,
+   * map, and hours stay blocked and the footer renders none of them. What it does
+   * have now is a line someone can reach the company on, which is what the CTA
+   * needs and what the "no platform-level contact route decided" FAQ was waiting
+   * on.
+   */
+  nap: {
+    legalName: "by KAMI",
+    displayName: "by KAMI",
+    address: blocked("The platform root has no premises of its own."),
+    mapsUrl: blocked("No location to map — see address."),
+    openingHours: blocked("The root is not a place that opens and closes."),
+    whatsapp: houseWhatsapp,
+    bookingUrl: blocked("Booking happens on a vertical, never at the root."),
+  },
 
   brand: {
     logoSvg: blocked("Original vector never supplied. See design/assets-needed.md."),

@@ -1,5 +1,6 @@
 import type { Vertical } from "../schema.ts";
 import { blocked, unverified, verified } from "../sourced.ts";
+import { houseWhatsapp } from "./contact.ts";
 
 const PDF = "refs/PRICE LIST PHOTOBOOTH.pdf (owner PDF, not owner-confirmed)";
 
@@ -34,9 +35,9 @@ export const booth: Vertical = {
     ),
     mapsUrl: blocked("No Google Maps link in any source."),
     openingHours: blocked("Operating hours unknown; bookings are per-event."),
-    whatsapp: blocked(
-      "The photobooth PDF shows no contact number of its own. Owner must confirm whether it shares the studio number.",
-    ),
+    // The photobooth PDF shows no number of its own, and the owner has now
+    // answered the question that left this blocked: it shares the studio line.
+    whatsapp: houseWhatsapp,
     bookingUrl: blocked("No booking URL recorded for the photobooth service."),
   },
 
