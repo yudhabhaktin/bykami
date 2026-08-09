@@ -10,18 +10,15 @@
     "typecheck": "astro check"
   },
   "dependencies": {
-    "@astrojs/react": "6.0.1",
+    "@astrojs/preact": "^6.0.2",
     "@astrojs/sitemap": "3.7.3",
     "@bykami/content": "workspace:*",
     "@bykami/ui": "workspace:*",
     "astro": "7.1.3",
-    "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "preact": "^10.29.8"
   },
   "devDependencies": {
     "@astrojs/check": "0.9.9",
-    "@types/react": "19.2.2",
-    "@types/react-dom": "19.2.2",
     "typescript": "5.9.3"
   }
 }

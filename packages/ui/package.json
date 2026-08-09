@@ -7,12 +7,19 @@
     "./tokens.css": "./src/tokens.css",
     "./brand": "./src/brand.mjs",
     "./headers": "./src/headers.mjs",
-    "./*.astro": "./src/components/*.astro"
+    "./*.astro": "./src/components/*.astro",
+    "./motion/*": "./src/components/motion/*.tsx"
   },
   "peerDependencies": {
-    "astro": "^7.1.3"
+    "astro": "^7.1.3",
+    "preact": "^10.29.8"
   },
   "dependencies": {
-    "@bykami/content": "workspace:*"
+    "@bykami/content": "workspace:*",
+    "motion": "^13.0.0"
+  },
+  "devDependencies": {
+    "preact": "^10.29.8",
+    "typescript": "5.9.3"
   }
 }

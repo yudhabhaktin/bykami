@@ -18,9 +18,10 @@ const vertical = byId("dimsamcong");
   title="Dimsamcong Banyuwangi — dimsum dan makanan ringan"
   description="Dimsamcong, dimsum dan makanan ringan di Jajag, Banyuwangi. Satu lokasi dengan studio by KAMI."
 >
+  {/* `.enter` is the CSS half of the reveal system — see tokens.css. */}
   <section class="wrap hero">
-    <h1>Dimsamcong Banyuwangi</h1>
-    <p class="lede">{vertical.description}</p>
+    <h1 class="enter" style="--enter-y: 32px">Dimsamcong Banyuwangi</h1>
+    <p class="lede enter" style="--enter-delay: 0.1s">{vertical.description}</p>
   </section>
 
   <PriceList vertical={vertical} heading="Menu" />

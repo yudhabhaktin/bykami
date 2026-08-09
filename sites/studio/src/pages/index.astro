@@ -70,9 +70,14 @@ const gallery = [
   title="Self Photo Studio Banyuwangi — studio by KAMI"
   description="Self photo studio, photobox, dan pas foto di Jajag, Banyuwangi. Lihat daftar paket dan harga lengkap, lalu booking lewat WhatsApp."
 >
+  {/*
+   * `.enter` is the CSS half of the reveal system — see tokens.css. The hero is
+   * the LCP element on this page and does not wait for an island; the 0.1s on
+   * the lede is Chimera's second stagger step.
+   */}
   <section class="wrap hero">
-    <h1>Self photo studio di Banyuwangi</h1>
-    <p class="lede">
+    <h1 class="enter" style="--enter-y: 32px">Self photo studio di Banyuwangi</h1>
+    <p class="lede enter" style="--enter-delay: 0.1s">
       Sewa ruang studio yang sudah tertata lighting-nya, lalu potret dirimu sendiri
       pakai remote shutter. Tanpa fotografer di dalam ruangan, hasil bisa langsung
       dicetak.
