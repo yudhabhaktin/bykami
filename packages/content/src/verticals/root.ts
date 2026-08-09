@@ -18,7 +18,7 @@ export const root: Vertical = {
   hostname: "bykami.id",
   tagline: "Studio foto, photobooth, dan kuliner di Banyuwangi",
   description:
-    "by KAMI menaungi studio by KAMI, booth by KAMI, dan Dimsamcong di Banyuwangi, Jawa Timur.",
+    "by KAMI menaungi studio by KAMI dan booth by KAMI, serta menjalankan outlet Dimsamcong di Banyuwangi, Jawa Timur.",
   schemaType: "Organization",
   indexable: true,
 

@@ -2,28 +2,30 @@
 import { byId } from "@bykami/content";
 import BaseLayout from "@bykami/ui/BaseLayout.astro";
 import Faq from "@bykami/ui/Faq.astro";
+import InstagramPosts from "@bykami/ui/InstagramPosts.astro";
 import PriceList from "@bykami/ui/PriceList.astro";
 
 /**
- * No menu source exists for this vertical anywhere in the project, so
- * `PriceList` and `Faq` both render nothing here. That is the intended
- * behaviour — the page is deliberately small rather than padded with an empty
- * menu table or invented dishes.
+ * Still no menu source anywhere in the project, so `PriceList` renders nothing.
+ * That is the intended behaviour — the page carries the location and the posts
+ * rather than an empty menu table or invented dishes.
  */
 const vertical = byId("dimsamcong");
 ---
 
 <BaseLayout
   vertical={vertical}
-  title="Dimsamcong — dimsum di Banyuwangi"
-  description="Dimsamcong, dimsum dan makanan ringan di Banyuwangi. Bagian dari by KAMI."
+  title="Dimsamcong Banyuwangi — dimsum dan makanan ringan"
+  description="Dimsamcong, dimsum dan makanan ringan di Jajag, Banyuwangi. Satu lokasi dengan studio by KAMI."
 >
   <section class="wrap hero">
-    <h1>Dimsamcong</h1>
+    <h1>Dimsamcong Banyuwangi</h1>
     <p class="lede">{vertical.description}</p>
   </section>
 
   <PriceList vertical={vertical} heading="Menu" />
+
+  <InstagramPosts vertical={vertical} />
 
   <Faq vertical={vertical} />
 </BaseLayout>
