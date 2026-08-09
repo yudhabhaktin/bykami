@@ -5,6 +5,13 @@ refs/screenshots/
 refs/.playwright-raw/
 refs/*.pdf
 
+# Staff's own photographs, pulled from their personal Instagram accounts for the
+# owner to curate from. Same rule as above and one more on top: these are the
+# team's personal posts, not the company's, so nothing here goes near a build
+# until someone picks a frame *and* the person in it has agreed to it. Anything
+# chosen gets copied into a site's public/img — never referenced from here.
+refs/curation/
+
 .DS_Store
 node_modules/
 dist/

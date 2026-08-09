@@ -1,5 +1,5 @@
 ---
-import { postUrl, valueOf, type Vertical } from "@bykami/content";
+import { postUrl, valueOf, type Post, type Vertical } from "@bykami/content";
 import SectionHeader from "./SectionHeader.astro";
 
 /**
@@ -18,12 +18,30 @@ import SectionHeader from "./SectionHeader.astro";
 interface Props {
   vertical: Vertical;
   heading?: string;
+  /**
+   * Posts and the account they belong to, for the case where the page showing
+   * them is not the account's own — bykami.id has no Instagram account and is
+   * never going to embed its way to one, but the people in the studio's reels
+   * are the people behind all three verticals. Left unset, a vertical shows its
+   * own feed, which is what every other caller wants.
+   *
+   * Both or neither: rendering someone else's posts under this page's handle
+   * would credit the wrong account, so the pair travels together.
+   */
+  posts?: Post[];
+  handle?: string;
 }
 
-const { vertical, heading = "Dari Instagram" } = Astro.props;
+const {
+  vertical,
+  heading = "Dari Instagram",
+  posts: given,
+  handle: credit,
+} = Astro.props;
 
-const posts = vertical.social?.posts ? valueOf(vertical.social.posts) : undefined;
-const handle = vertical.social?.instagram ? valueOf(vertical.social.instagram) : undefined;
+const posts = given ?? (vertical.social?.posts ? valueOf(vertical.social.posts) : undefined);
+const handle =
+  credit ?? (vertical.social?.instagram ? valueOf(vertical.social.instagram) : undefined);
 ---
 
 {

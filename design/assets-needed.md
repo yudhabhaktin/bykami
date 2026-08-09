@@ -134,6 +134,56 @@ Requirements for anything new: originals from the camera; 4:5 portrait, at least
 1400px on the short edge; nothing important in the outer 5%, because the grid
 fills a 4:5 box with `object-fit: cover`; and consent from anyone recognisable.
 
+## The team photographs on bykami.id
+
+Two, both lifted out of `@ddnappn`'s twenty-frame album (`DYj7W_BE2Hx`) with the
+owner's go-ahead on 2026-08-09.
+
+| File | Size | What it is |
+|---|---|---|
+| `tim-01.jpg` | 1354 × 1026 | The team under the "Tabuhan Island Banyuwangi" sign |
+| `tim-02.jpg` | 1440 × 600 | Eleven of them holding hands in a line at the water's edge |
+
+**How they were recovered, because it is not obvious from the album.** Every one
+of those twenty frames is a scrapbook layout — handwriting, polaroid borders,
+torn paper — and as whole frames they are unusable on a page built on restraint.
+But several are a clean photograph with the decoration arranged *around* it, and
+the photograph lifts back out. These were cropped in a headless browser at exact
+pixel bounds rather than by eye. Working crops are kept in `refs/curation/crops/`
+alongside the originals; `crop.py` there records the bounds, so a frame can be
+recut without finding them again.
+
+This replaced the reel cover that was here first — `DX6WZo8POuM` at 2305 × 4096,
+sharper than either of these. Resolution lost the argument: its subject was a
+printed holiday banner held up to the camera, which announces that the staff went
+on a trip rather than showing who they are.
+
+- [ ] **Consent from the eleven people in them.** Same rule as the gallery, and
+      sharper here: this is the platform root and it is the first picture anyone
+      sees. Two may be the trip's photographers (`@banyuwangimoment`,
+      `@fiqrulrs` are thanked in a companion post) rather than staff. Drop a
+      replacement over the same file name if anyone asks.
+- [ ] **A team photograph taken on purpose.** Both are holiday snaps doing a job
+      they were not shot for — everyone is in swimwear on a beach, which is warm
+      and real but is not the studio. A group shot in the room, or at the
+      shopfront, would say the same thing about the people and also show where
+      they work.
+- [ ] **Something that is not the same trip.** Six of the nine links the owner
+      supplied are the two "Holiday Edition" outings, so the culture the site can
+      currently evidence is one holiday told several ways. Day-to-day frames —
+      setting up a booth at an event, a print coming off the DS-RX1HS, the
+      counter mid-session — would carry more.
+
+What the album does **not** contain, despite appearances: a set of individual
+portraits. Frame 08 is a 3 × 3 grid that looks like one, and the nine cells cut
+cleanly, but two hold couples or a family group, one is shot from behind, and
+another has marketing type across it. What is left is people on holiday in
+sunglasses, not a way to introduce a team.
+
+The other two personal accounts are unused. `@bahtyarsfyn_`'s `DX9Cdg3Oj8a` is a
+reel, so it has no still worth having, and `@rama_bareng29`'s `DZC0pZbkubD` is an
+ATV album whose one clean frame carries a "50%" watermark.
+
 **On consent specifically.** The six in the grid are recognisable customers.
 They are already public on the studio's own account, but a website is a
 different surface from a feed and the people in them agreed to the feed. Worth
