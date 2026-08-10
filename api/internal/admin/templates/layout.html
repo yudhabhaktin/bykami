@@ -132,6 +132,16 @@ nav.days a { padding: 0; text-decoration: underline; text-underline-offset: 3px;
 .state.on { color: var(--good); }
 .state.off { color: var(--muted); }
 button.danger { background: var(--bad); border-color: var(--bad); }
+/*
+ * Calendar settings. The shared rule above sets every input and button to
+ * width:100%, which is right for a stacked form and wrong inside a table cell —
+ * the field ate the row and pushed "Simpan" off the edge, where .scroll-x
+ * faithfully let it scroll away. So the pair is laid out as a row here, with the
+ * field allowed to shrink.
+ */
+.cal-form { display: flex; gap: 0.5rem; align-items: center; }
+.cal-form input { flex: 1 1 22rem; min-width: 12rem; }
+.cal-form button { width: auto; flex: 0 0 auto; padding-inline: 1rem; }
 details { margin-top: 0.75rem; }
 summary { cursor: pointer; color: var(--muted); }
 </style>

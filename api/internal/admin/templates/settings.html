@@ -47,7 +47,7 @@
         <tr>
           <td>{{.Name}}<br><span class="small muted tabular">{{.Resource}}</span></td>
           <td>
-            <form method="post" action="/settings/calendar/{{.Resource}}">
+            <form class="cal-form" method="post" action="/settings/calendar/{{.Resource}}">
               <input type="hidden" name="csrf" value="{{$.CSRF}}">
               {{/*
                 Kosongkan untuk melepas — the empty string detaches, which is the
