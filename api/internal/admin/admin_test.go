@@ -11,8 +11,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bhaktiyudha/bykami/api/internal/admin"
+	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
@@ -54,6 +56,14 @@ type fixture struct {
 
 func newFixture(t *testing.T, authEnabled bool, staff ...string) fixture {
 	t.Helper()
+	return newFixtureCal(t, nil, authEnabled, staff...)
+}
+
+// newFixtureCal is newFixture with a calendar attached, for the settings page.
+// A nil calendar is the ordinary case and the deployed one: no Google credential,
+// so admin.New receives a nil worker and the page says so.
+func newFixtureCal(t *testing.T, cal booking.Calendar, authEnabled bool, staff ...string) fixture {
+	t.Helper()
 
 	db, err := store.Open(":memory:")
 	if err != nil {
@@ -65,8 +75,13 @@ func newFixture(t *testing.T, authEnabled bool, staff ...string) fixture {
 	ident := identity.New(db, sender)
 	ledger := loyalty.New(db)
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	desk := booking.New(db, 0)
 
-	c, err := admin.New(ident, ledger, frames.New(db), log, staff, authEnabled)
+	// NewWorker returns nil for a nil calendar, which is what puts the console on
+	// its "no credential" path rather than a typed nil that would panic.
+	worker := booking.NewWorker(desk, cal, log, time.Minute, "Jajag")
+
+	c, err := admin.New(ident, ledger, frames.New(db), desk, worker, log, staff, authEnabled)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
@@ -308,7 +323,7 @@ func TestRevokingAnOperatorEndsAccessImmediately(t *testing.T) {
 	// Same identity service and the same live session, a console that no longer
 	// lists that number.
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), log, nil, true)
+	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), booking.New(f.db, 0), nil, log, nil, true)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
@@ -496,8 +511,8 @@ func TestUnparseableStaffNumberIsAStartupError(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	_, err = admin.New(identity.New(db, &capturingSender{}), loyalty.New(db), frames.New(db), log,
-		[]string{"not-a-phone-number"}, true)
+	_, err = admin.New(identity.New(db, &capturingSender{}), loyalty.New(db), frames.New(db),
+		booking.New(db, 0), nil, log, []string{"not-a-phone-number"}, true)
 	if err == nil {
 		t.Fatal("an unparseable operator number was accepted")
 	}

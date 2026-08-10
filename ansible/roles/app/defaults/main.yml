@@ -66,6 +66,32 @@ app_instagram_token: ""
 # than fetching the wrong one.
 app_instagram_account: ""
 
+# The Google service-account key file that lets booking read and write the
+# studio's calendars, base64-encoded. Empty leaves the sync off, and off is the
+# deployed default: booking then runs entirely from its own database, which is
+# why the busy ranges it caches are a cache and never a source.
+#
+# Base64 because the key is multi-line PEM and an EnvironmentFile has no syntax
+# for a value containing newlines:
+#
+#   base64 -w0 < service-account.json
+#
+# A service account rather than OAuth, and the reason is operational rather than
+# aesthetic: an unverified Google project issues refresh tokens that expire after
+# seven days, so a consent-screen integration works for a week and then stops
+# silently. A service-account key does not rotate. What it does need is for each
+# calendar to be shared with the service account's own address at "Make changes
+# to events" — the address is logged at startup, and the operator console's
+# booking page shows which calendars have never synced.
+#
+# Pass it from the same vars file as the booth token, never from the inventory:
+#   ansible-playbook site.yml --tags app -e @app.vars.yml
+app_google_credentials: ""
+
+# How far ahead bookings may be made. 31 days is what the YouCanBook.me pages
+# this replaced offered, so it is the window the studio's customers already know.
+app_booking_window_days: 31
+
 app_backup_dir: /var/backups/bykami
 app_backup_keep: 7
 app_backup_oncalendar: "*-*-* 03:30:00"

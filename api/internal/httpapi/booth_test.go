@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
@@ -56,9 +57,12 @@ func newBoothAPI(t *testing.T, token string) (http.Handler, *frames.Catalogue) {
 
 	cat := frames.New(db)
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h := httpapi.New(identity.New(db, &capturingSender{}), loyalty.New(db), cat,
-		instagram.New(db), "",
-		func(ctx context.Context) error { return db.PingContext(ctx) }, log, false, token)
+	h := httpapi.New(httpapi.Config{
+		Identity: identity.New(db, &capturingSender{}), Loyalty: loyalty.New(db),
+		Frames: cat, Booking: booking.New(db, 0), Instagram: instagram.New(db),
+		Health: func(ctx context.Context) error { return db.PingContext(ctx) }, Log: log,
+		BoothToken: token,
+	})
 	return h, cat
 }
 

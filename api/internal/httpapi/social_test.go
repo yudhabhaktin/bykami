@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
@@ -32,9 +33,12 @@ func newSocialAPI(t *testing.T, account string) (http.Handler, *sql.DB) {
 	t.Cleanup(func() { db.Close() })
 
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h := httpapi.New(identity.New(db, &capturingSender{}), loyalty.New(db), frames.New(db),
-		instagram.New(db), account,
-		func(ctx context.Context) error { return db.PingContext(ctx) }, log, false, "")
+	h := httpapi.New(httpapi.Config{
+		Identity: identity.New(db, &capturingSender{}), Loyalty: loyalty.New(db),
+		Frames: frames.New(db), Booking: booking.New(db, 0),
+		Instagram: instagram.New(db), InstagramAccount: account,
+		Health: func(ctx context.Context) error { return db.PingContext(ctx) }, Log: log,
+	})
 	return h, db
 }
 

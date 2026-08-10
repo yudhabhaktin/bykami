@@ -31,7 +31,7 @@ WorkingDirectory={{ app_data_dir }}
   neither — and the binary's own safe defaults apply rather than an empty string
   that looks configured.
 #}
-ExecStart={{ app_install_path }} -addr {{ app_listen_addr }} -db {{ app_data_dir }}/{{ app_name }}.db{% if app_otp_delivery %} -otp-delivery {{ app_otp_delivery }}{% endif %}{% if app_admin_phones %} -admin-phones {{ app_admin_phones }}{% endif %}
+ExecStart={{ app_install_path }} -addr {{ app_listen_addr }} -db {{ app_data_dir }}/{{ app_name }}.db{% if app_otp_delivery %} -otp-delivery {{ app_otp_delivery }}{% endif %}{% if app_admin_phones %} -admin-phones {{ app_admin_phones }}{% endif %}{% if app_booking_window_days %} -booking-window-days {{ app_booking_window_days }}{% endif %}
 
 Restart=on-failure
 RestartSec=5s

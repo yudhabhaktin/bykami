@@ -25,7 +25,9 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/api/internal/admin"
+	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
+	"github.com/bhaktiyudha/bykami/api/internal/gcal"
 	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/instagram"
@@ -48,6 +50,16 @@ func main() {
 	// answer is a seed script that becomes a way to grant admin. Empty means
 	// nobody, which is the safe default and the deployed one.
 	adminPhones := flag.String("admin-phones", "", "comma-separated operator phone numbers allowed into the admin console")
+	// How far ahead the booking calendar is open. 31 days is what the studio's
+	// previous booking pages offered, so it is the number its customers are used
+	// to; a flag rather than a constant because it is the kind of thing an owner
+	// asks to change before a holiday.
+	bookingWindowDays := flag.Int("booking-window-days", 31, "how many days ahead bookings may be made")
+	// Extra CORS origins for the booking routes, on top of the four *.bykami.id
+	// sites, which are always allowed. This is how `astro dev` on
+	// http://localhost:4321 reaches a local API. Empty in production, and it has
+	// to stay that way: these routes write.
+	bookingOrigins := flag.String("booking-origins", "", "extra CORS origins for booking, comma-separated (development only)")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -56,19 +68,25 @@ func main() {
 	// Subcommands come after the flags so that -db applies to them, which is the
 	// only flag they need.
 	if args := flag.Args(); len(args) > 0 {
-		if args[0] != "frames" {
+		var err error
+		switch args[0] {
+		case "frames":
+			err = frameCmd(*dsn, args[1:])
+		case "booking":
+			err = bookingCmd(*dsn, args[1:])
+		default:
 			log.Error("unknown command", "command", args[0])
 			usage()
 			os.Exit(2)
 		}
-		if err := frameCmd(*dsn, args[1:]); err != nil {
-			log.Error("frames", "err", err)
+		if err != nil {
+			log.Error(args[0], "err", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	if err := run(*addr, *dsn, *otpDelivery, *adminPhones, log); err != nil {
+	if err := run(*addr, *dsn, *otpDelivery, *adminPhones, *bookingOrigins, *bookingWindowDays, log); err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
 	}
@@ -89,15 +107,27 @@ func usage() {
 	fmt.Fprintln(out, "  BYKAMI_INSTAGRAM_TOKEN     long-lived Instagram token; unset disables the mirror")
 	fmt.Fprintln(out, "  BYKAMI_INSTAGRAM_ACCOUNT   the handle being mirrored, for labelling only")
 	fmt.Fprintln(out, "  BYKAMI_INSTAGRAM_BASE      override Meta's API host and version")
+	fmt.Fprintln(out, "  BYKAMI_GOOGLE_CREDENTIALS  base64 of a Google service-account key file; unset disables")
+	fmt.Fprintln(out, "                             calendar sync and booking then runs from the database alone")
 	fmt.Fprintln(out, "\nThe Instagram token rotates. What is in the environment is only a seed:")
 	fmt.Fprintln(out, "it is written to the database on first start and refreshed there from then")
 	fmt.Fprintln(out, "on, so changing it here does nothing until the stored row is cleared:")
 	fmt.Fprintln(out, "  sqlite3 bykami.db 'DELETE FROM instagram_token'")
+	fmt.Fprintln(out, "\nThe Google credential is a service-account key file, base64-encoded because it")
+	fmt.Fprintln(out, "is multi-line PEM and a systemd EnvironmentFile has no syntax for that:")
+	fmt.Fprintln(out, "  base64 -w0 < service-account.json")
+	fmt.Fprintln(out, "Each calendar must then be shared with the service account's own address, at")
+	fmt.Fprintln(out, "\"Make changes to events\". The address is logged at startup and shown on the")
+	fmt.Fprintln(out, "console's Pengaturan page, which is also where a calendar id is entered.")
+	fmt.Fprintln(out, "\nSeed the booking catalogue (hours, breaks and packages have no console page):")
+	fmt.Fprintln(out, "  bykami -db … booking seed")
+	fmt.Fprintln(out, "  bykami -db … booking resources")
+	fmt.Fprintln(out, "  bykami -db … booking calendar photobox studio@group.calendar.google.com")
 	fmt.Fprintln(out, "\nFlags:")
 	flag.PrintDefaults()
 }
 
-func run(addr, dsn, otpDelivery, adminPhones string, log *slog.Logger) error {
+func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWindowDays int, log *slog.Logger) error {
 	sender, authEnabled, err := newSender(otpDelivery, log)
 	if err != nil {
 		return err
@@ -135,9 +165,43 @@ func run(addr, dsn, otpDelivery, adminPhones string, log *slog.Logger) error {
 	igToken := os.Getenv("BYKAMI_INSTAGRAM_TOKEN")
 	igAccount := os.Getenv("BYKAMI_INSTAGRAM_ACCOUNT")
 
-	api := httpapi.New(ident, ledger, catalogue, mirror, igAccount, db.PingContext, log, authEnabled, boothToken)
+	desk := booking.New(db, time.Duration(bookingWindowDays)*24*time.Hour)
 
-	console, err := admin.New(ident, ledger, catalogue, log, splitPhones(adminPhones), authEnabled)
+	// The owner's Google Calendar, from the environment because it is a signing
+	// key. Nil when unset, which is the normal state of a box nobody has connected
+	// — booking then runs entirely from this database, which is why the busy
+	// ranges it reads are a cache and not a source.
+	calendar, err := gcal.New(os.Getenv("BYKAMI_GOOGLE_CREDENTIALS"))
+	if err != nil {
+		// Fatal, unlike the mirror. A credential that was supplied and cannot be
+		// parsed is a typo somebody needs to hear about now, not a calendar that
+		// silently never syncs.
+		return fmt.Errorf("google calendar: %w", err)
+	}
+	if calendar != nil {
+		log.Info("google calendar configured", "service_account", calendar.Email())
+	} else {
+		log.Info("google calendar configured", "enabled", false)
+	}
+
+	// One worker, shared. The background loop runs it on a ticker; the operator
+	// console runs it on demand from the settings page, so somebody connecting a
+	// calendar finds out whether they shared it correctly without waiting for the
+	// next tick or reading the journal.
+	//
+	// Nil when there is no credential, which both callers check — calendarFor
+	// returns a nil interface rather than a typed nil for exactly that reason.
+	calWorker := booking.NewWorker(desk, calendarFor(calendar), log, 0, studioLocation)
+
+	api := httpapi.New(httpapi.Config{
+		Identity: ident, Loyalty: ledger, Frames: catalogue, Booking: desk,
+		Instagram: mirror, InstagramAccount: igAccount,
+		Health: db.PingContext, Log: log,
+		AuthEnabled: authEnabled, BoothToken: boothToken,
+		BookingOrigins: splitOrigins(bookingOrigins),
+	})
+
+	console, err := admin.New(ident, ledger, catalogue, desk, calWorker, log, splitPhones(adminPhones), authEnabled)
 	if err != nil {
 		return fmt.Errorf("admin console: %w", err)
 	}
@@ -186,6 +250,13 @@ func run(addr, dsn, otpDelivery, adminPhones string, log *slog.Logger) error {
 				log.Error("instagram mirror stopped", "err", err)
 			}
 		}()
+	}
+
+	// The calendar sync loop, on the same terms as the Instagram mirror and for a
+	// stronger reason: a studio that cannot reach Google must still be able to sell
+	// a slot, so this loop is the thing that falls over, never the booking.
+	if calWorker != nil {
+		go calWorker.Run(ctx)
 	}
 
 	errCh := make(chan error, 1)
@@ -246,13 +317,20 @@ func (disabledSender) Send(context.Context, string, string) error {
 	return errors.New("otp delivery is not configured")
 }
 
-// logSender is the placeholder delivery channel. WhatsApp is the intended
-// primary and needs a provider account that does not exist yet; until it does,
-// codes go to the log so the flow is exercisable end to end in development.
+// logSender is the placeholder delivery channel. WhatsApp is the intended primary
+// and needs a provider account that does not exist yet; until it does, codes go to
+// the log so the flow is exercisable end to end.
 //
-// It must never reach production: a one-time code in a log file is a one-time
-// code in whatever reads that log. That is enforced rather than remembered —
-// reaching it requires -otp-delivery=log, which the systemd unit does not pass.
+// A one-time code in a log is a one-time code in whatever reads that log, so this
+// is off unless somebody passes -otp-delivery=log. What that gate is *not* is a
+// guarantee it cannot reach production: the systemd unit passes the flag whenever
+// app_otp_delivery is set, which is how the operator console is opened at all
+// before a WhatsApp account exists. The trade and how to close it again are
+// written down in ansible/README.md — because the honest version of this comment
+// is a documented decision, not a claim that the situation cannot arise.
+//
+// Every send is logged at Warn with the code in it, which is deliberate: it makes
+// the exposure visible in the journal rather than silent.
 type logSender struct{ log *slog.Logger }
 
 func (s logSender) Send(_ context.Context, e164, code string) error {

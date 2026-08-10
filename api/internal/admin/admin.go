@@ -46,6 +46,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
@@ -79,6 +80,11 @@ type Console struct {
 	identity *identity.Service
 	loyalty  *loyalty.Ledger
 	frameCat *frames.Catalogue
+	booking  *booking.Desk
+	// The calendar sync, or nil when no Google credential is configured. Only the
+	// settings page reads it: to print the address calendars must be shared with,
+	// and to run a sync on demand.
+	calendar *booking.Worker
 	log      *slog.Logger
 	tmpl     *template.Template
 
@@ -100,7 +106,7 @@ type Console struct {
 // New returns the console. staffPhones are raw numbers in any Indonesian form;
 // they are normalised here and an unparseable one is an error rather than a
 // silently ignored entry.
-func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, log *slog.Logger, staffPhones []string, authEnabled bool) (*Console, error) {
+func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, calendar *booking.Worker, log *slog.Logger, staffPhones []string, authEnabled bool) (*Console, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"points": formatPoints,
 		"time":   func(t time.Time) string { return t.Format("2006-01-02 15:04") },
@@ -109,6 +115,14 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 		"slot":   slotStyle,
 		"kb":     func(n int) string { return strconv.Itoa((n + 512) / 1024) },
 		"inc":    func(n int) int { return n + 1 },
+		// Booking times are stored in UTC and read by somebody standing in
+		// Banyuwangi, so every one of these converts before it formats. A
+		// template that printed a stored instant directly would tell an operator
+		// a 14:00 session starts at seven in the morning.
+		"wib":   func(t time.Time) string { return t.In(wib).Format("Monday, 2 January 2006") },
+		"clock": func(t time.Time) string { return t.In(wib).Format("15:04") },
+		// wa.me wants the number with no plus.
+		"wa": func(s string) string { return strings.TrimPrefix(s, "+") },
 	}).ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return nil, err
@@ -131,6 +145,8 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 		identity:    ident,
 		loyalty:     ledger,
 		frameCat:    cat,
+		booking:     desk,
+		calendar:    calendar,
 		log:         log,
 		tmpl:        tmpl,
 		staff:       staff,
@@ -149,6 +165,14 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("POST /logout", c.logout)
 	mux.HandleFunc("GET /customers", c.staffOnly(c.customers))
 	mux.HandleFunc("POST /customers/{id}/adjust", c.staffOnly(c.adjust))
+	mux.HandleFunc("GET /bookings", c.staffOnly(c.bookingDay))
+	mux.HandleFunc("POST /bookings/{id}/cancel", c.staffOnly(c.bookingCancel))
+	mux.HandleFunc("POST /bookings/block", c.staffOnly(c.bookingBlock))
+
+	mux.HandleFunc("GET /settings", c.staffOnly(c.settings))
+	mux.HandleFunc("POST /settings/calendar/{id}", c.staffOnly(c.settingsCalendar))
+	mux.HandleFunc("POST /settings/sync", c.staffOnly(c.settingsSync))
+
 	mux.HandleFunc("GET /frames", c.staffOnly(c.frameIndex))
 	mux.HandleFunc("POST /frames", c.staffOnly(c.frameUpload))
 	mux.HandleFunc("GET /frames/{id}/art.png", c.staffOnly(c.frameArt))
@@ -212,6 +236,30 @@ type page struct {
 	// Frame catalogue
 	Frames []frames.Frame
 	Sheets string
+
+	// The booking day
+	Bookings  []booking.Booking
+	Day       time.Time
+	DayISO    string
+	PrevDay   string
+	NextDay   string
+	Calendars []calendarRow
+
+	// Settings
+	ServiceAccount string
+}
+
+// calendarRow is one resource's calendar, as the console reports it. Flattened
+// out of booking.Sync because a template cannot format a time or decide what
+// counts as stale, and putting either in the template would put a policy where
+// nobody can test it.
+type calendarRow struct {
+	Resource string
+	Name     string
+	Calendar string
+	Synced   string
+	Stale    bool
+	Error    string
 }
 
 func (c *Console) index(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/httpapi"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
@@ -59,7 +60,11 @@ func newTestAPI(t *testing.T, authEnabled bool) (http.Handler, *capturingSender,
 	// would bury the actual failures under expected noise.
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	return httpapi.New(identity.New(db, sender), ledger, frames.New(db), instagram.New(db), "", health, log, authEnabled, ""), sender, db, ledger
+	return httpapi.New(httpapi.Config{
+		Identity: identity.New(db, sender), Loyalty: ledger, Frames: frames.New(db),
+		Booking: booking.New(db, 0), Instagram: instagram.New(db),
+		Health: health, Log: log, AuthEnabled: authEnabled,
+	}), sender, db, ledger
 }
 
 func do(t *testing.T, h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
@@ -366,6 +371,33 @@ func TestResponsesAreNotStorable(t *testing.T) {
 	}
 }
 
+// no-store is the default, not the rule.
+//
+// A handler serving something genuinely public sets its own Cache-Control before
+// calling write. That used to be overwritten unconditionally, so the caching the
+// Instagram manifest and the booking catalogue both ask for never reached
+// Cloudflare — and nothing failed, because nothing looked.
+func TestPublicResponsesKeepTheirOwnCaching(t *testing.T) {
+	h, _, _, _ := newTestAPI(t, true)
+
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"/v1/social/instagram", "public, max-age=300"},
+		{"/v1/booking/services", "public, max-age=300"},
+	}
+	for _, tc := range tests {
+		w := do(t, h, http.MethodGet, tc.path, "", "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s = %d, want 200", tc.path, w.Code)
+		}
+		if got := w.Header().Get("Cache-Control"); got != tc.want {
+			t.Errorf("%s Cache-Control = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
 // A session issued before delivery was switched off is still a valid session.
 // Revoking every login by changing a delivery setting would be a surprising way
 // for that flag to behave.
@@ -382,7 +414,11 @@ func TestExistingSessionsSurviveTheGate(t *testing.T) {
 	health := func(ctx context.Context) error { return db.PingContext(ctx) }
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	open := httpapi.New(ident, ledger, frames.New(db), instagram.New(db), "", health, log, true, "")
+	open := httpapi.New(httpapi.Config{
+		Identity: ident, Loyalty: ledger, Frames: frames.New(db),
+		Booking: booking.New(db, 0), Instagram: instagram.New(db),
+		Health: health, Log: log, AuthEnabled: true,
+	})
 	do(t, open, http.MethodPost, "/v1/auth/code", "", `{"phone":"081234567890"}`)
 	w := do(t, open, http.MethodPost, "/v1/auth/session", "",
 		`{"phone":"081234567890","code":"`+sender.last()+`"}`)
@@ -391,7 +427,11 @@ func TestExistingSessionsSurviveTheGate(t *testing.T) {
 	}](t, w).Token
 
 	// Same database, same sessions, delivery switched off.
-	closed := httpapi.New(ident, ledger, frames.New(db), instagram.New(db), "", health, log, false, "")
+	closed := httpapi.New(httpapi.Config{
+		Identity: ident, Loyalty: ledger, Frames: frames.New(db),
+		Booking: booking.New(db, 0), Instagram: instagram.New(db),
+		Health: health, Log: log,
+	})
 	if w := do(t, closed, http.MethodGet, "/v1/me", token, ""); w.Code != http.StatusOK {
 		t.Errorf("me = %d, want 200", w.Code)
 	}

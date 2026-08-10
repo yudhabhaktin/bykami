@@ -58,6 +58,25 @@ not enough: a writer that pauses looks finished. → `agent/internal/ingest`
 what it already has. Treating that sync as a dependency would mean a photo booth
 that stops taking money because a server in Singapore does. → `agent/internal/framesync`
 
+**Two groups cannot hold the same room, and a unique index on the start time
+would not have been enough.** Booking reserves one row per half hour a session
+occupies, keyed `(resource_id, starts_at)`, inserted in the booking's own
+transaction — so a three-hour shoot at 09:00 and a one-hour one at 10:00 collide
+rather than both being accepted on the strength of different start times. Nothing
+in Go decides this: availability is read, shown to somebody, and acted on minutes
+later, so every check before the insert exists to produce a good error message and
+the database has the only vote that counts. → `api/internal/booking`
+
+**Google Calendar is the calendar the owner already works in, reached with a
+service account rather than OAuth.** An unverified Google project issues refresh
+tokens that expire after seven days, so the consent-screen version of this works
+for a week and then stops silently — which is a booking page that quietly stops
+knowing when the studio is busy. A shared calendar and a key that does not rotate
+has no such clock. The busy ranges it reads are a cache and never a source: a
+failed poll leaves the studio selling from what it already knows, because a studio
+that stopped taking bookings when an API in Mountain View got slow would have
+traded a real sale for a hypothetical conflict. → `api/internal/gcal`
+
 **Auth answers 503 on the deployed box, deliberately.** Data residency is
 unresolved and the only OTP sender that exists writes codes to a log, so the gate
 is enforced in code rather than remembered — and it runs *before* the service, so
@@ -188,6 +207,29 @@ pnpm --filter @bykami/site-studio dev
 ```bash
 cd api && go run ./cmd/bykami -otp-delivery=log -db /tmp/bykami.db
 ```
+
+**The booking page, against a local API.** Two terminals. No Google account
+needed — with no credentials the calendar sync stays off and availability comes
+from the database alone, which is also how it behaves on a box nobody has
+connected:
+
+```bash
+cd api
+# Flags come before the subcommand — `flag` stops parsing at the first
+# non-flag argument, so `booking seed -db …` would silently use the default.
+go run ./cmd/bykami -db /tmp/bykami.db booking seed       # the studio as it trades
+go run ./cmd/bykami -db /tmp/bykami.db -otp-delivery=log \
+  -admin-phones 081234567890 -booking-origins http://localhost:4321
+```
+
+```bash
+BYKAMI_API_BASE=http://127.0.0.1:8080 pnpm --filter @bykami/site-studio dev
+# then http://localhost:4321/booking, and the operator's day at
+# http://127.0.0.1:8080/bookings
+```
+
+`-booking-origins` is what lets the dev server's origin through CORS; it is empty
+in production, where only the four `*.bykami.id` hosts are allowed.
 
 ## Verifying
 

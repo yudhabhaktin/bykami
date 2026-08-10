@@ -1,6 +1,6 @@
 # Where the build is
 
-Reviewed 2026-08-05. `README.md` describes what the system is for; this file
+Reviewed 2026-08-10. `README.md` describes what the system is for; this file
 records how much of it exists.
 
 Three states are used throughout. **Live** means customers touch it. **Built**
@@ -30,7 +30,8 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
 | The booth — a full paid session end to end | Built | Runs on a laptop and on the test VPS. Payment and capture are simulated; the printer backend is real but has never met the printer |
 | `booth-test.bykami.id` | Built | Temporary. One access token per tester, auto-deploying from `agent-<sha>` |
 | The VPS | Built | Alibaba ECS trial box, Singapore. Synthetic data only |
-| Booking, QRIS, WhatsApp delivery | Blocked | See the owner list below |
+| Booking on `studio.bykami.id/booking` | Built | Replaces two YouCanBook.me calendars. Reachable by URL and linked from nowhere until the Google calendars are connected |
+| QRIS and WhatsApp delivery | Blocked | See the owner list below |
 
 ## Phase 1 — marketing pages
 
@@ -57,7 +58,26 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
 - [ ] Earn and burn have no HTTP route. That needs a device credential which is
       neither a customer session nor an operator one — the open question in
       `design/kiosk.md`
-- [ ] Booking, blocked on the bookable-resource count
+- [x] **Booking**, in `api/internal/booking` and `sites/studio/src/pages/booking.astro`.
+      The resource question that blocked it was answered by reading the two
+      YouCanBook.me calendars through their own API: three resources, and the old
+      pages were serving one shared availability pool across six choices. Double
+      booking is prevented by a primary key on `(resource_id, starts_at)` in
+      `booking_slots`, one row per half hour a session occupies — proven by
+      sixteen goroutines and twenty concurrent HTTP requests yielding exactly one
+      booking
+- [x] Google Calendar both ways, on a service account so there is no refresh
+      token to expire. The busy ranges it reads are a cache: a failed poll leaves
+      the studio selling from what it already knows
+- [~] **The Google calendars are not connected yet.** Booking runs from its own
+      database until somebody creates the service account and shares each calendar
+      with it. The console's Pengaturan page does the connecting and reports what
+      Google said, so this no longer needs a shell — but it does need the console
+      login opened, which needs `app_otp_delivery`. Runbook in `ansible/README.md`.
+      Until it is done `studio.nap.bookingUrl` stays `blocked`, so no site links to
+      the page
+- [ ] Reschedule, reminders, and walk-in entry. The first two wait on the same
+      WhatsApp provider the OTP sender waits on
 
 ## Phase 3 — the booth
 
@@ -123,8 +143,10 @@ Nothing here is a code problem. Roughly in order of what it unblocks.
 | Confirmation of the unverified prices | Turns `Offer` schema on across the sites. 66 facts currently render without structured data |
 | A WhatsApp provider account | OTP delivery, and with it every auth route and the operator console |
 | Business entity, NPWP, bank account | Xendit onboarding, and with it the booth taking real money |
-| Bookable resource count at the studio | Booking design |
-| Resolution of the capacity conflict — PDFs say 1–4 / 1–6 / 1–10, YouCanBook.me says 3–4 / 5–6 / 7–10 | Correct headcounts on the studio pages |
+| A Google service account, and each studio calendar shared with it | Connecting booking to the calendar the owner actually works from. Until then availability comes from our database alone. The console page for it exists; see `ansible/README.md` |
+| Whether MINI is 5 minutes or 15 | The owner and the booth say 5; the calendar the studio was selling on said 15. 5 is what ships |
+| Whether Pas Photo can run alongside self-photo | Parallel capacity. Both need the operator, so it is seeded on the self-photo resource |
+| Travel time between off-site shoots | Two photographer bookings an hour apart across town are both currently bookable |
 | Dimsamcong menu | Indexing the F&B property |
 | Logo vector, brand hex, licensed fonts, original photography | The real palette, and hero imagery at full resolution |
 | The existing "free desain frame" layouts as print-resolution files | Frames already advertised on booth packages. The Gacoan collab set covers the booth meanwhile |

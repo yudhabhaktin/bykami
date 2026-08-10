@@ -1,0 +1,103 @@
+{{define "settings.html"}}
+{{template "head" .}}
+
+<h1>Pengaturan</h1>
+{{template "messages" .}}
+
+<h2>Google Calendar</h2>
+
+{{if .ServiceAccount}}
+  {{/*
+    The one step of the whole setup that cannot be done from here, printed here
+    anyway. It happens inside Google, and the address is otherwise buried in a
+    JSON file on the server — so an operator who has to perform it would have no
+    way to find out what to type.
+  */}}
+  <p>
+    Bagikan tiap kalender studio ke alamat ini, dengan izin
+    <strong>“Make changes to events”</strong>:
+  </p>
+  <p class="tabular"><strong>{{.ServiceAccount}}</strong></p>
+  <p class="small muted">
+    Buka Google Calendar → setelan kalender → “Share with specific people” →
+    tambahkan alamat di atas. Setelah itu tempel Calendar ID di bawah dan tekan
+    “Tes sinkron sekarang”.
+  </p>
+{{else}}
+  {{/*
+    A different failure from an unshared calendar, and it has to read differently:
+    there is nothing to share the calendar *with* yet.
+  */}}
+  <p class="warn">
+    Kunci Google belum dipasang di server, jadi sinkronisasi kalender mati.
+    Booking tetap berjalan penuh dari database sendiri — yang hilang hanya
+    pembacaan waktu sibuk dari kalender pemilik dan penulisan booking ke sana.
+    Pasang <code>BYKAMI_GOOGLE_CREDENTIALS</code> lewat playbook
+    (<code>app_google_credentials</code>), lalu muat ulang halaman ini.
+  </p>
+{{end}}
+
+<div class="scroll-x">
+  <table>
+    <thead>
+      <tr><th>Ruang</th><th>Google Calendar ID</th><th>Status</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{range .Calendars}}
+        <tr>
+          <td>{{.Name}}<br><span class="small muted tabular">{{.Resource}}</span></td>
+          <td>
+            <form method="post" action="/settings/calendar/{{.Resource}}">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}">
+              {{/*
+                Kosongkan untuk melepas — the empty string detaches, which is the
+                only way to stop a sync from here and is worth saying rather than
+                leaving an operator to guess.
+              */}}
+              <input type="text" name="calendar_id" value="{{.Calendar}}"
+                     placeholder="abc123@group.calendar.google.com"
+                     autocapitalize="off" autocorrect="off" spellcheck="false">
+              <button class="secondary" type="submit">Simpan</button>
+            </form>
+          </td>
+          <td class="small">
+            {{if .Error}}
+              <span class="state off">gagal</span><br>
+              <span class="muted">{{.Error}}</span>
+            {{else if not .Calendar}}
+              <span class="state off">belum terhubung</span>
+            {{else if .Stale}}
+              <span class="state off">tertunda</span>
+            {{else if .Synced}}
+              <span class="state on">aktif</span>
+            {{else}}
+              <span class="state off">belum pernah sinkron</span>
+            {{end}}
+          </td>
+          <td class="small tabular muted">{{if .Synced}}{{.Synced}}{{end}}</td>
+        </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+{{if .ServiceAccount}}
+  <form method="post" action="/settings/sync">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit">Tes sinkron sekarang</button>
+  </form>
+  <p class="small muted">
+    Menjalankan satu putaran sinkronisasi sekarang, tanpa menunggu lima menit.
+    Kalau sebuah kalender belum dibagikan, alasannya akan muncul di kolom Status.
+  </p>
+{{end}}
+
+<h2>Yang tidak diatur di sini</h2>
+<p class="small muted">
+  Jam buka, istirahat Dzuhur dan Maghrib, paket dan harga masih diatur lewat
+  <code>bykami booking</code> di server. Semuanya jarang berubah — beda dengan
+  kalender, yang harus bisa dihubungkan tanpa akses shell.
+</p>
+
+{{template "foot" .}}
+{{end}}
