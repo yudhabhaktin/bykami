@@ -261,12 +261,27 @@
 # that predates booking.
 
 - name: Count the booking catalogue
-  # As the service user, not root — see the seed task below for why that matters.
+  # runuser rather than become_user, and the difference is not stylistic. The
+  # service account is created with `create_home: false` and `/usr/sbin/nologin`,
+  # so Ansible cannot stage its temp files in a home directory that does not
+  # exist: `become_user` warns "Permission denied: /home/bykami" on every deploy
+  # and falls back to a system temp directory, which is the situation
+  # allow_world_readable_tmpfiles exists to complain about.
+  #
+  # `runuser -u <user> --` keeps Ansible connected as root — so there is no temp
+  # directory to negotiate — while the process itself still runs as the service
+  # user, which is the property that actually matters below. The `--` matters too:
+  # it execs the command directly instead of through a login shell, so nologin is
+  # irrelevant.
+  #
   # sqlite3 rather than `bykami booking services`, because a count is unambiguous
   # and parsing a table for emptiness is not.
-  become_user: "{{ app_user }}"
   ansible.builtin.command:
     argv:
+      - runuser
+      - -u
+      - "{{ app_user }}"
+      - --
       - sqlite3
       - "{{ app_data_dir }}/{{ app_name }}.db"
       - "SELECT COUNT(*) FROM booking_services"
@@ -286,18 +301,21 @@
   # ran unconditionally would report a change on every deploy and train whoever
   # reads the output to ignore it.
   #
-  # become_user is load bearing. SQLite writes -wal and -shm files beside the
-  # database, owned by whoever opened it. Seeding as root leaves those two files
-  # owned by root in a directory the service can write, and the service — running
-  # as {{ app_user }} — then fails on its next write. The symptom is a booking
-  # page that loads, lists packages, and cannot take a booking.
+  # Running as the service user is load bearing. SQLite writes -wal and -shm files
+  # beside the database, owned by whoever opened it. Seeding as root leaves those
+  # two files root-owned in a directory the service can otherwise write, and the
+  # service — running as {{ app_user }} — then fails on its next write. The symptom
+  # is a booking page that loads, lists every package, and cannot take a booking.
   when:
     - app_booking_seed | bool
     - app_booking_count.rc == 0
     - app_booking_count.stdout | trim | int == 0
-  become_user: "{{ app_user }}"
   ansible.builtin.command:
     argv:
+      - runuser
+      - -u
+      - "{{ app_user }}"
+      - --
       - "{{ app_install_path }}"
       - -db
       - "{{ app_data_dir }}/{{ app_name }}.db"
@@ -312,7 +330,10 @@
   ansible.builtin.debug:
     msg: >-
       {{
-        'Booking tables are missing — the running binary predates booking. Ship a newer one and re-run.'
+        'Booking catalogue could not be read, so nothing was seeded — most often a
+         binary that predates booking. sqlite3 said: '
+          ~ (app_booking_count.stderr | default('', true) | trim
+             or app_booking_count.msg | default('no detail', true) | trim)
         if app_booking_count.rc != 0 else
         'Booking catalogue: ' ~ (app_booking_seeded.stdout | default('already present', true) | trim)
           ~ ' (' ~ (app_booking_count.stdout | trim) ~ ' packages before this run).'
