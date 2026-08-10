@@ -275,6 +275,19 @@ by whoever opened the database, and seeding as root leaves the service unable to
 write to its own storage — a booking page that lists packages and cannot take a
 booking.
 
+**Seeing the bookings without the console.** Worth knowing before the calendar is
+connected, because until it is, a booking is visible in exactly one place — the
+console — and the console needs the login opened. So a real booking could sit in
+the database with nobody able to see it:
+
+```bash
+bykami -db /var/lib/bykami/bykami.db booking upcoming        # has anybody booked?
+bykami -db /var/lib/bykami/bykami.db booking day 2026-08-12  # one day, cancellations too
+```
+
+The CALENDAR column reads `—` for any booking that has not reached Google, which on
+an unconnected box is all of them.
+
 **What is still shell-only:** *changing* hours, breaks, packages or prices after
 the initial seed, via `bykami booking` on the box. They change when the studio
 buys a room, which is rarer than connecting a calendar.

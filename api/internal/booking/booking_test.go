@@ -432,6 +432,68 @@ func TestBlackoutClosesTheStudio(t *testing.T) {
 	}
 }
 
+func TestUpcomingAnswersWhetherAnybodyHasBooked(t *testing.T) {
+	d, _ := newDesk(t)
+	ctx := context.Background()
+
+	// The state this exists for: a box where the console cannot be signed into, no
+	// calendar is connected and no WhatsApp provider exists — so a booking nobody
+	// can see is a booking nobody turns up for.
+	if got, err := d.Upcoming(ctx, 10); err != nil || len(got) != 0 {
+		t.Fatalf("an empty studio reported %d bookings (%v), want 0", len(got), err)
+	}
+
+	later, err := d.Book(ctx, request("photobox-y2k", wib(2026, 8, 20, 14, 0), 2))
+	if err != nil {
+		t.Fatalf("book: %v", err)
+	}
+	sooner, err := d.Book(ctx, request("photobox-y2k", wib(2026, 8, 12, 9, 0), 2))
+	if err != nil {
+		t.Fatalf("book: %v", err)
+	}
+
+	got, err := d.Upcoming(ctx, 10)
+	if err != nil {
+		t.Fatalf("upcoming: %v", err)
+	}
+	// Soonest first: the operator reads the top of the list to find out who is
+	// coming next, not who booked first.
+	if len(got) != 2 || got[0].ID != sooner.ID || got[1].ID != later.ID {
+		t.Fatalf("upcoming returned %d bookings in the wrong order", len(got))
+	}
+
+	// A cancelled booking is not upcoming. It stays in Day, which is history.
+	if _, err := d.Cancel(ctx, sooner.ID, ""); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	got, _ = d.Upcoming(ctx, 10)
+	if len(got) != 1 || got[0].ID != later.ID {
+		t.Errorf("a cancelled booking is still listed as upcoming: %+v", got)
+	}
+
+	// Neither is one that has already happened. The suite's clock sits on
+	// 10 August, so a booking on the 12th is ahead and one in July is not.
+	if _, err := d.db.Exec(
+		`INSERT INTO bookings (id, resource_id, service_id, starts_at, ends_at, headcount,
+		                       name, phone, status, created_at)
+		 VALUES ('past', 'photobox', 'photobox-y2k', ?, ?, 2, 'Lama', '+6281200000000',
+		         'confirmed', unixepoch())`,
+		wib(2026, 7, 1, 14, 0).Unix(), wib(2026, 7, 1, 14, 10).Unix()); err != nil {
+		t.Fatalf("seed a past booking: %v", err)
+	}
+	got, _ = d.Upcoming(ctx, 10)
+	for _, b := range got {
+		if b.ID == "past" {
+			t.Error("a booking from July is listed as upcoming")
+		}
+	}
+
+	// And the limit is honoured, because this is read on a box with one core.
+	if got, _ = d.Upcoming(ctx, 1); len(got) != 1 {
+		t.Errorf("limit 1 returned %d rows", len(got))
+	}
+}
+
 func TestGetAndDayReadWhatWasWritten(t *testing.T) {
 	d, _ := newDesk(t)
 	ctx := context.Background()

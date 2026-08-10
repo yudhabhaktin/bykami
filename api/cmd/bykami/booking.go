@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"text/tabwriter"
 	"time"
 
@@ -21,13 +22,22 @@ import (
 // there is no console page for this at all yet; resources and packages change when
 // the studio buys a room, which is rarer than uploading artwork.
 //
+// `day` and `upcoming` exist for a sharper reason than convenience. A booking is
+// confirmed by the database the instant it is taken, and the studio finds out
+// three ways: the console, the owner's Google Calendar, or a WhatsApp message. On
+// a box where the console login is gated, no calendar is connected yet and no
+// WhatsApp provider exists, all three are unavailable at once — so a real booking
+// would sit in the database with nobody able to see it. These two read it out.
+//
 //	bykami booking seed
 //	bykami booking resources
 //	bykami booking services
+//	bykami booking upcoming [n]
+//	bykami booking day [YYYY-MM-DD]
 //	bykami booking calendar photobox studio@group.calendar.google.com
 func bookingCmd(dsn string, args []string) error {
 	if len(args) == 0 {
-		return errors.New(`booking: want "seed", "resources", "services" or "calendar"`)
+		return errors.New(`booking: want "seed", "resources", "services", "upcoming", "day" or "calendar"`)
 	}
 
 	db, err := store.Open(dsn)
@@ -48,6 +58,28 @@ func bookingCmd(dsn string, args []string) error {
 
 	case "services":
 		return bookingServices(ctx, desk)
+
+	case "upcoming":
+		limit := 20
+		if len(args) > 1 {
+			n, err := strconv.Atoi(args[1])
+			if err != nil || n < 1 {
+				return fmt.Errorf("booking upcoming: %q is not a count", args[1])
+			}
+			limit = n
+		}
+		return bookingUpcoming(ctx, desk, limit)
+
+	case "day":
+		day := time.Now().In(booking.WIB)
+		if len(args) > 1 {
+			d, err := time.ParseInLocation("2006-01-02", args[1], booking.WIB)
+			if err != nil {
+				return fmt.Errorf("booking day: %q is not a date (want YYYY-MM-DD)", args[1])
+			}
+			day = d
+		}
+		return bookingDay(ctx, desk, day)
 
 	case "calendar":
 		if len(args) != 3 {
@@ -252,6 +284,79 @@ func bookingSeed(ctx context.Context, db *sql.DB) error {
 	fmt.Printf("seeded %d resources, %d services, hours and breaks\n", len(resources), len(services))
 	fmt.Println(`connect a calendar with: bykami -db … booking calendar <resource> <google-calendar-id>`)
 	return nil
+}
+
+// bookingUpcoming answers "has anybody booked?".
+func bookingUpcoming(ctx context.Context, desk *booking.Desk, limit int) error {
+	list, err := desk.Upcoming(ctx, limit)
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		fmt.Println("No bookings ahead.")
+		return nil
+	}
+	return printBookings(ctx, desk, list, true)
+}
+
+// bookingDay is the operator's day, cancellations included — an afternoon that was
+// busy and emptied looks identical to a quiet one otherwise.
+func bookingDay(ctx context.Context, desk *booking.Desk, day time.Time) error {
+	list, err := desk.Day(ctx, day)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s\n", day.In(booking.WIB).Format("Monday, 2 January 2006"))
+	if len(list) == 0 {
+		fmt.Println("No bookings.")
+		return nil
+	}
+	return printBookings(ctx, desk, list, false)
+}
+
+// printBookings renders the table both commands share.
+//
+// Service names are resolved once into a map rather than queried per row: the
+// package id is what the booking stores, and "self-midi" is not what is written on
+// the price list or said out loud.
+func printBookings(ctx context.Context, desk *booking.Desk, list []booking.Booking, withDate bool) error {
+	services, err := desk.Services(ctx)
+	names := map[string]string{}
+	if err == nil {
+		for _, s := range services {
+			names[s.ID] = s.Name
+		}
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
+	header := "WHEN\tPACKAGE\tNAME\tORANG\tWHATSAPP\tCALENDAR\tSTATUS"
+	if !withDate {
+		header = "TIME\tPACKAGE\tNAME\tORANG\tWHATSAPP\tCALENDAR\tSTATUS"
+	}
+	fmt.Fprintln(w, header)
+
+	for _, b := range list {
+		when := b.StartsAt.In(booking.WIB).Format("15:04")
+		if withDate {
+			when = b.StartsAt.In(booking.WIB).Format("Mon 02 Jan 15:04")
+		}
+		name := names[b.ServiceID]
+		if name == "" {
+			// A package withdrawn since the booking was made. The id is still the
+			// truth about what was sold, so it is shown rather than blanked.
+			name = b.ServiceID
+		}
+		// Whether the owner's calendar has it. On a box with no calendar connected
+		// every row reads "—", which is the honest answer and the reason this
+		// column exists at all.
+		calendar := "—"
+		if b.GCalEventID != "" {
+			calendar = "ok"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			when, name, b.Name, b.Headcount, b.Phone, calendar, b.Status)
+	}
+	return w.Flush()
 }
 
 func bookingResources(ctx context.Context, desk *booking.Desk) error {

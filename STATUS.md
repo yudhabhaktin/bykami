@@ -76,6 +76,9 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
       login opened, which needs `app_otp_delivery`. Runbook in `ansible/README.md`.
       Until it is done `studio.nap.bookingUrl` stays `blocked`, so no site links to
       the page
+- [x] `bykami booking upcoming` and `booking day`, so bookings are readable on a
+      box where the console login is gated and no calendar is connected — otherwise
+      a real booking sits in the database with nobody able to see it
 - [ ] Reschedule, reminders, and walk-in entry. The first two wait on the same
       WhatsApp provider the OTP sender waits on
 

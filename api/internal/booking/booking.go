@@ -432,6 +432,33 @@ func (d *Desk) Day(ctx context.Context, day time.Time) ([]Booking, error) {
 	return out, rows.Err()
 }
 
+// Upcoming lists confirmed bookings from now forward, soonest first.
+//
+// The question this answers is "has anybody booked?", which on a box whose
+// console cannot be signed into is otherwise unanswerable without opening the
+// database by hand. Confirmed only, and future only: a cancelled booking and last
+// Tuesday's are both history, and history is what Day is for.
+func (d *Desk) Upcoming(ctx context.Context, limit int) ([]Booking, error) {
+	rows, err := d.db.QueryContext(ctx,
+		selectBooking+` WHERE status = 'confirmed' AND starts_at >= ?
+		 ORDER BY starts_at LIMIT ?`,
+		d.now().UTC().Unix(), limit)
+	if err != nil {
+		return nil, fmt.Errorf("booking: upcoming: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Booking, 0, limit)
+	for rows.Next() {
+		b, err := scanBooking(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 // ByPhone lists a customer's own bookings, newest first.
 func (d *Desk) ByPhone(ctx context.Context, phone string, limit int) ([]Booking, error) {
 	rows, err := d.db.QueryContext(ctx,

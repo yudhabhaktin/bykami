@@ -123,6 +123,10 @@ func usage() {
 	fmt.Fprintln(out, "  bykami -db … booking seed")
 	fmt.Fprintln(out, "  bykami -db … booking resources")
 	fmt.Fprintln(out, "  bykami -db … booking calendar photobox studio@group.calendar.google.com")
+	fmt.Fprintln(out, "\nRead the bookings without the console — the only way to see them on a box")
+	fmt.Fprintln(out, "where the login is gated and no calendar is connected yet:")
+	fmt.Fprintln(out, "  bykami -db … booking upcoming        # has anybody booked?")
+	fmt.Fprintln(out, "  bykami -db … booking day 2026-08-12  # one day, cancellations included")
 	fmt.Fprintln(out, "\nFlags:")
 	flag.PrintDefaults()
 }
