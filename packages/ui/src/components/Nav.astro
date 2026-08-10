@@ -8,6 +8,13 @@ import Mark from "./Mark.astro";
  * Every property links to every other one. Link authority does not flow between
  * subdomains, but internal links still carry signal and this is what makes four
  * hostnames legible as one company to a human.
+ *
+ * The anchor text here is `shortName` rather than the full name, which does cost
+ * a little of that signal — "booth" is a weaker anchor than "booth by KAMI".
+ * That trade is affordable only because the Footer links the same three
+ * hostnames with their full `displayName` on every page of every property, so
+ * the full-name anchor is still on the page; this row buys back 132px of a 350px
+ * phone header instead. Do not shorten the footer's labels to match.
  */
 interface Props {
   current: string;
@@ -27,7 +34,14 @@ const home = verticals.find((v) => v.id === current)!;
      */}
     <a href="/" class="brand">
       <Mark size={28} />
-      {home.displayName}
+      {/*
+       * Both names ship, and CSS picks one. `display: none` takes the unused one
+       * out of the accessibility tree as well as out of the layout, so the link
+       * is announced once either way — which is why this is two spans rather
+       * than a visually-hidden pair.
+       */}
+      <span class="short">{home.shortName}</span>
+      <span class="full">{home.displayName}</span>
     </a>
     <nav aria-label="Vertikal lain">
       <ul>
@@ -35,7 +49,7 @@ const home = verticals.find((v) => v.id === current)!;
           others.map((v) => (
             <li>
               <a class="ui" href={`https://${v.hostname}`}>
-                {v.displayName}
+                {v.shortName}
               </a>
             </li>
           ))
@@ -51,10 +65,25 @@ const home = verticals.find((v) => v.id === current)!;
     background: var(--surface);
   }
 
+  /*
+   * The horizontal gaps are the phone's, and the desktop's are restored in the
+   * one media query below rather than stated here.
+   *
+   * Shortening the labels got every property onto one row at 390px, but the
+   * Dimsamcong header still wrapped at 360 — by 4px, on the width a large share
+   * of Android traffic here actually runs. 4px is not worth another breakpoint,
+   * and 24px between the brand and a three-item row is desktop spacing that a
+   * phone was inheriting for no reason. 16 here and 12 between the links buys
+   * back 16px, which clears 360 for all four properties with room over.
+   *
+   * 320px still wraps to two rows. That is the old height on a screen size that
+   * barely exists now, and it is what should happen — the alternative is
+   * dropping the mark or the type size, which costs every phone to serve one.
+   */
   .nav-inner {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-3) var(--space-6);
+    gap: var(--space-3) var(--space-4);
     align-items: center;
     justify-content: space-between;
     min-height: var(--tap);
@@ -76,10 +105,30 @@ const home = verticals.find((v) => v.id === current)!;
     text-decoration: none;
   }
 
+  /*
+   * The wordmark drops its "by KAMI" half on a phone, and this is the line that
+   * buys the whole fix — measured at 390px, the header was 125px and two rows,
+   * and is now 69px and one.
+   *
+   * Shortening the three links was not enough on its own. The row of links came
+   * down from 336px to 204px, but the brand is 156px and the gap 24px, so the
+   * pair still needed 384px of a 350px content box and still wrapped. Something
+   * had to leave the row, and the parent brand is the one word on it that is
+   * also still on screen: the mark beside it is the by KAMI mark, and "by KAMI"
+   * itself is the first link to the right, now a link home rather than decoration.
+   *
+   * 768px, not the ~424px where the full pair happens to fit, because the sticky
+   * bar and the footer already change shape there and this codebase is
+   * deliberate about the page chrome turning over at one width rather than three.
+   */
+  .brand .full {
+    display: none;
+  }
+
   ul {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-4);
+    gap: var(--space-3);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -108,5 +157,29 @@ const home = verticals.find((v) => v.id === current)!;
   nav a:focus-visible {
     text-decoration: underline;
     text-underline-offset: 4px;
+  }
+
+  /*
+   * Desktop: the header's one breakpoint, and everything that changes shape
+   * changes here — the full wordmark returns and the spacing goes back to the
+   * scale's larger steps. Same 768px as StickyBar's collapse and the footer's
+   * layout switch, so the whole page chrome turns over at one width.
+   */
+  @media (min-width: 768px) {
+    .nav-inner {
+      column-gap: var(--space-6);
+    }
+
+    .brand .short {
+      display: none;
+    }
+
+    .brand .full {
+      display: inline;
+    }
+
+    ul {
+      gap: var(--space-4);
+    }
   }
 </style>

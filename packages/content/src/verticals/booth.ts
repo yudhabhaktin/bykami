@@ -14,6 +14,7 @@ const PDF = "refs/PRICE LIST PHOTOBOOTH.pdf (owner PDF, not owner-confirmed)";
 export const booth: Vertical = {
   id: "booth",
   displayName: "booth by KAMI",
+  shortName: "booth",
   hostname: "booth.bykami.id",
   tagline: "Photobooth untuk sekolah, wedding, dan event",
   description:

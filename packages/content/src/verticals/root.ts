@@ -16,6 +16,8 @@ import { houseWhatsapp } from "./contact.ts";
 export const root: Vertical = {
   id: "root",
   displayName: "by KAMI",
+  /* The parent brand has nothing to shorten — it is already the shared half. */
+  shortName: "by KAMI",
   hostname: "bykami.id",
   tagline: "Studio foto, photobooth, dan kuliner di Banyuwangi",
   description:
