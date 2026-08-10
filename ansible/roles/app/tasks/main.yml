@@ -247,3 +247,76 @@
   delay: 2
   until: app_health is succeeded
   changed_when: false
+
+# Booking needs a catalogue before it can sell anything, and until now that was a
+# shell step somebody had to remember after every fresh install: a deploy would
+# finish healthy, and studio.bykami.id/booking would show "no packages" because
+# the tables were empty. The seed is idempotent — every insert is
+# ON CONFLICT DO NOTHING — so the risk is not running it twice, it is never
+# running it at all.
+#
+# After the health check on purpose. The binary applies its own migrations at
+# startup, so `booking_services` does not exist until the new binary has run, and
+# a check before that point would fail on a box being upgraded from a version
+# that predates booking.
+
+- name: Count the booking catalogue
+  # As the service user, not root — see the seed task below for why that matters.
+  # sqlite3 rather than `bykami booking services`, because a count is unambiguous
+  # and parsing a table for emptiness is not.
+  become_user: "{{ app_user }}"
+  ansible.builtin.command:
+    argv:
+      - sqlite3
+      - "{{ app_data_dir }}/{{ app_name }}.db"
+      - "SELECT COUNT(*) FROM booking_services"
+  register: app_booking_count
+  changed_when: false
+  # Tolerated rather than fatal. A box still running a binary that predates
+  # booking has no booking_services table, and sqlite3 exits non-zero with "no
+  # such table" — a true statement about a half-upgraded box, not a reason to fail
+  # a deploy that has otherwise succeeded. The seed is skipped and the message
+  # below says why, instead of ending the play on an error whose wording sends
+  # somebody looking at SQL.
+  failed_when: false
+
+- name: Seed the booking catalogue
+  # Only when it is empty. The command would be harmless run every time, but it
+  # prints the same "seeded 3 resources, 17 services" either way, so a task that
+  # ran unconditionally would report a change on every deploy and train whoever
+  # reads the output to ignore it.
+  #
+  # become_user is load bearing. SQLite writes -wal and -shm files beside the
+  # database, owned by whoever opened it. Seeding as root leaves those two files
+  # owned by root in a directory the service can write, and the service — running
+  # as {{ app_user }} — then fails on its next write. The symptom is a booking
+  # page that loads, lists packages, and cannot take a booking.
+  when:
+    - app_booking_seed | bool
+    - app_booking_count.rc == 0
+    - app_booking_count.stdout | trim | int == 0
+  become_user: "{{ app_user }}"
+  ansible.builtin.command:
+    argv:
+      - "{{ app_install_path }}"
+      - -db
+      - "{{ app_data_dir }}/{{ app_name }}.db"
+      - booking
+      - seed
+  register: app_booking_seeded
+
+- name: Report what the booking catalogue holds
+  # Printed rather than assumed. A deploy that seeded nothing because the tables
+  # were already full and one that seeded nothing because the flag is off look
+  # identical in the output above.
+  ansible.builtin.debug:
+    msg: >-
+      {{
+        'Booking tables are missing — the running binary predates booking. Ship a newer one and re-run.'
+        if app_booking_count.rc != 0 else
+        'Booking catalogue: ' ~ (app_booking_seeded.stdout | default('already present', true) | trim)
+          ~ ' (' ~ (app_booking_count.stdout | trim) ~ ' packages before this run).'
+      }}
+      {{ 'Google Calendar sync is off — set app_google_credentials to enable it.'
+         if not app_google_credentials else
+         'Google Calendar key present; connect each room on the console Pengaturan page.' }}

@@ -92,6 +92,15 @@ app_google_credentials: ""
 # this replaced offered, so it is the window the studio's customers already know.
 app_booking_window_days: 31
 
+# Fill the booking tables on a box whose catalogue is empty. On by default: a
+# deployment with booking endpoints and no packages answers every availability
+# request with nothing, and the failure looks like a bug rather than a missing
+# step. Idempotent, and skipped entirely once anything is in the tables — so an
+# owner who edits a price on the box does not have it overwritten by a redeploy.
+#
+# Set false if the catalogue is managed some other way.
+app_booking_seed: true
+
 app_backup_dir: /var/backups/bykami
 app_backup_keep: 7
 app_backup_oncalendar: "*-*-* 03:30:00"

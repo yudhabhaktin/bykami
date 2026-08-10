@@ -244,7 +244,8 @@ ssh <host> "journalctl -u bykami | grep service_account"
 ```
 
 **3. Point each resource at its calendar id.** In the console, *Pengaturan* → paste
-the Calendar ID next to each room → **Simpan** → **Tes sinkron sekarang**. The
+the Calendar ID next to each room → **Simpan** → **Tes sinkron sekarang**.
+(Reaching the console needs the login opened — see above.) The
 Status column then shows what Google actually said, per room, so a calendar that
 was not shared says `notFound` instead of failing quietly for a week.
 
@@ -262,8 +263,20 @@ bykami -db /var/lib/bykami/bykami.db booking calendar photobox <id>
 Clearing a calendar id detaches it and drops the ranges it had cached, so a room
 whose calendar is removed does not stay blocked against a calendar nobody reads.
 
-**What is still shell-only:** opening hours, the Dzuhur and Maghrib breaks, and
-the packages and prices, via `bykami booking seed`. They change when the studio
+**The catalogue seeds itself.** The play fills the booking tables on any box whose
+`booking_services` table is empty — the studio's three rooms, seventeen packages,
+09:00–21:00 hours and the two prayer breaks — so a fresh install does not finish
+healthy and then serve a booking page with no packages on it. It skips entirely
+once anything is in the tables, so a price edited on the box is not overwritten by
+the next deploy, and `app_booking_seed: false` turns it off.
+
+It runs as the service user, not root. SQLite writes `-wal` and `-shm` files owned
+by whoever opened the database, and seeding as root leaves the service unable to
+write to its own storage — a booking page that lists packages and cannot take a
+booking.
+
+**What is still shell-only:** *changing* hours, breaks, packages or prices after
+the initial seed, via `bykami booking` on the box. They change when the studio
 buys a room, which is rarer than connecting a calendar.
 
 ### Backups are half-finished, deliberately visibly
