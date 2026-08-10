@@ -14,6 +14,7 @@ records why splitting them on 2 vCPU would buy three GC heaps and no scaling.
 | `internal/booking` | Availability, bookings, and the calendar sync loop |
 | `internal/gcal` | Google Calendar, over `net/http` and no dependency |
 | `internal/admin` | The operator console — server-rendered HTML, no JavaScript |
+| `internal/admin` → `/settings` | Connecting the studio's Google Calendars, the one setup step that is not shell-only |
 
 `cmd/bykami` splits the URL space, because it is the only place that knows both
 handlers exist: the console takes `/`, the API takes `/healthz` and `/v1/`. Go's

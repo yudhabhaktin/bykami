@@ -168,6 +168,104 @@ reliably return newest-first — observed returning an older release ahead of a
 newer one — so the script sorts on `published_at` explicitly. Taking the first
 match installs a stale binary or appears to sit on the current version forever.
 
+### Opening the operator console
+
+Nobody can sign in to the console on a default deployment, and that is the gate
+working rather than a bug: the console logs in with the same phone OTP flow
+customers use, and `app_otp_delivery` is empty, so `/login` answers 503.
+
+Opening it needs two values, both in a gitignored vars file:
+
+```yaml
+# app.vars.yml, mode 0600, gitignored
+app_otp_delivery: "log"
+app_admin_phones: "08xxxxxxxxxx"   # the operator's number, comma-separated for more
+```
+
+```bash
+ansible-playbook site.yml --tags app -e @app.vars.yml
+```
+
+Then sign in at `https://app.bykami.id/`, and read the code out of the journal:
+
+```bash
+ssh <host> "journalctl -u bykami -n 30 | grep -o '\"code\":\"[0-9]*\"'"
+```
+
+**Understand what `log` costs before setting it.** There is exactly one sender in
+the binary and it writes codes to the journal, so for as long as this is on, every
+one-time code on the platform — customers' as well as operators' — is readable by
+anything that can read the journal. On this box that is root, and root is the
+person deploying. It is a considered trade for a single-operator studio that needs
+the console before a WhatsApp provider account exists, not a thing to leave on
+once one does. It is logged at `Warn` on every send so the exposure is visible
+rather than silent.
+
+To close it again, unset `app_otp_delivery` and re-run the play. Sessions already
+issued survive — deliberately, see `internal/httpapi`: revoking every login by
+changing a delivery setting would be a surprising way for that flag to behave.
+
+### Connecting the studio's Google Calendars
+
+Booking works with none of this. Availability comes from its own database, and the
+busy ranges it would read from Google are a cache — see `api/internal/booking`. So
+this is what buys the owner's own calendar back, not what makes booking function.
+
+Three steps, and only the third is in the console.
+
+**1. A service account, and its key in the environment.** In Google Cloud: a
+project, the Calendar API enabled, a service account, and a JSON key. Base64 it,
+because the key is multi-line PEM and an `EnvironmentFile` has no syntax for a
+value with newlines:
+
+```bash
+base64 -w0 < service-account.json      # macOS: base64 -i service-account.json
+```
+
+```yaml
+# app.vars.yml
+app_google_credentials: "ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIsCi…"
+```
+
+A service account rather than OAuth on purpose: an unverified Google project
+issues refresh tokens that expire after seven days, so a consent-screen
+integration works for a week and then stops silently. A service-account key does
+not rotate. The cost is step 2.
+
+**2. Share each calendar with the service account.** In Google Calendar, per
+calendar: settings → *Share with specific people* → add the service account's
+address → permission **"Make changes to events"**. Nothing less lets it write a
+booking in.
+
+The address is printed on the console's **Pengaturan** page and logged at startup:
+
+```bash
+ssh <host> "journalctl -u bykami | grep service_account"
+```
+
+**3. Point each resource at its calendar id.** In the console, *Pengaturan* → paste
+the Calendar ID next to each room → **Simpan** → **Tes sinkron sekarang**. The
+Status column then shows what Google actually said, per room, so a calendar that
+was not shared says `notFound` instead of failing quietly for a week.
+
+The id is not the calendar's name. Find it in Google Calendar under settings →
+*Integrate calendar* → **Calendar ID**; it looks like an address, often
+`…@group.calendar.google.com`.
+
+Same job from a shell, if the console is not open yet:
+
+```bash
+bykami -db /var/lib/bykami/bykami.db booking resources
+bykami -db /var/lib/bykami/bykami.db booking calendar photobox <id>
+```
+
+Clearing a calendar id detaches it and drops the ranges it had cached, so a room
+whose calendar is removed does not stay blocked against a calendar nobody reads.
+
+**What is still shell-only:** opening hours, the Dzuhur and Maghrib breaks, and
+the packages and prices, via `bykami booking seed`. They change when the studio
+buys a room, which is rarer than connecting a calendar.
+
 ### Backups are half-finished, deliberately visibly
 
 A daily timer runs `sqlite3 .backup`, checks `PRAGMA integrity_check` and

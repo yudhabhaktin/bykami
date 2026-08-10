@@ -71,8 +71,11 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
       the studio selling from what it already knows
 - [~] **The Google calendars are not connected yet.** Booking runs from its own
       database until somebody creates the service account and shares each calendar
-      with it. Until then `studio.nap.bookingUrl` stays `blocked`, so no site links
-      to the page
+      with it. The console's Pengaturan page does the connecting and reports what
+      Google said, so this no longer needs a shell — but it does need the console
+      login opened, which needs `app_otp_delivery`. Runbook in `ansible/README.md`.
+      Until it is done `studio.nap.bookingUrl` stays `blocked`, so no site links to
+      the page
 - [ ] Reschedule, reminders, and walk-in entry. The first two wait on the same
       WhatsApp provider the OTP sender waits on
 
@@ -140,7 +143,7 @@ Nothing here is a code problem. Roughly in order of what it unblocks.
 | Confirmation of the unverified prices | Turns `Offer` schema on across the sites. 66 facts currently render without structured data |
 | A WhatsApp provider account | OTP delivery, and with it every auth route and the operator console |
 | Business entity, NPWP, bank account | Xendit onboarding, and with it the booth taking real money |
-| A Google service account, and each studio calendar shared with it | Connecting booking to the calendar the owner actually works from. Until then availability comes from our database alone |
+| A Google service account, and each studio calendar shared with it | Connecting booking to the calendar the owner actually works from. Until then availability comes from our database alone. The console page for it exists; see `ansible/README.md` |
 | Whether MINI is 5 minutes or 15 | The owner and the booth say 5; the calendar the studio was selling on said 15. 5 is what ships |
 | Whether Pas Photo can run alongside self-photo | Parallel capacity. Both need the operator, so it is seeded on the self-photo resource |
 | Travel time between off-site shoots | Two photographer bookings an hour apart across town are both currently bookable |

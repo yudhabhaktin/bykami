@@ -79,6 +79,8 @@ var (
 	ErrTooFar = errors.New("booking: that time is too far ahead")
 	// ErrHeadcount means the group does not fit the package it was booked on.
 	ErrHeadcount = errors.New("booking: that package is not for that many people")
+	// ErrBadCalendarID means the value is not the shape of a Google Calendar id.
+	ErrBadCalendarID = errors.New("booking: not a calendar id")
 )
 
 // Resource is something that can be occupied at one instant — a photobox, a

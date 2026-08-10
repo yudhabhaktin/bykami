@@ -41,6 +41,11 @@ func calendarFor(c *gcal.Client) booking.Calendar {
 
 type calendarAdapter struct{ client *gcal.Client }
 
+// ServiceAccount satisfies booking.Principal, so the operator console can print
+// the address each calendar has to be shared with. Nothing in the sync loop reads
+// it — see the interface's own doc.
+func (a calendarAdapter) ServiceAccount() string { return a.client.Email() }
+
 func (a calendarAdapter) FreeBusy(ctx context.Context, calendarID string, from, to time.Time) ([]booking.Busy, error) {
 	ranges, err := a.client.FreeBusy(ctx, calendarID, from, to)
 	if err != nil {

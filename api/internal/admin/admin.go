@@ -81,6 +81,10 @@ type Console struct {
 	loyalty  *loyalty.Ledger
 	frameCat *frames.Catalogue
 	booking  *booking.Desk
+	// The calendar sync, or nil when no Google credential is configured. Only the
+	// settings page reads it: to print the address calendars must be shared with,
+	// and to run a sync on demand.
+	calendar *booking.Worker
 	log      *slog.Logger
 	tmpl     *template.Template
 
@@ -102,7 +106,7 @@ type Console struct {
 // New returns the console. staffPhones are raw numbers in any Indonesian form;
 // they are normalised here and an unparseable one is an error rather than a
 // silently ignored entry.
-func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, log *slog.Logger, staffPhones []string, authEnabled bool) (*Console, error) {
+func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, calendar *booking.Worker, log *slog.Logger, staffPhones []string, authEnabled bool) (*Console, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"points": formatPoints,
 		"time":   func(t time.Time) string { return t.Format("2006-01-02 15:04") },
@@ -142,6 +146,7 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 		loyalty:     ledger,
 		frameCat:    cat,
 		booking:     desk,
+		calendar:    calendar,
 		log:         log,
 		tmpl:        tmpl,
 		staff:       staff,
@@ -163,6 +168,10 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("GET /bookings", c.staffOnly(c.bookingDay))
 	mux.HandleFunc("POST /bookings/{id}/cancel", c.staffOnly(c.bookingCancel))
 	mux.HandleFunc("POST /bookings/block", c.staffOnly(c.bookingBlock))
+
+	mux.HandleFunc("GET /settings", c.staffOnly(c.settings))
+	mux.HandleFunc("POST /settings/calendar/{id}", c.staffOnly(c.settingsCalendar))
+	mux.HandleFunc("POST /settings/sync", c.staffOnly(c.settingsSync))
 
 	mux.HandleFunc("GET /frames", c.staffOnly(c.frameIndex))
 	mux.HandleFunc("POST /frames", c.staffOnly(c.frameUpload))
@@ -235,6 +244,9 @@ type page struct {
 	PrevDay   string
 	NextDay   string
 	Calendars []calendarRow
+
+	// Settings
+	ServiceAccount string
 }
 
 // calendarRow is one resource's calendar, as the console reports it. Flattened
@@ -243,6 +255,7 @@ type page struct {
 // nobody can test it.
 type calendarRow struct {
 	Resource string
+	Name     string
 	Calendar string
 	Synced   string
 	Stale    bool

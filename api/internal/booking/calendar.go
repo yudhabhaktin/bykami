@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -207,6 +208,57 @@ func (d *Desk) ForgetEvent(ctx context.Context, bookingID string) error {
 	if _, err := d.db.ExecContext(ctx,
 		`UPDATE bookings SET gcal_event_id = NULL WHERE id = ?`, bookingID); err != nil {
 		return fmt.Errorf("booking: forget event: %w", err)
+	}
+	return nil
+}
+
+// SetCalendar points a resource at a Google Calendar, or at nothing.
+//
+// The empty string detaches, which stops the sync without discarding the ranges
+// already cached — a resource whose calendar is being re-pointed keeps offering
+// the availability it knows about in the meantime.
+//
+// The id is only shape-checked. Whether it exists and whether it has been shared
+// with the service account are questions only Google can answer, and it answers
+// them on the next poll — which is why the console has a button that runs one and
+// shows what came back, rather than pretending to validate here.
+func (d *Desk) SetCalendar(ctx context.Context, resourceID, calendarID string) error {
+	calendarID = strings.TrimSpace(calendarID)
+
+	// A calendar id is an email address or the `…@group.calendar.google.com` form
+	// of one. Rejecting a value with no "@" catches the mistake somebody actually
+	// makes — pasting the calendar's *name*, or the URL from the browser bar —
+	// where the symptom would otherwise be a sync that fails for a week.
+	if calendarID != "" && !strings.Contains(calendarID, "@") {
+		return fmt.Errorf("%w: %q — a calendar id looks like an address, "+
+			"e.g. abc123@group.calendar.google.com", ErrBadCalendarID, calendarID)
+	}
+
+	res, err := d.db.ExecContext(ctx,
+		`UPDATE booking_resources SET google_calendar_id = ? WHERE id = ?`,
+		calendarID, resourceID)
+	if err != nil {
+		return fmt.Errorf("booking: set calendar: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("booking: set calendar: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("booking: no resource %q", resourceID)
+	}
+
+	// The cached ranges belong to the old calendar and say nothing about the new
+	// one. Left in place they would block times the new calendar has free, and a
+	// detached resource would stay blocked by a calendar nobody is reading — so
+	// the sync row is reset and the next poll repopulates from scratch.
+	if _, err := d.db.ExecContext(ctx,
+		`DELETE FROM booking_calendar_busy WHERE resource_id = ?`, resourceID); err != nil {
+		return fmt.Errorf("booking: clear busy: %w", err)
+	}
+	if _, err := d.db.ExecContext(ctx,
+		`DELETE FROM booking_calendar_sync WHERE resource_id = ?`, resourceID); err != nil {
+		return fmt.Errorf("booking: clear sync: %w", err)
 	}
 	return nil
 }

@@ -189,7 +189,9 @@ it is the long pole.
       accept a three-hour shoot at 09:00 and another at 10:00
 - [x] Google Calendar both ways: `freeBusy` in, events out
 - [x] Cancellation, by the customer with their own number or by an operator
-- [x] Admin — day view, block time, cancel, calendar health
+- [x] Admin — day view, block time, cancel, calendar health, and connecting a
+      Google Calendar per resource with a "test the sync now" button that reports
+      Google's own error
 - [ ] Optional QRIS charge via Xendit + idempotent webhook handling — blocked on
       onboarding
 - [ ] Confirmation and reminders — email and WhatsApp. Both wait on the same

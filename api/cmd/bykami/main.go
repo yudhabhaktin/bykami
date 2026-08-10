@@ -117,8 +117,9 @@ func usage() {
 	fmt.Fprintln(out, "is multi-line PEM and a systemd EnvironmentFile has no syntax for that:")
 	fmt.Fprintln(out, "  base64 -w0 < service-account.json")
 	fmt.Fprintln(out, "Each calendar must then be shared with the service account's own address, at")
-	fmt.Fprintln(out, "\"Make changes to events\". The address is logged at startup.")
-	fmt.Fprintln(out, "\nSeed the booking catalogue (there is no console page for this yet):")
+	fmt.Fprintln(out, "\"Make changes to events\". The address is logged at startup and shown on the")
+	fmt.Fprintln(out, "console's Pengaturan page, which is also where a calendar id is entered.")
+	fmt.Fprintln(out, "\nSeed the booking catalogue (hours, breaks and packages have no console page):")
 	fmt.Fprintln(out, "  bykami -db … booking seed")
 	fmt.Fprintln(out, "  bykami -db … booking resources")
 	fmt.Fprintln(out, "  bykami -db … booking calendar photobox studio@group.calendar.google.com")
@@ -183,6 +184,15 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 		log.Info("google calendar configured", "enabled", false)
 	}
 
+	// One worker, shared. The background loop runs it on a ticker; the operator
+	// console runs it on demand from the settings page, so somebody connecting a
+	// calendar finds out whether they shared it correctly without waiting for the
+	// next tick or reading the journal.
+	//
+	// Nil when there is no credential, which both callers check — calendarFor
+	// returns a nil interface rather than a typed nil for exactly that reason.
+	calWorker := booking.NewWorker(desk, calendarFor(calendar), log, 0, studioLocation)
+
 	api := httpapi.New(httpapi.Config{
 		Identity: ident, Loyalty: ledger, Frames: catalogue, Booking: desk,
 		Instagram: mirror, InstagramAccount: igAccount,
@@ -191,7 +201,7 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 		BookingOrigins: splitOrigins(bookingOrigins),
 	})
 
-	console, err := admin.New(ident, ledger, catalogue, desk, log, splitPhones(adminPhones), authEnabled)
+	console, err := admin.New(ident, ledger, catalogue, desk, calWorker, log, splitPhones(adminPhones), authEnabled)
 	if err != nil {
 		return fmt.Errorf("admin console: %w", err)
 	}
@@ -242,13 +252,10 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 		}()
 	}
 
-	// The calendar sync, on the same terms as the mirror and for a stronger
-	// reason: a studio that cannot reach Google must still be able to sell a slot,
-	// so this loop is the thing that falls over, never the booking.
-	//
-	// calendarFor does the translating. booking.Calendar is stated in booking's own
-	// types, so the two packages never have to agree on a third — see calendar.go.
-	if calWorker := booking.NewWorker(desk, calendarFor(calendar), log, 0, studioLocation); calWorker != nil {
+	// The calendar sync loop, on the same terms as the Instagram mirror and for a
+	// stronger reason: a studio that cannot reach Google must still be able to sell
+	// a slot, so this loop is the thing that falls over, never the booking.
+	if calWorker != nil {
 		go calWorker.Run(ctx)
 	}
 
@@ -310,13 +317,20 @@ func (disabledSender) Send(context.Context, string, string) error {
 	return errors.New("otp delivery is not configured")
 }
 
-// logSender is the placeholder delivery channel. WhatsApp is the intended
-// primary and needs a provider account that does not exist yet; until it does,
-// codes go to the log so the flow is exercisable end to end in development.
+// logSender is the placeholder delivery channel. WhatsApp is the intended primary
+// and needs a provider account that does not exist yet; until it does, codes go to
+// the log so the flow is exercisable end to end.
 //
-// It must never reach production: a one-time code in a log file is a one-time
-// code in whatever reads that log. That is enforced rather than remembered —
-// reaching it requires -otp-delivery=log, which the systemd unit does not pass.
+// A one-time code in a log is a one-time code in whatever reads that log, so this
+// is off unless somebody passes -otp-delivery=log. What that gate is *not* is a
+// guarantee it cannot reach production: the systemd unit passes the flag whenever
+// app_otp_delivery is set, which is how the operator console is opened at all
+// before a WhatsApp account exists. The trade and how to close it again are
+// written down in ansible/README.md — because the honest version of this comment
+// is a documented decision, not a claim that the situation cannot arise.
+//
+// Every send is logged at Warn with the code in it, which is deliberate: it makes
+// the exposure visible in the journal rather than silent.
 type logSender struct{ log *slog.Logger }
 
 func (s logSender) Send(_ context.Context, e164, code string) error {

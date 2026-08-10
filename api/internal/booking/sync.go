@@ -35,6 +35,18 @@ type Calendar interface {
 	Delete(ctx context.Context, calendarID, eventID string) error
 }
 
+// Principal is implemented by a Calendar that authenticates as a named account —
+// the address each calendar has to be shared with before any of this works.
+//
+// Optional, and separate from Calendar, because booking genuinely does not care
+// how the calendar authenticates: nothing in the sync loop reads this. The
+// operator console does, so that the one manual step in the whole setup is
+// printed on the page where it has to be carried out rather than dug out of a
+// JSON file on a server.
+type Principal interface {
+	ServiceAccount() string
+}
+
 const (
 	// DefaultInterval is how often the owner's calendar is re-read. A slot the
 	// owner blocks by hand is offered for up to this long afterwards, which is why
@@ -74,6 +86,31 @@ func NewWorker(d *Desk, cal Calendar, log *slog.Logger, interval time.Duration, 
 		interval = DefaultInterval
 	}
 	return &Worker{desk: d, cal: cal, log: log, interval: interval, location: location}
+}
+
+// ServiceAccount is the address the studio's calendars must be shared with, or
+// empty if the calendar cannot say. Read by the console, never by the loop.
+func (w *Worker) ServiceAccount() string {
+	if p, ok := w.cal.(Principal); ok {
+		return p.ServiceAccount()
+	}
+	return ""
+}
+
+// SyncNow runs one pass on demand, bounded.
+//
+// This is the console's "test it now" button, and the bound is what makes it safe
+// to answer an HTTP request with: three unreachable calendars at the client's own
+// 30-second timeout would outlast the server's write deadline, and the operator
+// would get a dead connection instead of the error Google actually returned.
+//
+// Errors per resource are not returned — they are recorded against each one, the
+// same as any scheduled pass, so the page that triggered this shows them in the
+// table it already has.
+func (w *Worker) SyncNow(ctx context.Context, within time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, within)
+	defer cancel()
+	return w.Sync(ctx)
 }
 
 // Run syncs until the context is cancelled.
