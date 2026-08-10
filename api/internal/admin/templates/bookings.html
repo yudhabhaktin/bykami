@@ -1,0 +1,121 @@
+{{define "bookings.html"}}
+{{template "head" .}}
+
+<h1>Booking</h1>
+{{template "messages" .}}
+
+{{if .Calendars}}
+  {{/*
+    The calendar's health, on the page an operator opens daily. It is here rather
+    than in a log because the failure is silent: a calendar that stopped syncing
+    leaves the studio selling slots the owner has already blocked by hand, and the
+    first symptom is two groups at one door.
+  */}}
+  <div class="scroll-x">
+    <table>
+      <thead>
+        <tr><th>Kalender</th><th>Google</th><th>Sinkron terakhir</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{range .Calendars}}
+          <tr>
+            <td>{{.Resource}}</td>
+            <td class="small muted">{{if .Calendar}}{{.Calendar}}{{else}}— belum terhubung{{end}}</td>
+            <td class="small tabular">{{if .Synced}}{{.Synced}}{{else}}belum pernah{{end}}</td>
+            <td class="small">
+              {{if .Error}}<span class="state off">gagal: {{.Error}}</span>
+              {{else if .Stale}}<span class="state off">tertunda</span>
+              {{else if .Synced}}<span class="state on">aktif</span>{{end}}
+            </td>
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+{{end}}
+
+<h2>{{wib .Day}}</h2>
+
+<nav class="days small">
+  <a href="/bookings?day={{.PrevDay}}">← Sehari sebelumnya</a>
+  <a href="/bookings">Hari ini</a>
+  <a href="/bookings?day={{.NextDay}}">Sehari sesudahnya →</a>
+</nav>
+
+{{if .Bookings}}
+  <div class="scroll-x">
+    <table>
+      <thead>
+        <tr>
+          <th>Jam</th><th>Paket</th><th>Nama</th><th>Orang</th>
+          <th>WhatsApp</th><th>Kalender</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Bookings}}
+          <tr>
+            <td class="tabular">{{clock .StartsAt}}–{{clock .EndsAt}}</td>
+            <td>{{.ServiceID}}</td>
+            <td>{{.Name}}</td>
+            <td class="tabular">{{.Headcount}}</td>
+            <td class="tabular"><a href="https://wa.me/{{wa .Phone}}">{{.Phone}}</a></td>
+            {{/*
+              Whether this booking reached the owner's calendar. Empty is not an
+              error — a booking is confirmed by the database and mirrored
+              afterwards — but an operator seeing it empty an hour later knows to
+              look at the sync row above.
+            */}}
+            <td class="small">{{if .GCalEventID}}<span class="state on">tersimpan</span>{{else}}<span class="state off">belum</span>{{end}}</td>
+            <td class="small">
+              {{if eq .Status "cancelled"}}<span class="state off">dibatalkan</span>
+              {{else}}<span class="state on">aktif</span>{{end}}
+            </td>
+            <td>
+              {{if eq .Status "confirmed"}}
+                <form class="inline" method="post" action="/bookings/{{.ID}}/cancel">
+                  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                  <input type="hidden" name="day" value="{{$.DayISO}}">
+                  <button class="secondary" type="submit">Batalkan</button>
+                </form>
+              {{end}}
+            </td>
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+{{else}}
+  <p class="muted">Belum ada booking di tanggal ini.</p>
+{{end}}
+
+<h2>Tutup jadwal</h2>
+<p class="small muted">
+  Untuk libur, acara, atau perbaikan. Kosongkan jam untuk menutup satu hari penuh.
+  Jam istirahat harian tidak perlu ditutup di sini — Dzuhur dan Maghrib sudah
+  otomatis.
+</p>
+<form method="post" action="/bookings/block">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <label for="block-day">Tanggal</label>
+  <input id="block-day" name="day" type="date" value="{{.DayISO}}" required>
+
+  <label for="block-from">Dari jam <span class="muted">(opsional)</span></label>
+  <input id="block-from" name="from" type="time" step="1800">
+
+  <label for="block-to">Sampai jam <span class="muted">(opsional)</span></label>
+  <input id="block-to" name="to" type="time" step="1800">
+
+  <label for="block-resource">Ruang</label>
+  <select id="block-resource" name="resource">
+    <option value="">Semua</option>
+    {{range .Calendars}}<option value="{{.Resource}}">{{.Resource}}</option>{{end}}
+  </select>
+
+  <label for="block-reason">Alasan</label>
+  <input id="block-reason" name="reason" type="text" placeholder="Libur Idulfitri">
+
+  <button type="submit">Tutup jadwal</button>
+</form>
+
+{{template "foot" .}}
+{{end}}

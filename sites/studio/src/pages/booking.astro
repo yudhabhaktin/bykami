@@ -1,0 +1,945 @@
+---
+import { byId, valueOf } from "@bykami/content";
+import BaseLayout from "@bykami/ui/BaseLayout.astro";
+import PriceList from "@bykami/ui/PriceList.astro";
+import SectionHeader from "@bykami/ui/SectionHeader.astro";
+
+const vertical = byId("studio");
+
+/**
+ * Where the booking API lives. The sites are static on Cloudflare Pages and the
+ * API is a Go binary behind a tunnel, so this is a cross-origin call by
+ * construction — `internal/httpapi/booking.go` carries the allowlist that permits
+ * it. Overridable at build time so `astro dev` can point at a local binary, which
+ * is also how the flow below was driven end to end.
+ */
+const apiBase = import.meta.env["BYKAMI_API_BASE"] ?? "https://app.bykami.id";
+
+/**
+ * The terms, assembled from the catalogue rather than retyped here.
+ *
+ * Both of these are facts about the business with a source recorded against them,
+ * and the studio made a customer tick a box agreeing to the first before it would
+ * take a booking. Rendering them from the same records the FAQ renders is what
+ * stops the page and the FAQ from drifting into two different cancellation
+ * policies — and this page is the one place where being wrong about it costs
+ * somebody twenty thousand rupiah.
+ */
+const terms = ["reschedule", "bayar-dp"]
+  .map((id) => vertical.faqs.find((f) => f.id === id))
+  .map((f) => (f ? valueOf(f.answer) : undefined))
+  .filter((a): a is string => a !== undefined);
+
+const whatsapp = vertical.nap ? valueOf(vertical.nap.whatsapp) : undefined;
+const waHref = whatsapp
+  ? `https://wa.me/${whatsapp}?text=${encodeURIComponent(
+      `Halo ${vertical.displayName}, saya mau booking.`,
+    )}`
+  : undefined;
+
+const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
+---
+
+<BaseLayout
+  vertical={vertical}
+  path="/booking"
+  trail={[{ name: "Booking", path: "/booking" }]}
+  title="Booking Self Photo & Photobox — studio by KAMI"
+  description="Pilih paket dan jam sesi di studio by KAMI Jajag, Banyuwangi. Booking tanpa DP, jadwal langsung terkonfirmasi."
+>
+  <section class="wrap hero">
+    <h1 class="enter" style="--enter-y: 32px">Booking</h1>
+    <p class="lede enter" style="--enter-delay: 0.1s">
+      Pilih paket, pilih jam yang masih kosong, dan jadwalmu langsung terkonfirmasi.
+      Tanpa DP — pembayaran di studio.
+    </p>
+  </section>
+
+  <section id="jadwal" class="wrap section">
+    <SectionHeader heading="Pilih jadwal" label="Booking" />
+
+    {/*
+      The no-JavaScript path, and the reason it is a real path rather than an
+      apology: this replaced a WhatsApp link that worked everywhere, so a visitor
+      whose browser cannot run the flow has to be left no worse off than before.
+      Hidden the moment BaseLayout's head script marks the document scripted.
+    */}
+    <p class="fallback">
+      Untuk memilih jam sendiri, aktifkan JavaScript.
+      {waHref && (
+        <>
+          {" "}Atau <a href={waHref} rel="noopener">chat admin lewat WhatsApp</a> — daftar
+          paket dan harga ada di bawah.
+        </>
+      )}
+    </p>
+
+    <div class="flow" data-flow>
+      {/*
+        Four steps in one section, switched by hidden. Not four routes: a booking
+        abandoned halfway is the thing to avoid, and a page load between choosing a
+        time and typing a name is an invitation to abandon it.
+
+        Nothing in here carries data-reveal. The observer in BaseLayout queries the
+        DOM once at parse time and unobserves as it fires, so an element revealed
+        into existence later would keep its from-state and sit at opacity 0
+        permanently. The section heading above is the reveal target; its contents
+        are not.
+      */}
+      <ol class="crumbs ui" data-crumbs>
+        <li aria-current="step">Paket</li>
+        <li>Jam</li>
+        <li>Data</li>
+      </ol>
+
+      <div data-step="service">
+        <h3 class="step-heading" tabindex="-1">Mau paket yang mana?</h3>
+        <div class="loading" data-services-loading>Memuat daftar paket…</div>
+        <div data-services hidden></div>
+      </div>
+
+      <div data-step="time" hidden>
+        <h3 class="step-heading" tabindex="-1">Kapan?</h3>
+        <p class="chosen ui" data-chosen-service></p>
+        <div class="loading" data-times-loading hidden>Memuat jadwal…</div>
+        <div data-days class="days scroll-x"></div>
+        <div data-times class="times"></div>
+        <p class="muted empty" data-times-empty hidden>
+          Tidak ada jam kosong di tanggal ini. Coba tanggal lain.
+        </p>
+        <button type="button" class="btn link ui" data-back="service">← Ganti paket</button>
+      </div>
+
+      <div data-step="details" hidden>
+        <h3 class="step-heading" tabindex="-1">Data kamu</h3>
+        <p class="chosen ui" data-chosen-slot></p>
+
+        {/*
+          A real form element, so Enter submits and a browser's own validation
+          runs before any of ours does. The submit handler is what actually sends
+          it — there is no server to post a form body to, and the API refuses
+          anything that is not application/json precisely so that a form from
+          another origin cannot reach it.
+        */}
+        <form data-form novalidate>
+          <p class="field">
+            <label for="nama">Nama</label>
+            <input id="nama" name="nama" type="text" autocomplete="name" required />
+          </p>
+          <p class="field">
+            <label for="wa">No WhatsApp</label>
+            <input
+              id="wa"
+              name="wa"
+              type="tel"
+              inputmode="tel"
+              autocomplete="tel"
+              placeholder="08xxxxxxxxxx"
+              required
+            />
+            <span class="hint muted">Untuk konfirmasi dan pengiriman link foto.</span>
+          </p>
+          <p class="field">
+            <label for="email">Email <span class="muted">(opsional)</span></label>
+            <input id="email" name="email" type="email" autocomplete="email" />
+          </p>
+          <p class="field">
+            <label for="orang">Jumlah orang</label>
+            <select id="orang" name="orang" data-headcount required></select>
+          </p>
+
+          <div class="terms">
+            <p class="ui">Syarat dan ketentuan</p>
+            <ul>
+              <li>Datang sesuai jam yang dipilih. Kalau butuh persiapan, datang lebih awal.</li>
+              {terms.map((t) => <li>{t}</li>)}
+              <li>Wajib menjaga kebersihan dan properti studio.</li>
+            </ul>
+            <p class="field check">
+              <input id="setuju" name="setuju" type="checkbox" required />
+              <label for="setuju">Saya setuju dengan syarat dan ketentuan di atas.</label>
+            </p>
+          </div>
+
+          {/*
+            aria-live so a screen reader hears a rejection. Errors here are not
+            all validation — "that time was just taken" arrives from the server
+            after everything on this form was filled in correctly.
+          */}
+          <p class="error" data-error role="status" aria-live="polite" hidden></p>
+
+          <div class="actions">
+            <button type="button" class="btn link ui" data-back="time">← Ganti jam</button>
+            <button type="submit" class="btn primary ui" data-submit>Konfirmasi booking</button>
+          </div>
+        </form>
+      </div>
+
+      <div data-step="done" hidden>
+        <h3 class="step-heading" tabindex="-1">Booking terkonfirmasi</h3>
+        <div class="card receipt" data-receipt></div>
+        <p class="muted">
+          Simpan halaman ini atau catat kode booking-nya. Kalau perlu mengubah jadwal,
+          {waHref ? <a href={waHref} rel="noopener"> chat admin</a> : " chat admin"} lebih
+          dari 6 jam sebelum jam sesi.
+        </p>
+        <div class="actions">
+          <a class="btn secondary ui" data-gcal target="_blank" rel="noopener">
+            Simpan ke Google Calendar
+          </a>
+          {mapsUrl && (
+            <a class="btn secondary ui" href={mapsUrl} target="_blank" rel="noopener">
+              Lihat lokasi
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/*
+    The crawlable half, and the same component the home page uses. Every price,
+    duration and capacity in the catalogue is here as text with no JavaScript
+    involved, which is what the SEO contract asserts and what an answer engine
+    quotes. The flow above offers whatever the API says is bookable; this is what
+    the studio publishes. If the two ever disagree the visitor still reads a
+    correct price list and is offered only slots that exist, which is the right
+    way round for that failure.
+  */}
+  <PriceList vertical={vertical} heading="Semua paket & harga" />
+</BaseLayout>
+
+{/*
+  is:inline with set:html, the same shape as BaseLayout's reveal observer: a
+  bundled script is a deferred module, and this one has work to start as soon as
+  the section exists.
+
+  The API base is interpolated into the source rather than passed with
+  `define:vars`. The two do not compose — `define:vars` emits its own IIFE and
+  discards the `set:html` body entirely, which produced a script containing one
+  const and nothing else. JSON.stringify because this value ends up inside a
+  script and a build-time string has no business being pasted in raw.
+*/}
+<script
+  is:inline
+  set:html={`(() => {
+  var apiBase = ${JSON.stringify(apiBase)};
+
+  var flow = document.querySelector("[data-flow]");
+  if (!flow) return;
+
+  var idr = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+  var LINES = {
+    "self-photo": "Self photo",
+    "photobox": "Photobox",
+    "pas-foto": "Pas foto",
+    "outdoor-photographer": "Fotografer luar studio",
+    "videographer": "Videografer",
+  };
+  var DAYS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+  var el = function (sel) { return flow.querySelector(sel); };
+  var steps = {
+    service: el('[data-step="service"]'),
+    time: el('[data-step="time"]'),
+    details: el('[data-step="details"]'),
+    done: el('[data-step="done"]'),
+  };
+  var crumbs = flow.querySelectorAll("[data-crumbs] li");
+  var order = ["service", "time", "details"];
+
+  var state = { service: null, slots: {}, day: null, slot: null };
+
+  function show(name) {
+    for (var k in steps) steps[k].hidden = k !== name;
+    var at = order.indexOf(name);
+    for (var i = 0; i < crumbs.length; i++) {
+      crumbs[i].toggleAttribute("aria-current", i === at);
+      crumbs[i].classList.toggle("done", at > -1 && i < at);
+    }
+    flow.querySelector("[data-crumbs]").hidden = name === "done";
+    // Focus the heading rather than scrolling the window: a keyboard or screen
+    // reader user who picked a package needs to land on the next question, not be
+    // left at the top of a section whose contents silently changed.
+    var h = steps[name].querySelector(".step-heading");
+    if (h) h.focus({ preventScroll: true });
+    steps[name].scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function fail(message) {
+    var box = el("[data-error]");
+    box.textContent = message;
+    box.hidden = false;
+  }
+
+  function clearError() {
+    var box = el("[data-error]");
+    box.hidden = true;
+    box.textContent = "";
+  }
+
+  // ---- step 1: the packages, from whatever the API says is bookable ----------
+
+  fetch(apiBase + "/v1/booking/services")
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (data) { renderServices(data.services || []); })
+    .catch(function () {
+      el("[data-services-loading]").textContent =
+        "Daftar paket sedang tidak bisa dimuat. Silakan chat admin lewat WhatsApp.";
+    });
+
+  function renderServices(services) {
+    if (!services.length) {
+      el("[data-services-loading]").textContent =
+        "Belum ada paket yang bisa dibooking online. Silakan chat admin lewat WhatsApp.";
+      return;
+    }
+
+    var host = el("[data-services]");
+    var groups = [];
+    var seen = {};
+    services.forEach(function (s) {
+      if (!seen[s.service_line]) { seen[s.service_line] = []; groups.push(s.service_line); }
+      seen[s.service_line].push(s);
+    });
+
+    groups.forEach(function (line) {
+      var h = document.createElement("h4");
+      h.textContent = LINES[line] || line;
+      host.appendChild(h);
+
+      var ul = document.createElement("ul");
+      ul.className = "picks";
+      seen[line].forEach(function (s) {
+        var li = document.createElement("li");
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "card pick";
+        b.innerHTML =
+          '<span class="pick-name">' + esc(s.name) + "</span>" +
+          '<span class="pick-price tabular">' + idr.format(s.price_idr) +
+          (s.price_per_person ? '<span class="muted"> / orang</span>' : "") + "</span>" +
+          '<span class="pick-spec muted ui tabular">' + s.duration_minutes + " menit · " +
+          (s.headcount_min === s.headcount_max
+            ? s.headcount_max + " orang"
+            : s.headcount_min + "–" + s.headcount_max + " orang") + "</span>" +
+          (s.description ? '<span class="pick-desc muted">' + esc(s.description) + "</span>" : "");
+        b.addEventListener("click", function () { chooseService(s); });
+        li.appendChild(b);
+        ul.appendChild(li);
+      });
+      host.appendChild(ul);
+    });
+
+    el("[data-services-loading]").hidden = true;
+    host.hidden = false;
+  }
+
+  function esc(s) {
+    var d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ---- step 2: the calendar --------------------------------------------------
+
+  function chooseService(service) {
+    state.service = service;
+    state.day = null;
+    state.slot = null;
+    el("[data-chosen-service]").textContent =
+      service.name + " · " + idr.format(service.price_idr) + (service.price_per_person ? " / orang" : "");
+    fillHeadcount(service);
+    show("time");
+    loadAvailability(service);
+  }
+
+  function fillHeadcount(service) {
+    var sel = el("[data-headcount]");
+    sel.innerHTML = "";
+    for (var n = service.headcount_min; n <= service.headcount_max; n++) {
+      var o = document.createElement("option");
+      o.value = String(n);
+      o.textContent = n + " orang";
+      sel.appendChild(o);
+    }
+  }
+
+  function loadAvailability(service) {
+    var days = el("[data-days]");
+    var times = el("[data-times]");
+    days.innerHTML = "";
+    times.innerHTML = "";
+    el("[data-times-empty]").hidden = true;
+    el("[data-times-loading]").hidden = false;
+
+    // One request for the whole window rather than one per day. The window is 31
+    // days, the response is cached at the edge for a minute, and it means picking
+    // through dates costs nothing after the first load — a booking is abandoned
+    // by waiting, not by bytes.
+    var from = new Date();
+    var to = new Date(from.getTime() + 31 * 86400000);
+
+    fetch(apiBase + "/v1/booking/availability?service=" + encodeURIComponent(service.id) +
+      "&from=" + ymd(from) + "&to=" + ymd(to))
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (data) {
+        el("[data-times-loading]").hidden = true;
+        state.slots = groupByDay(data.slots || []);
+        renderDays();
+      })
+      .catch(function () {
+        el("[data-times-loading]").hidden = true;
+        el("[data-times-empty]").hidden = false;
+        el("[data-times-empty]").textContent =
+          "Jadwal sedang tidak bisa dimuat. Silakan coba lagi atau chat admin.";
+      });
+  }
+
+  // The server sends WIB with its offset, and the studio's day is a local fact —
+  // so the day a slot belongs to is taken from the string it arrived in rather
+  // than from a Date, which would file a 20:30 slot under tomorrow for anyone
+  // whose phone is set to Jakarta+2.
+  function groupByDay(slots) {
+    var out = {};
+    slots.forEach(function (s) {
+      var day = s.starts_at.slice(0, 10);
+      (out[day] = out[day] || []).push(s);
+    });
+    return out;
+  }
+
+  function ymd(d) {
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+  function pad(n) { return n < 10 ? "0" + n : String(n); }
+
+  function renderDays() {
+    var host = el("[data-days]");
+    host.innerHTML = "";
+    var days = Object.keys(state.slots).sort();
+    if (!days.length) {
+      el("[data-times-empty]").hidden = false;
+      el("[data-times-empty]").textContent = "Belum ada jam kosong untuk paket ini.";
+      return;
+    }
+    days.forEach(function (day) {
+      var parts = day.split("-");
+      var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "day";
+      b.innerHTML =
+        '<span class="day-name ui">' + DAYS[d.getDay()] + "</span>" +
+        '<span class="day-num tabular">' + d.getDate() + "</span>" +
+        '<span class="day-mon muted ui">' + MONTHS[d.getMonth()] + "</span>";
+      b.addEventListener("click", function () { chooseDay(day); });
+      host.appendChild(b);
+    });
+    chooseDay(days[0]);
+  }
+
+  function chooseDay(day) {
+    state.day = day;
+    var host = el("[data-days]");
+    var buttons = host.querySelectorAll(".day");
+    var days = Object.keys(state.slots).sort();
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute("aria-pressed", String(days[i] === day));
+    }
+    renderTimes();
+  }
+
+  function renderTimes() {
+    var host = el("[data-times]");
+    host.innerHTML = "";
+    var slots = state.slots[state.day] || [];
+    el("[data-times-empty]").hidden = slots.length > 0;
+    slots.forEach(function (s) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "time tabular";
+      b.textContent = s.starts_at.slice(11, 16);
+      b.addEventListener("click", function () { chooseSlot(s); });
+      host.appendChild(b);
+    });
+  }
+
+  // ---- step 3: the form ------------------------------------------------------
+
+  function chooseSlot(slot) {
+    state.slot = slot;
+    clearError();
+    var parts = slot.starts_at.slice(0, 10).split("-");
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    el("[data-chosen-slot]").textContent =
+      state.service.name + " · " + DAYS[d.getDay()] + " " + d.getDate() + " " +
+      MONTHS[d.getMonth()] + " · " + slot.starts_at.slice(11, 16) +
+      "–" + slot.ends_at.slice(11, 16);
+    show("details");
+  }
+
+  flow.querySelectorAll("[data-back]").forEach(function (b) {
+    b.addEventListener("click", function () { show(b.getAttribute("data-back")); });
+  });
+
+  el("[data-form]").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    clearError();
+
+    var form = ev.target;
+    var nama = form.nama.value.trim();
+    var wa = form.wa.value.trim();
+
+    if (!nama) return fail("Nama wajib diisi.");
+    // Loose on purpose: internal/phone owns what a valid Indonesian mobile number
+    // is, and a stricter guess here would refuse numbers the server accepts.
+    if (wa.replace(/[^0-9]/g, "").length < 9) return fail("Nomor WhatsApp belum lengkap.");
+    if (!form.setuju.checked) return fail("Syarat dan ketentuan harus disetujui.");
+
+    var button = el("[data-submit]");
+    button.disabled = true;
+    button.textContent = "Mengirim…";
+
+    fetch(apiBase + "/v1/booking", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service: state.service.id,
+        starts_at: state.slot.starts_at,
+        headcount: Number(form.orang.value),
+        name: nama,
+        phone: wa,
+        email: form.email.value.trim(),
+        terms: true,
+      }),
+    })
+      .then(function (r) {
+        return r.json().then(function (body) { return { ok: r.ok, status: r.status, body: body }; });
+      })
+      .then(function (res) {
+        button.disabled = false;
+        button.textContent = "Konfirmasi booking";
+        if (res.ok) return done(res.body);
+
+        fail(res.body && res.body.error ? res.body.error : "Booking gagal. Silakan coba lagi.");
+        // 409 is somebody else getting there first, which is the one failure where
+        // the form is not the problem. Reload the grid and send them back to it,
+        // rather than leaving a filled-in form pointing at a slot that is gone.
+        if (res.status === 409) {
+          loadAvailability(state.service);
+          show("time");
+        }
+      })
+      .catch(function () {
+        button.disabled = false;
+        button.textContent = "Konfirmasi booking";
+        fail("Tidak bisa menghubungi server. Periksa koneksi lalu coba lagi.");
+      });
+  });
+
+  // ---- step 4: the receipt ---------------------------------------------------
+
+  function done(booking) {
+    var parts = booking.starts_at.slice(0, 10).split("-");
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    var when = DAYS[d.getDay()] + ", " + d.getDate() + " " + MONTHS[d.getMonth()] + " " +
+      d.getFullYear() + " · " + booking.starts_at.slice(11, 16);
+
+    el("[data-receipt]").innerHTML =
+      '<p class="receipt-when">' + esc(when) + "</p>" +
+      '<dl class="spec ui tabular">' +
+      "<dt class=\\"muted\\">Paket</dt><dd>" + esc(state.service.name) + "</dd>" +
+      "<dt class=\\"muted\\">Nama</dt><dd>" + esc(booking.name) + "</dd>" +
+      "<dt class=\\"muted\\">Jumlah</dt><dd>" + booking.headcount + " orang</dd>" +
+      "<dt class=\\"muted\\">WhatsApp</dt><dd>" + esc(booking.phone) + "</dd>" +
+      "<dt class=\\"muted\\">Kode</dt><dd>" + esc(booking.id.slice(0, 8)) + "</dd>" +
+      "</dl>";
+
+    var link = el("[data-gcal]");
+    if (link) link.href = gcalUrl(booking, state.service);
+    show("done");
+  }
+
+  // The customer's own copy. The studio's calendar is written by the server; this
+  // is the other half — a link, because it needs no permission from anybody and
+  // works on a phone that has Google Calendar installed.
+  function gcalUrl(booking, service) {
+    var start = new Date(booking.starts_at);
+    var end = new Date(booking.ends_at);
+    var stamp = function (d) {
+      return d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) + "T" +
+        pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + "00Z";
+    };
+    var q = new URLSearchParams({
+      action: "TEMPLATE",
+      text: service.name + " — studio by KAMI",
+      dates: stamp(start) + "/" + stamp(end),
+      details: "Kode booking: " + booking.id.slice(0, 8) + "\\nAtas nama " + booking.name +
+        " (" + booking.headcount + " orang)",
+      location: "studio by KAMI, Jalan Yos Sudarso, Jajag Barat, Banyuwangi",
+    });
+    return "https://calendar.google.com/calendar/render?" + q.toString();
+  }
+})();`}
+/>
+
+<style>
+  .hero {
+    margin-block: var(--space-12) var(--space-section);
+  }
+
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+  }
+
+  /* Swapped by the `js` class BaseLayout sets in <head>, before first paint. */
+  .flow {
+    display: none;
+  }
+
+  :global(html.js) .flow {
+    display: block;
+  }
+
+  :global(html.js) .fallback {
+    display: none;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  .step-heading {
+    font-size: 24px;
+    line-height: 1.4;
+    letter-spacing: -0.04em;
+    margin-bottom: var(--space-4);
+  }
+
+  /* Outline suppressed only because focus here is moved programmatically to
+     announce the step, not because the user tabbed to it. */
+  .step-heading:focus {
+    outline: none;
+  }
+
+  .crumbs {
+    display: flex;
+    gap: var(--space-3);
+    list-style: none;
+    margin: 0 0 var(--space-6);
+    padding: 0;
+    color: var(--faint);
+  }
+
+  .crumbs li::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: var(--space-2);
+    border-radius: 50%;
+    background: currentColor;
+    vertical-align: middle;
+  }
+
+  .crumbs li[aria-current] {
+    color: var(--text);
+  }
+
+  .crumbs .done {
+    color: var(--muted);
+  }
+
+  /*
+   * Everything below here is written as `:global([data-flow] …)`, and it has to
+   * be.
+   *
+   * Astro scopes a component's styles by stamping `data-astro-cid-…` on the
+   * elements in its template and adding that attribute to every selector. The
+   * package cards, the day strip and the time chips are built by the script
+   * above with `createElement`, so they never receive the attribute and every
+   * scoped rule aimed at them silently does nothing — which is exactly what
+   * happened: the day chips rendered as one run of inline text with a default
+   * button border.
+   *
+   * `[data-flow]` is the namespace that replaces the scoping. It is on the
+   * flow's own container and nowhere else in the repo, so `.day` and `.time` —
+   * names generic enough to collide — cannot reach anything outside this page.
+   */
+  :global([data-flow] h4) {
+    margin-block: var(--space-6) var(--space-3);
+  }
+
+  :global([data-flow] .picks) {
+    display: grid;
+    gap: var(--space-3);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  @media (min-width: 640px) {
+    :global([data-flow] .picks) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  :global([data-flow] .pick) {
+    display: grid;
+    gap: var(--space-1);
+    width: 100%;
+    padding: var(--space-4);
+    text-align: left;
+    background: var(--surface);
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+
+  :global([data-flow] .pick:hover) {
+    border-color: var(--text);
+  }
+
+  :global([data-flow] .pick-name) {
+    font-weight: 600;
+  }
+
+  :global([data-flow] .pick-price) {
+    font-size: 18px;
+  }
+
+  /* The day strip scrolls rather than wrapping: a month wrapped is a block of
+     numbers, and a strip reads as a calendar the thumb can flick through. */
+  .days {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-6);
+    padding-bottom: var(--space-2);
+  }
+
+  :global([data-flow] .day) {
+    display: grid;
+    flex: 0 0 auto;
+    gap: 2px;
+    justify-items: center;
+    min-width: 56px;
+    min-height: var(--tap);
+    padding: var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+
+  :global([data-flow] .day-num) {
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  :global([data-flow] .day[aria-pressed="true"]) {
+    border-color: var(--text);
+    background: var(--text);
+    color: var(--surface);
+  }
+
+  /* The muted month label has to stop being muted once the chip is inverted, or
+     it disappears into the fill. */
+  :global([data-flow] .day[aria-pressed="true"] .muted) {
+    color: inherit;
+  }
+
+  .times {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  :global([data-flow] .time) {
+    min-width: 72px;
+    min-height: var(--tap);
+    padding-inline: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+
+  :global([data-flow] .time:hover) {
+    border-color: var(--text);
+  }
+
+  .chosen {
+    margin-bottom: var(--space-4);
+    color: var(--muted);
+  }
+
+  .loading,
+  .empty {
+    color: var(--muted);
+  }
+
+  form {
+    max-width: var(--measure);
+  }
+
+  .field {
+    display: grid;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+    max-width: 28rem;
+  }
+
+  label {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  input[type="text"],
+  input[type="tel"],
+  input[type="email"],
+  select {
+    min-height: var(--tap);
+    padding-inline: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    letter-spacing: inherit;
+  }
+
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 1px;
+  }
+
+  .hint {
+    font-size: 14px;
+  }
+
+  .check {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .check label {
+    font-weight: 400;
+  }
+
+  .check input {
+    margin-top: 2px;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+  }
+
+  .terms {
+    margin-block: var(--space-6);
+    padding: var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  .terms ul {
+    margin: var(--space-2) 0 var(--space-4);
+    padding-left: 1.25rem;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .terms li {
+    margin-bottom: var(--space-1);
+  }
+
+  /* Ink, not red. The palette is monochrome by design — see tokens.css — and a
+     single red would be the only hue on four sites. Weight and a rule carry it. */
+  .error {
+    margin-block: var(--space-4);
+    padding: var(--space-3);
+    border-left: 3px solid var(--text);
+    background: rgb(244, 244, 244);
+    font-weight: 600;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: center;
+    margin-top: var(--space-6);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--tap);
+    padding-inline: var(--space-6);
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: none;
+    cursor: pointer;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .btn.primary {
+    background: var(--text);
+    color: var(--surface);
+  }
+
+  .btn.primary[disabled] {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .btn.secondary {
+    border-color: var(--line);
+    color: var(--text);
+  }
+
+  .btn.link {
+    padding-inline: 0;
+    color: var(--muted);
+    text-decoration: underline;
+  }
+
+  .receipt {
+    padding: var(--space-6);
+    margin-bottom: var(--space-6);
+  }
+
+  /* The receipt's contents are written by the script, so they are namespaced the
+     same way the chips above are. */
+  :global([data-flow] .receipt-when) {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    margin-bottom: var(--space-4);
+  }
+
+  :global([data-flow] .receipt .spec) {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-2) var(--space-6);
+    margin: 0;
+  }
+
+  :global([data-flow] .receipt dd) {
+    margin: 0;
+  }
+</style>

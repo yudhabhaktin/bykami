@@ -9,11 +9,28 @@ import { sourced } from "./sourced.ts";
 export const offering = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  /**
+   * Which line of business the offering belongs to.
+   *
+   * `outdoor-photographer` and `videographer` are the packages sold *away* from
+   * the studio — a graduation, an aqiqah, a run — and they are separate from
+   * `in-studio-photographer` because almost nothing about them is the same
+   * transaction: they are priced in hours rather than minutes, they happen at the
+   * customer's location, and they are the only thing here whose deliverable is a
+   * Drive folder rather than a print. Their own price list is titled "DILUAR
+   * STUDIO", which is the distinction the studio itself draws.
+   *
+   * These strings are also the vocabulary `booking_services.service_line` is
+   * checked against in the API, so the two halves of a booking describe a package
+   * the same way.
+   */
   serviceLine: z.enum([
     "self-photo",
     "photobox",
     "pas-foto",
     "in-studio-photographer",
+    "outdoor-photographer",
+    "videographer",
     "food",
     "drink",
   ]),

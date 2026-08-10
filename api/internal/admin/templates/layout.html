@@ -96,6 +96,10 @@ form.inline { display: inline; }
 form.inline button { width: auto; min-height: 0; padding: 0.25rem 0.75rem; font-size: 14px; }
 nav a { color: inherit; text-decoration: none; font-size: 14px; font-weight: 600; padding: 0 0.5rem; }
 nav a[aria-current] { text-decoration: underline; text-underline-offset: 4px; }
+/* The booking day's own pager, which is a row of links in the page rather than
+   the header's nav — so it gets spacing the header does not need. */
+nav.days { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+nav.days a { padding: 0; text-decoration: underline; text-underline-offset: 3px; }
 
 /* Frame catalogue */
 .frames { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
@@ -139,6 +143,7 @@ summary { cursor: pointer; color: var(--muted); }
     {{if .Operator}}
       <nav>
         <a href="/customers">Pelanggan</a>
+        <a href="/bookings">Booking</a>
         <a href="/frames">Frame</a>
       </nav>
       <span class="small muted tabular">{{.Operator}}

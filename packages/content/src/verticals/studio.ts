@@ -12,6 +12,35 @@ const PDF = "refs/Price LIst Studio Indoor.pdf (owner PDF, not owner-confirmed)"
 const OWNER_DURATION = "owner, 2026-08-01 — supersedes the PDF's 15 minutes";
 
 /**
+ * The studio's own booking pages, read through YouCanBook.me's JSON API on
+ * 2026-08-10 — `studiobykami-self` and `studiobykami-photobox`.
+ *
+ * A stronger source than the PDF for anything it covers, and the reason is not
+ * that it is newer: it is the thing customers were transacting against. A price
+ * on this page was the price somebody paid that afternoon, where the PDF is a
+ * document that may or may not have been kept up to date. It is still not the
+ * owner's word, so everything from it stays `unverified`.
+ *
+ * It disagrees with the PDF in two places worth knowing about. It carried a whole
+ * service line the PDF has never mentioned — self photo on a patterned backdrop —
+ * and it reads the headcount bands as bands rather than cumulatively: the PDF's
+ * "MIDI 1-4 ORANG" is "3-4 ORANG" here, which is how the packages are actually
+ * priced, since a pair booking MIDI would be paying MINI's price for MINI's room.
+ *
+ * Where it agrees with the PDF against the owner, the owner wins. MINI's session
+ * is the only case, and both stale sources say fifteen minutes because the booking
+ * page was configured from the PDF — one source repeated, not two agreeing.
+ */
+const BOOKING = "studiobykami-{self,photobox}.youcanbook.me, read 2026-08-10";
+
+/**
+ * The second price list, for work away from the studio — graduations, aqiqah,
+ * running events, yearbooks. Same standing as the indoor one: the owner's own
+ * document, gitignored, never confirmed as current.
+ */
+const OUTDOOR_PDF = "refs/PRICE LIST DILUAR STUDIO.pdf (owner PDF, not owner-confirmed)";
+
+/**
  * studio by KAMI — self-photo studio, pas foto, in Jajag, Banyuwangi.
  *
  * Every price below is read off the owner's price-list PDF, which is gitignored
@@ -52,7 +81,16 @@ export const studio: Vertical = {
       },
       "owner, 2026-08-09 — confirmed Jajag against the Wringinagung in the TikTok captions",
     ),
-    mapsUrl: blocked("No Google Maps link in any source. Owner must supply."),
+    // The pin the studio itself sent customers to, off the booking pages'
+    // location field. Two pins were configured, one per calendar, and they are
+    // different places: this is the self-photo one. The photobox pin is
+    // maps.app.goo.gl/Wvj9tN5ymvmdt9mj8, which is worth knowing because two pins
+    // is the strongest evidence in any source that the two are separate rooms.
+    //
+    // A shortlink, which is not ideal — it resolves through Google and cannot be
+    // read to check the coordinates. It is what the studio published, so it is
+    // what a customer following directions actually used.
+    mapsUrl: unverified("https://maps.app.goo.gl/FPPUVrMcq2NRFAVS8", BOOKING),
     // Every day, 09.00–21.00. The studio's own TikTok captions say so and the
     // owner confirmed it — which is the order that mattered, because those same
     // captions were the source that got the village wrong. A source being right
@@ -159,7 +197,7 @@ export const studio: Vertical = {
       priceIDR: unverified(45_000, PDF),
       durationMinutes: verified(5, OWNER_DURATION),
       printsIncluded: unverified(1, PDF),
-      headcount: unverified({ min: 1, max: 2 }, `${PDF} — conflicts with YouCanBook.me`),
+      headcount: unverified({ min: 1, max: 2 }, `${BOOKING} — "1-2 ORANG"; the PDF agrees here`),
     },
     {
       id: "midi",
@@ -169,7 +207,7 @@ export const studio: Vertical = {
       priceIDR: unverified(70_000, PDF),
       durationMinutes: unverified(20, PDF),
       printsIncluded: unverified(2, PDF),
-      headcount: unverified({ min: 1, max: 4 }, `${PDF} — conflicts with YouCanBook.me`),
+      headcount: unverified({ min: 3, max: 4 }, `${BOOKING} — "3-4 ORANG"; the PDF read 1-4 cumulatively`),
     },
     {
       id: "maxi",
@@ -179,7 +217,7 @@ export const studio: Vertical = {
       priceIDR: unverified(95_000, PDF),
       durationMinutes: unverified(20, PDF),
       printsIncluded: unverified(2, PDF),
-      headcount: unverified({ min: 1, max: 6 }, `${PDF} — conflicts with YouCanBook.me`),
+      headcount: unverified({ min: 5, max: 6 }, `${BOOKING} — "5-6 ORANG"; the PDF read 1-6 cumulatively`),
     },
     {
       id: "big-maxi",
@@ -189,7 +227,7 @@ export const studio: Vertical = {
       priceIDR: unverified(165_000, PDF),
       durationMinutes: unverified(25, PDF),
       printsIncluded: unverified(3, PDF),
-      headcount: unverified({ min: 1, max: 10 }, `${PDF} — conflicts with YouCanBook.me`),
+      headcount: unverified({ min: 7, max: 10 }, `${BOOKING} — "7-10 ORANG"; the PDF read 1-10 cumulatively`),
     },
     {
       id: "pas-foto",
@@ -222,6 +260,143 @@ export const studio: Vertical = {
       durationMinutes: unverified(40, PDF),
       printsIncluded: unverified(5, PDF),
       headcount: unverified({ min: 2, max: 2 }, PDF),
+    },
+
+    /*
+     * Self photo on a patterned backdrop, and the clearest thing the booking
+     * pages had that no document here did.
+     *
+     * It is a separate line from the four plain-backdrop packages rather than an
+     * option on them, because it is priced as one: MOTIF MIDI takes one to four
+     * people for 80K where plain MIDI takes three to four for 70K, so the pair
+     * who would pay 45K on plain pay 80K on motif. Folding it into a backdrop
+     * choice would put a price on a radio button.
+     */
+    {
+      id: "motif-midi",
+      name: "MOTIF MIDI",
+      serviceLine: "self-photo",
+      description: "Background bermotif, 2 print 4R.",
+      orderIndex: 7,
+      priceIDR: unverified(80_000, BOOKING),
+      durationMinutes: unverified(20, BOOKING),
+      printsIncluded: unverified(2, BOOKING),
+      headcount: unverified({ min: 1, max: 4 }, BOOKING),
+    },
+    {
+      id: "motif-family",
+      name: "MOTIF FAMILY",
+      serviceLine: "self-photo",
+      description: "Background bermotif, 2 print 4R.",
+      orderIndex: 8,
+      priceIDR: unverified(120_000, BOOKING),
+      durationMinutes: unverified(20, BOOKING),
+      printsIncluded: unverified(2, BOOKING),
+      headcount: unverified({ min: 5, max: 8 }, BOOKING),
+    },
+    {
+      id: "motif-squad",
+      name: "MOTIF SQUAD",
+      serviceLine: "self-photo",
+      description: "Background bermotif, 3 print 4R.",
+      orderIndex: 9,
+      priceIDR: unverified(180_000, BOOKING),
+      durationMinutes: unverified(25, BOOKING),
+      printsIncluded: unverified(3, BOOKING),
+      headcount: unverified({ min: 9, max: 12 }, BOOKING),
+    },
+
+    /*
+     * The photobox: a booth, not a room. Three backdrops at two prices, ten
+     * minutes each, priced per person with two strips included per head.
+     *
+     * Filed under `studio` rather than `booth`, which is the one editorial call
+     * in this block. `booth` is the mobile photobooth rented for a wedding — a
+     * whole-event hire with a crew — and this is a machine in the Jajag shop that
+     * a walk-in uses for ten minutes. Same word, different business, and the
+     * customer deciding between this and a self-photo room is on this page.
+     */
+    {
+      id: "photobox-y2k",
+      name: "Photobox Y2K",
+      serviceLine: "photobox",
+      description: "10 menit, gratis 2 strip foto 2R tiap orang.",
+      orderIndex: 10,
+      priceIDR: unverified(30_000, `${BOOKING} — per orang`),
+      durationMinutes: unverified(10, BOOKING),
+      printsIncluded: unverified(2, `${BOOKING} — per orang`),
+      headcount: unverified({ min: 1, max: 5 }, BOOKING),
+    },
+    {
+      id: "photobox-vintage",
+      name: "Photobox Vintage",
+      serviceLine: "photobox",
+      description: "10 menit, gratis 2 strip foto 2R tiap orang.",
+      orderIndex: 11,
+      priceIDR: unverified(25_000, `${BOOKING} — per orang`),
+      durationMinutes: unverified(10, BOOKING),
+      printsIncluded: unverified(2, `${BOOKING} — per orang`),
+      headcount: unverified({ min: 1, max: 5 }, BOOKING),
+    },
+    {
+      id: "photobox-maroon",
+      name: "Photobox Maroon",
+      serviceLine: "photobox",
+      description: "10 menit, gratis 2 strip foto 2R tiap orang.",
+      orderIndex: 12,
+      priceIDR: unverified(25_000, `${BOOKING} — per orang`),
+      durationMinutes: unverified(10, BOOKING),
+      printsIncluded: unverified(2, `${BOOKING} — per orang`),
+      headcount: unverified({ min: 1, max: 5 }, BOOKING),
+    },
+
+    /*
+     * Work away from the studio, from its own price list.
+     *
+     * Priced in hours, delivered as a Drive folder, and at the customer's
+     * location — which is why these carry a different `serviceLine` from the
+     * in-studio work and why the booking system gives them a resource of their
+     * own. Nothing here says how much travel time to leave between two of them;
+     * that is an open question for the owner rather than a number to invent.
+     */
+    {
+      id: "fotografer-1-jam",
+      name: "Fotografer 1 Jam",
+      serviceLine: "outdoor-photographer",
+      description: "Maksimal 1 jam, semua file diedit, gratis 2 print 4R.",
+      orderIndex: 13,
+      priceIDR: unverified(350_000, OUTDOOR_PDF),
+      durationMinutes: unverified(60, OUTDOOR_PDF),
+      printsIncluded: unverified(2, OUTDOOR_PDF),
+    },
+    {
+      id: "fotografer-15-jam",
+      name: "Fotografer 1,5 Jam",
+      serviceLine: "outdoor-photographer",
+      description: "Maksimal 1,5 jam, semua file diedit, gratis 4 print 4R.",
+      orderIndex: 14,
+      priceIDR: unverified(500_000, OUTDOOR_PDF),
+      durationMinutes: unverified(90, OUTDOOR_PDF),
+      printsIncluded: unverified(4, OUTDOOR_PDF),
+    },
+    {
+      id: "fotografer-3-jam",
+      name: "Fotografer 3 Jam",
+      serviceLine: "outdoor-photographer",
+      description: "Maksimal 3 jam, semua file diedit, gratis 1 print 10R berpigura.",
+      orderIndex: 15,
+      priceIDR: unverified(850_000, OUTDOOR_PDF),
+      durationMinutes: unverified(180, OUTDOOR_PDF),
+      printsIncluded: unverified(1, OUTDOOR_PDF),
+    },
+    {
+      id: "videografer-3-jam",
+      name: "Videografer 3 Jam",
+      serviceLine: "videographer",
+      description: "Maksimal 3 jam, hasil edit 2–4 menit.",
+      orderIndex: 16,
+      priceIDR: unverified(650_000, OUTDOOR_PDF),
+      durationMinutes: unverified(180, OUTDOOR_PDF),
     },
   ],
 
@@ -293,8 +468,12 @@ export const studio: Vertical = {
       id: "harus-booking",
       question: "Harus booking dulu atau bisa langsung datang?",
       topic: "booking",
+      // Deliberately still blocked. The booking calendar accepts a slot half an
+      // hour out, which says how late you may book — and nothing about whether
+      // somebody who walks in without booking is served. Answering the second
+      // from the first would be a guess printed as a fact.
       answer: blocked(
-        "Walk-in policy unknown. The PDF says chat WA admin to book, but does not say whether walk-ins are accepted.",
+        "Walk-in policy still unknown. The booking calendar's 30-minute minimum notice says how late a slot can be taken, not whether an unbooked visitor is turned away.",
       ),
     },
     {
@@ -302,8 +481,8 @@ export const studio: Vertical = {
       question: "Bagaimana cara booking?",
       topic: "booking",
       answer: unverified(
-        "Chat admin lewat WhatsApp untuk memesan slot.",
-        `${PDF} — "*Chat WA Admin untuk booking"`,
+        "Pilih paket dan jam yang tersedia di halaman booking, isi nama dan nomor WhatsApp, lalu jadwalmu langsung terkonfirmasi. Bisa juga chat admin lewat WhatsApp.",
+        `${BOOKING} — the form asks for Nama, No WhatsApp, Alamat Email and Jumlah Orang`,
       ),
     },
     {
@@ -319,13 +498,24 @@ export const studio: Vertical = {
       id: "reschedule",
       question: "Bisa reschedule atau batal?",
       topic: "policy",
-      answer: blocked("No reschedule or cancellation policy exists in any source."),
+      // The one policy the booking form stated outright, and it had to be ticked
+      // before a booking went through. Recorded as the studio worded it: the
+      // charge covers arriving late as well as cancelling or moving a slot, which
+      // is not what most people assume.
+      answer: unverified(
+        "Bisa, asal lebih dari 6 jam sebelum jadwal. Terlambat, batal, atau reschedule kurang dari 6 jam sebelum jadwal dikenakan denda Rp20.000.",
+        `${BOOKING} — "Terlambat, cancel dan reschedule kurang dari H-6 jam dikenakan denda sebesar 20k"`,
+      ),
     },
     {
       id: "bawa-properti",
       question: "Boleh bawa properti sendiri?",
       topic: "policy",
-      answer: blocked("Props policy unknown."),
+      // The booking terms make a customer liable for damaging the studio's own
+      // props, which is a different question from whether they may bring theirs.
+      answer: blocked(
+        "Props policy still unknown. The booking terms cover damage to the studio's property, not whether a customer may bring their own.",
+      ),
     },
     {
       id: "bawa-hewan",

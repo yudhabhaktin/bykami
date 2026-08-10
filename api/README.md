@@ -1,7 +1,7 @@
 # api — the phase 2 monolith
 
 One Go binary behind Cloudflare Tunnel at `app.bykami.id`. Identity, loyalty and
-(later) booking are packages under `internal/`, not services — `design/infrastructure.md`
+booking are packages under `internal/`, not services — `design/infrastructure.md`
 records why splitting them on 2 vCPU would buy three GC heaps and no scaling.
 
 | Package | Owns |
@@ -11,6 +11,8 @@ records why splitting them on 2 vCPU would buy three GC heaps and no scaling.
 | `internal/identity` | Phone-first accounts, OTP challenges, sessions |
 | `internal/loyalty` | The append-only `#SobatKAMi` ledger |
 | `internal/httpapi` | JSON transport. Parse, authenticate, delegate, encode |
+| `internal/booking` | Availability, bookings, and the calendar sync loop |
+| `internal/gcal` | Google Calendar, over `net/http` and no dependency |
 | `internal/admin` | The operator console — server-rendered HTML, no JavaScript |
 
 `cmd/bykami` splits the URL space, because it is the only place that knows both
@@ -39,6 +41,26 @@ these are auth results and personal data, and Cloudflare sits in front.
 | `GET` | `/v1/me/loyalty` | `{"balance","entries"}` — balance is `SUM(points)` |
 | `GET` | `/v1/booth/frames` | Booth sync: manifest of published, in-season frames |
 | `GET` | `/v1/booth/frames/{id}` | The frame's PNG. `ETag`, so an unchanged poll is a 304 |
+| `GET` | `/v1/booking/services` | What is on sale. Public, `max-age=300` |
+| `GET` | `/v1/booking/availability` | `?service=&from=&to=` → bookable start times, in WIB |
+| `POST` | `/v1/booking` | Takes a booking → 201, or 409 if the slot went |
+| `GET` | `/v1/booking/{id}` | One booking, for the confirmation page |
+| `POST` | `/v1/booking/{id}/cancel` | `{"phone"}` — the number that booked it |
+
+**Booking asks for no login, and is the only surface here that answers a
+browser on another origin.** The pages it replaced asked for a name, a number and
+an email; putting a session in front of a booking is the surest way to lose one,
+and the OTP sender that would issue that session does not exist yet. The number
+still becomes an account through `identity.EnsureUser`, so loyalty has something
+to attach to later — what is skipped is proving possession of it, which the studio
+already lives with because it phones people who do not turn up.
+
+Because `studio.bykami.id` is a different origin from this one, those five routes
+carry an `Access-Control-Allow-Origin` allowlist and an `OPTIONS` preflight. Never
+a wildcard: two of them write. The `Content-Type: application/json` that `decode`
+insists on is doing double duty — it is what makes the preflight happen, and it is
+what keeps a cross-origin HTML form out of an endpoint that has no session to
+check instead.
 
 **A booth is not a user.** It has no phone and cannot receive a one-time code,
 so `/v1/booth/*` authenticates with a shared secret from `BYKAMI_BOOTH_TOKEN`
@@ -245,7 +267,6 @@ actor column and an anonymous adjustment cannot be defended later.
   operator's — that is the open staff/device auth question in `design/kiosk.md`.
 - **Nobody can actually sign in to the console** on the deployed box, because
   login uses the OTP flow and delivery is off. That is the gate above, working.
-- **Booking**, blocked on the bookable-resource count.
 - **A real OTP sender.** WhatsApp is intended and needs a provider account. It
   is the single thing blocking the console from being usable.
 - **No per-booth identity.** One shared secret admits every booth, so a single

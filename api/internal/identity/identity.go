@@ -260,6 +260,66 @@ func (s *Service) UserByPhone(ctx context.Context, rawPhone string) (User, error
 	return u, nil
 }
 
+// EnsureUser finds or creates the account a phone number belongs to, filling in
+// a name and email if the account has none yet.
+//
+// This is booking's way in, and the architecture record is why it exists rather
+// than booking keeping its own customer table: a vertical with its own users
+// means a migration and forcing every customer to re-register the day loyalty
+// launches. A booking collects a name, a number and an email, which is the whole
+// of a phone-first account, so there is nothing left to migrate — the booking is
+// attached to the account that will hold the points.
+//
+// No code is sent and no session is issued. Booking has never asked anyone to log
+// in and this does not start: the number is the account, and possession of it gets
+// proven whenever the customer first signs in. What this creates is a row, not a
+// login.
+//
+// A name or email already on the account is left alone. Somebody who has
+// corrected the spelling of their own name should not have it undone by a stale
+// autofill in a booking form.
+func (s *Service) EnsureUser(ctx context.Context, rawPhone, name, email string) (User, error) {
+	e164, err := phone.Normalize(rawPhone)
+	if err != nil {
+		return User{}, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, fmt.Errorf("identity: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	u, err := upsertUser(ctx, tx, e164, s.now())
+	if err != nil {
+		return User{}, err
+	}
+
+	// COALESCE on the stored side rather than a read-then-write: the column is
+	// nullable and also carries '' from older rows, and both mean "not set".
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE users
+		    SET name  = CASE WHEN COALESCE(name, '')  = '' THEN ? ELSE name  END,
+		        email = CASE WHEN COALESCE(email, '') = '' THEN ? ELSE email END
+		  WHERE id = ?`,
+		nullIfEmpty(name), nullIfEmpty(email), u.ID,
+	); err != nil {
+		return User{}, fmt.Errorf("identity: fill user: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return User{}, fmt.Errorf("identity: commit: %w", err)
+	}
+
+	if u.Name == "" {
+		u.Name = name
+	}
+	if u.Email == "" {
+		u.Email = email
+	}
+	return u, nil
+}
+
 // EndSession logs one device out. Idempotent.
 func (s *Service) EndSession(ctx context.Context, token string) error {
 	sum := sha256.Sum256([]byte(token))
@@ -332,4 +392,14 @@ func newID() string {
 		panic("identity: entropy unavailable: " + err.Error())
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// nullIfEmpty keeps "not given" as NULL rather than ”. users.name and
+// users.email are optional by design, and two spellings of absent is one more
+// than any reader of this table should have to handle.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

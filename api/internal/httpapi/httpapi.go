@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/instagram"
@@ -49,8 +50,14 @@ type API struct {
 	identity *identity.Service
 	loyalty  *loyalty.Ledger
 	frames   *frames.Catalogue
+	booking  *booking.Desk
 	health   HealthFunc
 	log      *slog.Logger
+
+	// Extra origins the booking routes accept, beyond the four *.bykami.id sites
+	// that originAllowed matches by suffix. This is how `astro dev` on
+	// http://localhost:4321 reaches a local API; empty in production.
+	bookingOrigins []string
 
 	// The mirrored Instagram feed, and the handle it was mirrored from. The
 	// handle is carried through so the sites can label the section without
@@ -78,19 +85,50 @@ type API struct {
 // than the database itself keeps this package free of a SQL import.
 type HealthFunc func(ctx context.Context) error
 
-// New returns the router. authEnabled false leaves /healthz working and every
-// auth route answering 503, which is the deployed configuration today.
-// boothToken is the shared secret booths present, in plain text. Empty leaves
-// the sync routes answering 503 — the same shape as authEnabled, so a box
-// nobody configured cannot serve a catalogue.
-func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, mirror *instagram.Cache, instagramAccount string, health HealthFunc, log *slog.Logger, authEnabled bool, boothToken string) http.Handler {
+// Config is everything the router is wired from.
+//
+// A struct rather than a parameter list. The list had grown to nine and the next
+// three would have been a *booking.Desk, a []string and nothing to tell them
+// apart at the call site — a positional argument is fine until two of them share
+// a type, at which point transposing them compiles.
+type Config struct {
+	Identity *identity.Service
+	Loyalty  *loyalty.Ledger
+	Frames   *frames.Catalogue
+	Booking  *booking.Desk
+
+	// Instagram is the mirrored feed, and InstagramAccount the handle it came
+	// from — carried through so the sites can label the section without holding
+	// the same string in two repositories.
+	Instagram        *instagram.Cache
+	InstagramAccount string
+
+	Health HealthFunc
+	Log    *slog.Logger
+
+	// AuthEnabled false leaves /healthz working and every auth route answering
+	// 503, which is the deployed configuration today.
+	AuthEnabled bool
+	// BoothToken is the shared secret booths present, in plain text. Empty leaves
+	// the sync routes answering 503 — the same shape as AuthEnabled, so a box
+	// nobody configured cannot serve a catalogue.
+	BoothToken string
+	// BookingOrigins are extra CORS origins for the booking routes, for local
+	// development. Empty in production.
+	BookingOrigins []string
+}
+
+// New returns the router.
+func New(cfg Config) http.Handler {
 	a := &API{
-		identity: ident, loyalty: ledger, frames: cat,
-		instagram: mirror, instagramAccount: instagramAccount,
-		health: health, log: log, authEnabled: authEnabled,
+		identity: cfg.Identity, loyalty: cfg.Loyalty, frames: cfg.Frames,
+		booking:   cfg.Booking,
+		instagram: cfg.Instagram, instagramAccount: cfg.InstagramAccount,
+		health: cfg.Health, log: cfg.Log, authEnabled: cfg.AuthEnabled,
+		bookingOrigins: cfg.BookingOrigins,
 	}
-	if boothToken != "" {
-		sum := sha256.Sum256([]byte(boothToken))
+	if cfg.BoothToken != "" {
+		sum := sha256.Sum256([]byte(cfg.BoothToken))
 		a.boothToken = sum[:]
 	}
 
@@ -120,6 +158,24 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 	// a marketing page.
 	mux.HandleFunc("GET /v1/social/instagram", a.instagramFeed)
 	mux.HandleFunc("GET /v1/social/instagram/{id}", a.instagramMedia)
+
+	// Booking. Read by a browser on studio.bykami.id, which is a different origin
+	// from this one, so every route carries CORS and the two POSTs need a
+	// preflight — see booking.go. Not gated by authEnabled: booking has never
+	// required a login, and gating it on an OTP sender that does not exist yet
+	// would mean the studio cannot take a booking at all.
+	mux.HandleFunc("GET /v1/booking/services", a.cors(a.bookingServices))
+	mux.HandleFunc("GET /v1/booking/availability", a.cors(a.bookingAvailability))
+	mux.HandleFunc("POST /v1/booking", a.cors(a.createBooking))
+	mux.HandleFunc("GET /v1/booking/{id}", a.cors(a.readBooking))
+	mux.HandleFunc("POST /v1/booking/{id}/cancel", a.cors(a.cancelBooking))
+
+	// ServeMux routes on method, so an OPTIONS to a POST pattern is a 405 — and a
+	// 405 to a preflight is a booking form that fails with nothing in the network
+	// tab to say why.
+	mux.HandleFunc("OPTIONS /v1/booking", a.preflight)
+	mux.HandleFunc("OPTIONS /v1/booking/{id}", a.preflight)
+	mux.HandleFunc("OPTIONS /v1/booking/{id}/cancel", a.preflight)
 
 	return mux
 }
@@ -337,12 +393,18 @@ func bearerToken(r *http.Request) string {
 // can POST to these routes, because form submissions are not subject to the
 // preflight that would otherwise stop them.
 func (a *API) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
+	return a.decodeLimited(w, r, dst, maxBody)
+}
+
+// decodeLimited is decode with an explicit ceiling, for the one surface whose
+// bodies are bigger than a phone number and a code.
+func (a *API) decodeLimited(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
 	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		a.fail(w, http.StatusUnsupportedMediaType, "expected Content-Type: application/json")
 		return false
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 
 	// An unknown field is almost always a misspelled known one, and without
@@ -390,7 +452,14 @@ func (a *API) write(w http.ResponseWriter, status int, body any) {
 	// Every response here is either personal data or an auth result, and
 	// Cloudflare sits in front of this. no-store rather than no-cache: the
 	// weaker one still permits a stored copy revalidated later.
-	h.Set("Cache-Control", "no-store")
+	//
+	// The default, not the rule. A handler serving something genuinely public
+	// sets its own Cache-Control before calling this — the Instagram manifest and
+	// the booking catalogue both do, and an unconditional Set here overwrote them,
+	// so the caching those handlers ask for never reached Cloudflare.
+	if h.Get("Cache-Control") == "" {
+		h.Set("Cache-Control", "no-store")
+	}
 	h.Set("X-Content-Type-Options", "nosniff")
 
 	w.WriteHeader(status)
