@@ -32,6 +32,12 @@ export const dimsamcong: Vertical = {
    * actually runs makes that claim true as written.
    */
   displayName: "Dimsamcong Banyuwangi",
+  /*
+   * "Banyuwangi" is the locality, and it earns its place in a page title and in
+   * a search result. In the nav it is the one label that cannot fit, and the
+   * town is the same for all four properties anyway.
+   */
+  shortName: "Dimsamcong",
   hostname: "dimsamcong.bykami.id",
   tagline: "Dimsum di Jajag, Banyuwangi",
   description:

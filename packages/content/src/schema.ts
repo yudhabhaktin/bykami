@@ -159,6 +159,20 @@ export const videoUrl = (handle: string, v: Video) =>
 export const vertical = z.object({
   id: z.enum(["root", "studio", "dimsamcong", "booth"]),
   displayName: z.string().min(1),
+  /**
+   * The name to use where the four properties are listed together, and the only
+   * place a shortened brand is correct.
+   *
+   * Three of the four display names end in "by KAMI", which is right on a page
+   * title and wrong in a row of four links: the cross-property nav rendered
+   * "studio by KAMI · by KAMI · booth by KAMI · Dimsamcong Banyuwangi", where
+   * the shared half is 132px of a 350px phone header spent saying the same
+   * three syllables four times. It is what forced that header onto two rows.
+   *
+   * Only the nav uses it. Titles, JSON-LD, llms.txt and the footer stay on
+   * `displayName`, because in each of those the full name is the point.
+   */
+  shortName: z.string().min(1),
   hostname: z.string().min(1),
   tagline: z.string().min(1),
   description: z.string().min(1),

@@ -21,6 +21,7 @@ const OWNER_DURATION = "owner, 2026-08-01 — supersedes the PDF's 15 minutes";
 export const studio: Vertical = {
   id: "studio",
   displayName: "studio by KAMI",
+  shortName: "studio",
   hostname: "studio.bykami.id",
   tagline: "Self photo studio di Banyuwangi",
   description:

@@ -55,8 +55,12 @@ const show = handle && videos && videos.length > 0;
                * Real markup, not a placeholder: this is what shows before
                * embed.js runs and all there is if it never does. TikTok replaces
                * the whole blockquote once its script loads.
+               *
+               * The class exists because this link has to survive contact with
+               * TikTok's own stylesheet, which restyles it — see the
+               * `[data-embed-failed]` rules below.
                */}
-              <a href={videoUrl(handle, v)} rel="noopener">
+              <a class="fallback" href={videoUrl(handle, v)} rel="noopener">
                 {v.caption ?? "Lihat video ini di TikTok"}
               </a>
             </section>
@@ -87,13 +91,82 @@ const show = handle && videos && videos.length > 0;
             document.body.appendChild(s);
           };
 
-          if (!("IntersectionObserver" in window)) return load();
+          /*
+           * What happens when TikTok says no.
+           *
+           * `tiktok.com/embed/v2/<id>` returns 503 under load — measured at 3 of
+           * 15 requests over five page loads, and it hits individual embeds, not
+           * the section, so the usual result is two videos playing and one dead
+           * cell rather than a section that is obviously broken.
+           *
+           * Its script does not handle that. It has already swapped the
+           * blockquote for an iframe and painted its own skeleton into the
+           * <section>, and when the iframe never reports a height it leaves both:
+           * a ~330px empty box, and beneath it our fallback link restyled by
+           * TikTok's stylesheet to black with no underline — a caption that does
+           * not look clickable sitting under a hole in the page.
+           *
+           * Retrying is not the answer; that was tried. Re-setting `iframe.src`
+           * does re-request and does get a 200, but the height only ever arrives
+           * through the one postMessage handler TikTok's script arms per embed,
+           * so the second response renders into a box still sized to nothing.
+           *
+           * So this settles rather than retries: a rendered embed is a tall one,
+           * anything still short after the grace period is marked failed, and the
+           * CSS below turns that cell back into the plain link it started as. A
+           * visitor who cannot watch the video here can always still reach it.
+           *
+           * A missing iframe counts as failed too, which covers the case where
+           * embed.js is blocked outright rather than answering 503.
+           *
+           * It keeps checking rather than deciding once, and that is the more
+           * important half. A single verdict at six seconds is a verdict about
+           * the network, not about the embed — on the mid-range Android and the
+           * 4G this traffic actually runs on, a perfectly good video that simply
+           * arrived slowly would be demoted to a link and stay there. Demoting a
+           * working embed is a worse bug than the one being fixed, so the flag
+           * has to be able to come back off.
+           */
+          const RENDERED_PX = 300;
+          const GRACE_MS = 6000;
+          const RECHECK_MS = 2000;
+          const GIVE_UP_MS = 30000;
+
+          /*
+           * TikTok writes the embed's measured height onto the iframe as an
+           * inline style once it reports back — the real height for one that
+           * rendered, `0px` for one that 503'd. Reading that rather than the
+           * rendered box is what makes the check repeatable: the CSS below hides
+           * a failed iframe, and a hidden box measures zero forever, so a cell
+           * demoted once could never be promoted back.
+           */
+          const rendered = (bq) => {
+            const frame = bq.querySelector("iframe");
+            return !!frame && (parseFloat(frame.style.height) || 0) >= RENDERED_PX;
+          };
+
+          const settle = () => {
+            for (const bq of section.querySelectorAll("blockquote.tiktok-embed")) {
+              bq.toggleAttribute("data-embed-failed", !rendered(bq));
+            }
+          };
+
+          const start = () => {
+            load();
+            setTimeout(() => {
+              settle();
+              const again = setInterval(settle, RECHECK_MS);
+              setTimeout(() => clearInterval(again), GIVE_UP_MS);
+            }, GRACE_MS);
+          };
+
+          if (!("IntersectionObserver" in window)) return start();
 
           const io = new IntersectionObserver(
             (entries) => {
               if (!entries.some((e) => e.isIntersecting)) return;
               io.disconnect();
-              load();
+              start();
             },
             { rootMargin: "400px" },
           );
@@ -122,6 +195,64 @@ const show = handle && videos && videos.length > 0;
     margin: 0;
     /* TikTok's own ceiling, from the same response. */
     max-width: 605px;
+  }
+
+  /*
+   * The failed cell, dressed back down to a link.
+   *
+   * Both halves are undoing something TikTok's stylesheet did: the iframe is the
+   * empty box, and the <section> carries its skeleton — the min-height and the
+   * centred logo that make a cell with nothing in it 330px tall. Resetting them
+   * here rather than hiding the whole blockquote keeps the caption, which is the
+   * only thing on a failed cell worth reading.
+   *
+   * No `!important` anywhere, and that is deliberate rather than lucky: Astro
+   * appends its scope attribute to each of these selectors, so they carry one
+   * more class-weight component than TikTok's own rules and win on specificity.
+   * Anything here that stops taking effect after a TikTok CSS change is telling
+   * you that assumption has expired.
+   */
+  .tiktok-embed[data-embed-failed] iframe {
+    display: none;
+  }
+
+  .tiktok-embed[data-embed-failed] section {
+    display: block;
+    min-height: 0;
+    padding: var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: none;
+  }
+
+  /*
+   * The two pseudo-elements are the empty box, and they are the reason resetting
+   * the section alone left a 413px cell with a 79px link in it: TikTok draws its
+   * loading skeleton as `section::before`, a 300px shimmer gradient, with its
+   * logo pinned over it as `section::after`. Neither is a child, so neither
+   * shows up walking the DOM — they have to be turned off by name.
+   *
+   * A skeleton is a promise that something is still coming. Once the grace
+   * period has expired nothing is, so it should stop making that promise.
+   */
+  .tiktok-embed[data-embed-failed] section::before,
+  .tiktok-embed[data-embed-failed] section::after {
+    content: none;
+  }
+
+  /*
+   * TikTok gives this anchor `display: block; padding: 12px`, which inside our
+   * own 16px card reads as text that has slipped to the right. The padding goes
+   * and the line-height comes back to the page's own, so the card is spaced by
+   * one rule instead of by two that disagree.
+   */
+  .tiktok-embed[data-embed-failed] .fallback {
+    display: block;
+    padding: 0;
+    color: var(--text);
+    line-height: 1.5;
+    text-decoration: underline;
+    text-underline-offset: 4px;
   }
 
   .more {
