@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -429,6 +430,111 @@ func TestBlackoutClosesTheStudio(t *testing.T) {
 	// The day after is unaffected.
 	if _, err := d.Book(ctx, request("photobox-y2k", wib(2026, 8, 21, 14, 0), 2)); err != nil {
 		t.Errorf("the day after a blackout: %v", err)
+	}
+}
+
+func TestBookingRefusesTextThatWouldDriveATerminal(t *testing.T) {
+	d, _ := newDesk(t)
+	ctx := context.Background()
+	esc := string(rune(27))
+
+	// The attack, and it is aimed squarely at the listing that exists so that no
+	// booking is invisible: erase the line just printed, move up, erase that one
+	// too. One customer makes another customer's booking vanish from the only view
+	// the studio has, and substitutes text of their choosing.
+	hide := "Rina" + esc + "[2K" + esc + "[1A" + esc + "[2KWALK-IN, NO BOOKING"
+
+	tests := []struct {
+		name string
+		req  Request
+		want error
+	}{
+		{
+			"a name that rewrites the operator's screen",
+			func() Request { r := request("photobox-y2k", wib(2026, 8, 12, 14, 0), 2); r.Name = hide; return r }(),
+			ErrControlCharacters,
+		},
+		{
+			"a newline, which would forge a whole extra row",
+			func() Request {
+				r := request("photobox-y2k", wib(2026, 8, 12, 14, 0), 2)
+				r.Name = "Rina\nWed 12 Aug 09:00  MIDI  Nobody"
+				return r
+			}(),
+			ErrControlCharacters,
+		},
+		{
+			"a carriage return, which overwrites the line in place",
+			func() Request {
+				r := request("photobox-y2k", wib(2026, 8, 12, 14, 0), 2)
+				r.Name = "Rina\rBudi"
+				return r
+			}(),
+			ErrControlCharacters,
+		},
+		{
+			"escapes hidden in the notes, which reach the calendar event",
+			func() Request {
+				r := request("photobox-y2k", wib(2026, 8, 12, 14, 0), 2)
+				r.Notes = esc + "]0;pwned" + string(rune(7))
+				return r
+			}(),
+			ErrControlCharacters,
+		},
+		{
+			"a name longer than any name",
+			func() Request {
+				r := request("photobox-y2k", wib(2026, 8, 12, 14, 0), 2)
+				r.Name = strings.Repeat("a", 5000)
+				return r
+			}(),
+			ErrTooLong,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := d.Book(ctx, tc.req); !errors.Is(err, tc.want) {
+				t.Errorf("got %v, want %v", err, tc.want)
+			}
+		})
+	}
+
+	// Nothing was written, so no later reader has to defend against it.
+	var rows int
+	d.db.QueryRow(`SELECT COUNT(*) FROM bookings`).Scan(&rows)
+	if rows != 0 {
+		t.Errorf("%d bookings stored, want 0", rows)
+	}
+}
+
+func TestBookingAcceptsRealIndonesianNames(t *testing.T) {
+	d, _ := newDesk(t)
+	ctx := context.Background()
+
+	// The check has to refuse control characters without refusing people. A rule
+	// that rejected accents, apostrophes or non-Latin script would be a worse
+	// failure than the one it prevents — a customer unable to book under their own
+	// name.
+	for i, name := range []string{
+		"Rina Wulandari",
+		"Nur'aini",
+		"Siti Aisyah binti Abdullah",
+		"Björn Müller",
+		"李明",
+		"Ni Luh Putu Ayu",
+		"Rina-Dewi Saraswati",
+	} {
+		// A different day each time, at 14:00. Stepping by the hour instead walks
+		// into the Dzuhur break at noon and fails on availability, which says
+		// nothing about the name.
+		if _, err := d.Book(ctx, func() Request {
+			r := request("photobox-y2k", wib(2026, 8, 12+i, 14, 0), 2)
+			r.Name = name
+			return r
+		}()); err != nil {
+			t.Errorf("refused %q: %v", name, err)
+		}
 	}
 }
 

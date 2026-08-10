@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
@@ -354,9 +356,36 @@ func printBookings(ctx context.Context, desk *booking.Desk, list []booking.Booki
 			calendar = "ok"
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
-			when, name, b.Name, b.Headcount, b.Phone, calendar, b.Status)
+			when, name, forTerminal(b.Name), b.Headcount, b.Phone, calendar, b.Status)
 	}
 	return w.Flush()
+}
+
+// forTerminal renders customer-supplied text safely into a terminal.
+//
+// booking.CheckText refuses control characters at the door, so nothing written
+// after it can carry them — but rows written before it exists still can, and this
+// command's whole purpose is reading rows that already exist. A name of
+// "Rina<ESC>[2K<ESC>[1A<ESC>[2KWALK-IN" erases the row printed above it, which
+// turns the listing that exists so no booking is invisible into the thing that
+// hides one.
+//
+// Control characters become "?" rather than being dropped, because a name that
+// arrived with something odd in it should look odd. Overlong values are truncated
+// so one row cannot push the rest off the screen — the same attack with a blunter
+// instrument.
+func forTerminal(s string) string {
+	const width = 40
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, s)
+	if len([]rune(s)) > width {
+		return string([]rune(s)[:width-1]) + "…"
+	}
+	return s
 }
 
 func bookingResources(ctx context.Context, desk *booking.Desk) error {

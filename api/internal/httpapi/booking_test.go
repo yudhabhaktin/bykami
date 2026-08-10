@@ -269,6 +269,45 @@ func TestBookingRefusesWhatTheStudioCannotHonour(t *testing.T) {
 	}
 }
 
+func TestBookingRefusesTerminalEscapesAndStoresNothing(t *testing.T) {
+	h, _, db, _ := newTestAPI(t, false)
+	seedBooking(t, db)
+	esc := "\u001b"
+
+	// The public form is the entry point, so this is where it has to be refused.
+	// The payload erases the row printed above it in `bykami booking upcoming`,
+	// which would let one customer hide another's booking from the only listing the
+	// studio has.
+	body := `{"service":"photobox-y2k","starts_at":"` + nextSlot().Format(time.RFC3339) +
+		`","headcount":2,"name":"Rina` + esc + `[2K` + esc + `[1A` + esc +
+		`[2KWALK-IN","phone":"081234567890","terms":true}`
+
+	w := bookingRequest(t, h, http.MethodPost, "/v1/booking", studioOrigin, body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("escape sequence accepted: %d %s", w.Code, w.Body)
+	}
+
+	// Nothing stored anywhere. The account upsert runs before the booking, so a
+	// check placed after it would leave the payload in `users` even though the
+	// booking was refused.
+	var bookings, users int
+	db.QueryRow(`SELECT COUNT(*) FROM bookings`).Scan(&bookings)
+	db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users)
+	if bookings != 0 {
+		t.Errorf("%d bookings stored, want 0", bookings)
+	}
+	if users != 0 {
+		t.Errorf("%d users stored, want 0 — the name reached the account table", users)
+	}
+
+	// And an ordinary name still works, so the guard is not simply refusing people.
+	ok := `{"service":"photobox-y2k","starts_at":"` + nextSlot().Format(time.RFC3339) +
+		`","headcount":2,"name":"Nur` + "'" + `aini","phone":"081234567890","terms":true}`
+	if w := bookingRequest(t, h, http.MethodPost, "/v1/booking", studioOrigin, ok); w.Code != http.StatusCreated {
+		t.Errorf("a real name was refused: %d %s", w.Code, w.Body)
+	}
+}
+
 func TestTheSecondBookingOfASlotIsAConflict(t *testing.T) {
 	h, _, db, _ := newTestAPI(t, false)
 	seedBooking(t, db)

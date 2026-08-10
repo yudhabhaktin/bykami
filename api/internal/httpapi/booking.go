@@ -218,9 +218,32 @@ func (a *API) createBooking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(req.Name) == "" {
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.TrimSpace(req.Email)
+	req.Notes = strings.TrimSpace(req.Notes)
+
+	if req.Name == "" {
 		a.fail(w, http.StatusBadRequest, "nama wajib diisi")
 		return
+	}
+
+	// Before EnsureUser, and that order is the point. These strings are typed by
+	// the public and end up in two more places — an operator's terminal, and an
+	// event in the owner's Google Calendar — so a control character in a "name" is
+	// an instruction to whatever prints it. Validating after the account upsert
+	// would leave the bad value in `users` even though the booking was refused.
+	for _, f := range []struct{ label, value string }{
+		{"nama", req.Name}, {"email", req.Email}, {"catatan", req.Notes},
+	} {
+		if err := booking.CheckText(f.label, f.value); err != nil {
+			switch {
+			case errors.Is(err, booking.ErrControlCharacters):
+				a.fail(w, http.StatusBadRequest, f.label+" berisi karakter yang tidak diizinkan")
+			default:
+				a.fail(w, http.StatusBadRequest, f.label+" terlalu panjang")
+			}
+			return
+		}
 	}
 	// The old form made this mandatory, and it is where the late-cancellation
 	// charge is agreed. Recording the booking without it would leave the studio's
@@ -257,10 +280,10 @@ func (a *API) createBooking(w http.ResponseWriter, r *http.Request) {
 		ServiceID: req.Service,
 		StartsAt:  start,
 		Headcount: req.Headcount,
-		Name:      strings.TrimSpace(req.Name),
+		Name:      req.Name,
 		Phone:     e164,
-		Email:     strings.TrimSpace(req.Email),
-		Notes:     strings.TrimSpace(req.Notes),
+		Email:     req.Email,
+		Notes:     req.Notes,
 		UserID:    userID,
 	})
 
@@ -283,6 +306,10 @@ func (a *API) createBooking(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, http.StatusBadRequest, "jumlah orang tidak sesuai paket")
 	case errors.Is(err, booking.ErrNotOnTheGrid):
 		a.fail(w, http.StatusBadRequest, "starts_at must be on the half hour")
+	case errors.Is(err, booking.ErrControlCharacters), errors.Is(err, booking.ErrTooLong):
+		// Book validates independently of the check above, so this arm exists for
+		// the case where the two disagree rather than for a request that got here.
+		a.fail(w, http.StatusBadRequest, "data berisi karakter yang tidak diizinkan")
 	default:
 		a.internal(w, "create booking", err)
 	}

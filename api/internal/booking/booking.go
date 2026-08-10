@@ -31,6 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode"
 
 	"github.com/bhaktiyudha/bykami/api/internal/store"
 )
@@ -81,7 +82,50 @@ var (
 	ErrHeadcount = errors.New("booking: that package is not for that many people")
 	// ErrBadCalendarID means the value is not the shape of a Google Calendar id.
 	ErrBadCalendarID = errors.New("booking: not a calendar id")
+	// ErrControlCharacters means a text field carries control characters.
+	ErrControlCharacters = errors.New("booking: text contains control characters")
+	// ErrTooLong means a text field is longer than anything it could legitimately
+	// hold.
+	ErrTooLong = errors.New("booking: text is too long")
 )
+
+// maxField bounds a name, an email or a note.
+//
+// Generous for a name and mean for an essay. The transport already caps the whole
+// body, but one 8 KB "name" is a booking listing nobody can read.
+const maxField = 200
+
+// CheckText refuses text that has no business being in a booking.
+//
+// Control characters are the point. A booking name is typed by a member of the
+// public, stored, and then printed — into an operator's terminal by
+// `bykami booking upcoming`, and into the description of an event in the owner's
+// Google Calendar. A terminal treats ESC as an instruction, so a name of
+// "Rina<ESC>[2K<ESC>[1A<ESC>[2KWALK-IN" erases the row printed above it and
+// replaces it: one customer can make another customer's booking disappear from
+// the only listing the studio has. The command exists so that no booking is
+// invisible, which is precisely what that would undo.
+//
+// Refused rather than stripped. Stripping silently alters what somebody typed as
+// their own name, and nobody types an escape sequence by accident — so the honest
+// answer is to say no and let them correct it.
+//
+// Not a schema CHECK, unlike most invariants here. Expressing "no control
+// characters, any other Unicode welcome" in SQLite's GLOB means enumerating
+// character ranges, and a constraint that got that wrong would reject a legitimate
+// name — a worse failure than the one it prevents. unicode.IsControl says exactly
+// what is meant, so this lives in Go and Book calls it on every write.
+func CheckText(field, s string) error {
+	if len(s) > maxField {
+		return fmt.Errorf("%w: %s is longer than %d characters", ErrTooLong, field, maxField)
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("%w: %s", ErrControlCharacters, field)
+		}
+	}
+	return nil
+}
 
 // Resource is something that can be occupied at one instant — a photobox, a
 // self-photo room, a photographer with a camera bag.
@@ -245,6 +289,17 @@ func (d *Desk) Book(ctx context.Context, req Request) (Booking, error) {
 	svc, err := d.Service(ctx, req.ServiceID)
 	if err != nil {
 		return Booking{}, err
+	}
+
+	// Enforced here as well as in the transport, because a rule checked only in a
+	// handler is a rule the next caller reaches around — the same reasoning that
+	// keeps the ledger's guarantees in its schema.
+	for _, f := range []struct{ name, value string }{
+		{"nama", req.Name}, {"email", req.Email}, {"catatan", req.Notes},
+	} {
+		if err := CheckText(f.name, f.value); err != nil {
+			return Booking{}, err
+		}
 	}
 
 	start := req.StartsAt.UTC().Truncate(time.Second)
