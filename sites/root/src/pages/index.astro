@@ -53,6 +53,25 @@ const studioHandle = studio.social?.instagram ? valueOf(studio.social.instagram)
  * Captions are each post's own first sentence, trimmed of the hashtag block the
  * way the studio's are — a fallback line is read by crawlers and by anyone the
  * embed never loads for, and a wall of tags tells them nothing.
+ *
+ * Two of the three do not play in the page, and that is Instagram's decision
+ * rather than a fault here. Its embed comes in two variants: `DX3tMwUP4Co` gets
+ * a real <video>, while `DZAFszjvvb6` and `DXw0p3OP--A` get a cover image and a
+ * "Watch on Instagram" link that leaves for instagram.com. Checked 2026-08-10 by
+ * loading each `/embed/captioned/` three times — identical every load, so this
+ * is a per-post property and not the intermittent failure the TikTok section
+ * defends against. `DZAFszjvvb6` says why in its own header: it runs licensed
+ * music (Bruno Mars), and music rights do not extend to third-party embeds.
+ * `DXw0p3OP--A` declares "Original audio" and is restricted anyway, for a reason
+ * the embed does not state — so don't go looking for one in the caption or the
+ * markup. Nothing here can override either; the variant is chosen server-side,
+ * before embed.js hands us anything.
+ *
+ * The only lever is which reels are picked, and it costs something: of the three
+ * left out above, `DX6WZo8POuM` and `DNf-TNfP0dN` both do play — but the reasons
+ * they were dropped still hold, so buying inline playback means spending one of
+ * them. A cover with its caption and like count is honest social proof either
+ * way, which is why this is recorded rather than fixed.
  */
 const teamPosts: Post[] = [
   {
@@ -120,27 +139,44 @@ const teamPosts: Post[] = [
      * with no marketing type in them at all.
      */}
     {/*
-     * No media reveal on this one. It is the LCP element on a phone, and
-     * starting the largest thing above the fold at half opacity is a directly
-     * measurable regression on the metric this whole stack is tuned for. The
-     * strip further down carries the treatment instead.
+     * The drift, but still no media reveal, and the line between the two is the
+     * LCP measurement rather than taste. This is the largest thing above the
+     * fold on a phone, and `data-reveal-media` starts its target at
+     * `opacity: 0.5` — that half-opacity start is the directly measurable
+     * regression on the metric this whole stack is tuned for. The drift is
+     * transform-only: the image paints at full opacity on the first frame and
+     * only its position changes afterwards, so there is nothing here for LCP to
+     * wait for. The strip further down carries both.
+     *
+     * On a wrapper rather than on the figure, and not for the reason the strip
+     * uses one. `[data-parallax]` reserves its own travel as `margin-block`,
+     * and `.plate` sets `margin: 0` — which Astro scopes to `.plate.astro-*`,
+     * one class-weight component above a bare attribute selector. Put the
+     * attribute on the figure and the shorthand wins, the reservation is
+     * cancelled, and the drift runs into its neighbours: exactly the failure
+     * tokens.css records as having made the fix "do nothing at all".
+     *
+     * `.drift` then re-reserves that travel as padding, because on this element
+     * the margin version reserves nothing — see the rule for the measurement.
      */}
-    <figure class="plate">
-      {/*
-       * Eager and high priority: on a phone this is the largest thing above the
-       * fold and therefore the LCP element.
-       */}
-      <img
-        src="/img/tim-01.jpg"
-        alt="Sebelas orang tim studio by KAMI berpose di bawah papan kayu bertuliskan Tabuhan Island Banyuwangi, di pantai berpasir putih"
-        width="1354"
-        height="1026"
-        loading="eager"
-        fetchpriority="high"
-        decoding="async"
-      />
-      <figcaption class="muted">Libur tim di Pulau Tabuhan, 2026.</figcaption>
-    </figure>
+    <div class="drift" data-parallax>
+      <figure class="plate">
+        {/*
+         * Eager and high priority: on a phone this is the largest thing above
+         * the fold and therefore the LCP element.
+         */}
+        <img
+          src="/img/tim-01.jpg"
+          alt="Sebelas orang tim studio by KAMI berpose di bawah papan kayu bertuliskan Tabuhan Island Banyuwangi, di pantai berpasir putih"
+          width="1354"
+          height="1026"
+          loading="eager"
+          fetchpriority="high"
+          decoding="async"
+        />
+        <figcaption class="muted">Libur tim di Pulau Tabuhan, 2026.</figcaption>
+      </figure>
+    </div>
 
     {/*
      * Their sentence, not one written for them. This repo has no business
@@ -260,6 +296,33 @@ const teamPosts: Post[] = [
 
   .plate {
     margin: 0;
+  }
+
+  /*
+   * The drift's travel, reserved as padding rather than as margin.
+   *
+   * `[data-parallax]` reserves it with `margin-block`, and on this element that
+   * reserves nothing: the wrapper's margin is between siblings, so it collapses
+   * with the section heading's own 32px above and the pull-quote's above-margin
+   * below, and `max(32, 32)` is 32. `flow-root` does not help — it stops the
+   * *child's* margin collapsing through the wrapper, which is the case the strip
+   * has and this one does not, because `.plate` sets `margin: 0` and so brings
+   * no internal spacing of its own into the box.
+   *
+   * Measured on the built page before this rule: 32px of clearance at rest fell
+   * to 6px on a phone and 8px at 1440 at the top of the drift's range — the
+   * photograph sliding up into the heading it belongs to. Padding does not
+   * collapse, so the same figure spent here actually holds the gap open, and the
+   * minimum across the whole range comes back to the designed 32px.
+   *
+   * `--drift` only exists inside the `@supports (animation-timeline: view())`
+   * block in tokens.css. Where the timeline is unsupported the variable is
+   * undefined, the padding resolves to nothing, and an element that is not going
+   * to move reserves no room for travel it will not make.
+   */
+  .drift {
+    margin-block: 0;
+    padding-block: var(--drift);
   }
 
   .plate img {
