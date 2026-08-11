@@ -78,6 +78,14 @@ func TestSettingsShowsTheAddressToShareCalendarsWith(t *testing.T) {
 			t.Errorf("the page does not mention %q", want)
 		}
 	}
+	// And Cloudflare is told to keep its hands off it. Email Address Obfuscation
+	// turns any address in the HTML into a placeholder plus a decode script, and
+	// the console's CSP names no script-src, so the script never runs: the
+	// operator reads "[email protected]" and the address above is unreachable. This
+	// was live on admin.bykami.id before the opt-out went in.
+	if !strings.Contains(body, "<!--email_off-->booking@bykami.iam.gserviceaccount.com<!--/email_off-->") {
+		t.Error("the service-account address is not wrapped against Cloudflare email obfuscation")
+	}
 }
 
 func TestSettingsSaysWhenThereIsNoCredential(t *testing.T) {
