@@ -147,6 +147,19 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 		"clock": func(t time.Time) string { return t.In(wib).Format("15:04") },
 		// wa.me wants the number with no plus.
 		"wa": func(s string) string { return strings.TrimPrefix(s, "+") },
+		// Cloudflare's Email Address Obfuscation rewrites every address in the
+		// HTML into a "[email protected]" placeholder plus a decode script — and the
+		// CSP below names no script-src, so that script is blocked and the
+		// placeholder is what an operator reads, forever. The address it eats is
+		// the service account, which is the single thing this page exists to
+		// show. Hence Cloudflare's documented opt-out.
+		//
+		// Emitted as template.HTML because html/template elides comments written
+		// literally in a template, so the obvious version of this fix compiles,
+		// renders, and does nothing at all.
+		"email": func(s string) template.HTML {
+			return template.HTML("<!--email_off-->" + template.HTMLEscapeString(s) + "<!--/email_off-->")
+		},
 	}).ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return nil, err
