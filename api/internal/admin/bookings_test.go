@@ -60,7 +60,7 @@ func bookOne(t *testing.T, db *sql.DB, name string, at time.Time) booking.Bookin
 }
 
 func TestBookingDayShowsWhoIsComing(t *testing.T) {
-	f := newFixture(t, true, operator)
+	f := newFixture(t, operator)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(14)
 	bookOne(t, f.db, "Rina Wulandari", at)
@@ -92,7 +92,7 @@ func TestBookingDayShowsWhoIsComing(t *testing.T) {
 }
 
 func TestBookingDayReportsCalendarHealth(t *testing.T) {
-	f := newFixture(t, true, operator)
+	f := newFixture(t, operator)
 	seedBookingCatalogue(t, f.db)
 	desk := booking.New(f.db, 0)
 
@@ -114,7 +114,7 @@ func TestBookingDayReportsCalendarHealth(t *testing.T) {
 }
 
 func TestOperatorCanCancelWithoutTheCustomersNumber(t *testing.T) {
-	f := newFixture(t, true, operator)
+	f := newFixture(t, operator)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(15)
 	b := bookOne(t, f.db, "Budi", at)
@@ -149,7 +149,7 @@ func TestOperatorCanCancelWithoutTheCustomersNumber(t *testing.T) {
 }
 
 func TestBlockingClosesTheSchedule(t *testing.T) {
-	f := newFixture(t, true, operator)
+	f := newFixture(t, operator)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(14)
 
@@ -182,7 +182,7 @@ func TestBlockingClosesTheSchedule(t *testing.T) {
 }
 
 func TestBlockingWithNoHoursClosesTheWholeDay(t *testing.T) {
-	f := newFixture(t, true, operator)
+	f := newFixture(t, operator)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(14)
 
@@ -209,7 +209,7 @@ func TestBlockingWithNoHoursClosesTheWholeDay(t *testing.T) {
 }
 
 func TestBlockingRefusesABackwardsRange(t *testing.T) {
-	f := newFixture(t, true, operator)
+	f := newFixture(t, operator)
 	seedBookingCatalogue(t, f.db)
 
 	cookie := f.signIn(t, operator)
@@ -235,7 +235,7 @@ func TestBlockingRefusesABackwardsRange(t *testing.T) {
 }
 
 func TestBookingRoutesNeedAnOperatorAndACSRFToken(t *testing.T) {
-	f := newFixture(t, true, operator)
+	f := newFixture(t, operator)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(16)
 	b := bookOne(t, f.db, "Budi", at)

@@ -57,7 +57,7 @@ var errNotShared = notSharedError{}
 
 func TestSettingsShowsTheAddressToShareCalendarsWith(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, true, operator)
+	f := newFixtureCal(t, cal, operator)
 	seedBookingCatalogue(t, f.db)
 
 	cookie := f.signIn(t, operator)
@@ -83,7 +83,7 @@ func TestSettingsShowsTheAddressToShareCalendarsWith(t *testing.T) {
 func TestSettingsSaysWhenThereIsNoCredential(t *testing.T) {
 	// The deployed state today, and a different failure from an unshared calendar:
 	// there is nothing to share the calendar *with* yet.
-	f := newFixtureCal(t, nil, true, operator)
+	f := newFixtureCal(t, nil, operator)
 	seedBookingCatalogue(t, f.db)
 
 	cookie := f.signIn(t, operator)
@@ -105,7 +105,7 @@ func TestSettingsSaysWhenThereIsNoCredential(t *testing.T) {
 
 func TestOperatorCanConnectACalendar(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, true, operator)
+	f := newFixtureCal(t, cal, operator)
 	seedBookingCatalogue(t, f.db)
 
 	cookie := f.signIn(t, operator)
@@ -134,7 +134,7 @@ func TestOperatorCanConnectACalendar(t *testing.T) {
 
 func TestConnectingACalendarRefusesSomethingThatIsNotOne(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, true, operator)
+	f := newFixtureCal(t, cal, operator)
 	seedBookingCatalogue(t, f.db)
 
 	cookie := f.signIn(t, operator)
@@ -167,7 +167,7 @@ func TestConnectingACalendarRefusesSomethingThatIsNotOne(t *testing.T) {
 
 func TestDetachingACalendarClearsWhatItCached(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, true, operator)
+	f := newFixtureCal(t, cal, operator)
 	seedBookingCatalogue(t, f.db)
 	desk := booking.New(f.db, 0)
 
@@ -203,7 +203,7 @@ func TestDetachingACalendarClearsWhatItCached(t *testing.T) {
 
 func TestSyncNowReportsWhatGoogleSaid(t *testing.T) {
 	cal := &fakeCalendar{failOn: "broken@group.calendar.google.com"}
-	f := newFixtureCal(t, cal, true, operator)
+	f := newFixtureCal(t, cal, operator)
 	seedBookingCatalogue(t, f.db)
 
 	cookie := f.signIn(t, operator)
@@ -234,7 +234,7 @@ func TestSyncNowReportsWhatGoogleSaid(t *testing.T) {
 }
 
 func TestSyncNowNeedsACredential(t *testing.T) {
-	f := newFixtureCal(t, nil, true, operator)
+	f := newFixtureCal(t, nil, operator)
 	seedBookingCatalogue(t, f.db)
 
 	cookie := f.signIn(t, operator)
@@ -253,7 +253,7 @@ func TestSyncNowNeedsACredential(t *testing.T) {
 
 func TestSettingsRoutesNeedAnOperatorAndACSRFToken(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, true, operator)
+	f := newFixtureCal(t, cal, operator)
 	seedBookingCatalogue(t, f.db)
 
 	if w := f.get(t, "/settings", ""); w.Code != http.StatusSeeOther {

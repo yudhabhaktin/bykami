@@ -15,11 +15,11 @@ import (
 
 // bookingCmd sets up the booking catalogue from the shell.
 //
-// Same reasoning as frameCmd: the console signs in with the customer OTP flow, and
-// on a box with no delivery configured nobody can sign in at all — so the
-// catalogue has to be fillable by somebody who already has a shell. Unlike frames,
-// there is no console page for this at all yet; resources and packages change when
-// the studio buys a room, which is rarer than uploading artwork.
+// Same reasoning as frameCmd, and the same expiry: this was written when the
+// console had no usable login, and `bykami admin enroll` has since given it one.
+// It stays for the reason that outlived the original — there is no console page
+// for any of this, and resources and packages change when the studio buys a
+// room, which is rarer than uploading artwork.
 //
 //	bykami booking seed
 //	bykami booking resources

@@ -320,6 +320,54 @@ func (s *Service) EnsureUser(ctx context.Context, rawPhone, name, email string) 
 	return u, nil
 }
 
+// StartSession issues a session for a number whose owner has already been
+// proven to be who they say, by something other than a one-time code.
+//
+// The only caller is the operator console, which proves it with an
+// authenticator code — see internal/mfa and internal/totp. Nothing on the
+// customer path calls this: there, VerifyCode is the way in, and it mints its
+// own session once it has checked the code, so this cannot be reached without a
+// second authentication step of the caller's own.
+//
+// This is a privileged primitive and should be read as one. It takes a phone
+// number and hands back a live session for it, with nothing in between —
+// whatever calls it *is* the authentication, and adding a second caller means
+// adding a second way to log in as anybody.
+func (s *Service) StartSession(ctx context.Context, rawPhone string) (User, string, error) {
+	e164, err := phone.Normalize(rawPhone)
+	if err != nil {
+		return User{}, "", err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, "", fmt.Errorf("identity: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	// The account is created here if it does not exist, exactly as a first
+	// verified login would. An operator who has never been a customer has no
+	// users row until the first time they sign in to the console.
+	user, err := upsertUser(ctx, tx, e164, s.now())
+	if err != nil {
+		return User{}, "", err
+	}
+
+	token := newToken()
+	tokenHash := sha256.Sum256([]byte(token))
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`,
+		tokenHash[:], user.ID, s.now().Add(sessionTTL).Unix(), s.now().Unix(),
+	); err != nil {
+		return User{}, "", fmt.Errorf("identity: create session: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return User{}, "", fmt.Errorf("identity: commit: %w", err)
+	}
+	return user, token, nil
+}
+
 // EndSession logs one device out. Idempotent.
 func (s *Service) EndSession(ctx context.Context, token string) error {
 	sum := sha256.Sum256([]byte(token))

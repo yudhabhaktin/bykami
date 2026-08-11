@@ -81,7 +81,7 @@ func (f fixture) framesPage(t *testing.T, cookie string) string {
 }
 
 func TestUploadingAPNGProducesAWorkingFrame(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
@@ -108,7 +108,7 @@ func TestUploadingAPNGProducesAWorkingFrame(t *testing.T) {
 // inferred from a picture, and the operator looking at the detected slots is
 // what catches a wrong inference.
 func TestAnUploadIsNotPublishedUntilSomebodySaysSo(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	f.upload(t, cookie, csrf, "Draf", stripArt(t), nil)
@@ -128,7 +128,7 @@ func TestAnUploadIsNotPublishedUntilSomebodySaysSo(t *testing.T) {
 }
 
 func TestUploadRejectsArtworkWithNothingToFill(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
@@ -158,7 +158,7 @@ func TestUploadRejectsArtworkWithNothingToFill(t *testing.T) {
 }
 
 func TestFrameRoutesAreStaffOnly(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	f.upload(t, cookie, csrf, "Rahasia", stripArt(t), nil)
@@ -182,7 +182,7 @@ func TestFrameRoutesAreStaffOnly(t *testing.T) {
 }
 
 func TestChangingAFrameNeedsTheCSRFToken(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	f.upload(t, cookie, csrf, "Klasik", stripArt(t), nil)
@@ -204,7 +204,7 @@ func TestChangingAFrameNeedsTheCSRFToken(t *testing.T) {
 }
 
 func TestSeasonRoundTripsThroughTheForm(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
@@ -228,7 +228,7 @@ func TestSeasonRoundTripsThroughTheForm(t *testing.T) {
 }
 
 func TestArtworkComesBackByteForByte(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	art := stripArt(t)

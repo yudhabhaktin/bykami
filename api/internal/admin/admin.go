@@ -50,6 +50,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
+	"github.com/bhaktiyudha/bykami/api/internal/mfa"
 	"github.com/bhaktiyudha/bykami/api/internal/phone"
 )
 
@@ -94,9 +95,11 @@ type Console struct {
 	// one until someone tries to log in.
 	staff map[string]bool
 
-	// authEnabled mirrors the API's gate. False means no code can be sent, so
-	// the login form says so instead of failing at the submit.
-	authEnabled bool
+	// mfa holds the operator authenticators and checks their codes. It is the
+	// console's only way in, and deliberately not the API's — customers still
+	// sign in with a one-time code, which is the right trade for somebody who
+	// came in to have their photograph taken.
+	mfa *mfa.Registry
 
 	// secure omits the Secure attribute in tests, which speak plain HTTP. It is
 	// never false in production — main.go does not expose it.
@@ -106,7 +109,7 @@ type Console struct {
 // New returns the console. staffPhones are raw numbers in any Indonesian form;
 // they are normalised here and an unparseable one is an error rather than a
 // silently ignored entry.
-func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, calendar *booking.Worker, log *slog.Logger, staffPhones []string, authEnabled bool) (*Console, error) {
+func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, calendar *booking.Worker, auth *mfa.Registry, log *slog.Logger, staffPhones []string) (*Console, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"points": formatPoints,
 		"time":   func(t time.Time) string { return t.Format("2006-01-02 15:04") },
@@ -142,16 +145,16 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 	}
 
 	return &Console{
-		identity:    ident,
-		loyalty:     ledger,
-		frameCat:    cat,
-		booking:     desk,
-		calendar:    calendar,
-		log:         log,
-		tmpl:        tmpl,
-		staff:       staff,
-		authEnabled: authEnabled,
-		secure:      true,
+		identity: ident,
+		loyalty:  ledger,
+		frameCat: cat,
+		booking:  desk,
+		calendar: calendar,
+		mfa:      auth,
+		log:      log,
+		tmpl:     tmpl,
+		staff:    staff,
+		secure:   true,
 	}, nil
 }
 
@@ -161,7 +164,6 @@ func (c *Console) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", c.index)
 	mux.HandleFunc("POST /login", c.login)
-	mux.HandleFunc("POST /verify", c.verify)
 	mux.HandleFunc("POST /logout", c.logout)
 	mux.HandleFunc("GET /customers", c.staffOnly(c.customers))
 	mux.HandleFunc("POST /customers/{id}/adjust", c.staffOnly(c.adjust))
@@ -214,16 +216,18 @@ func brandAsset(name, mime string) http.Handler {
 // view: the shared chrome needs the same three fields on every page, and
 // keeping them in separate types means remembering to populate them separately.
 type page struct {
-	Title       string
-	Operator    string
-	AuthEnabled bool
-	CSRF        string
-	Notice      string
-	Error       string
+	Title    string
+	Operator string
+	CSRF     string
+	Notice   string
+	Error    string
 
-	// Login flow
+	// Login. Enrolled is whether any operator has an authenticator at all —
+	// none means the console cannot be signed in to by anybody, and the page
+	// says which command fixes that rather than refusing every correct code
+	// with no explanation.
 	Phone     string
-	CodeSent  bool
+	Enrolled  bool
 	Verticals []string
 
 	// Customer views
@@ -269,106 +273,81 @@ func (c *Console) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.render(w, r, http.StatusOK, "login.html", page{
-		Title:       "Masuk",
-		AuthEnabled: c.authEnabled,
+		Title:    "Masuk",
+		Enrolled: c.anyoneEnrolled(r),
 	})
 }
 
+// login is the whole sign-in: a number and the six digits its authenticator is
+// showing, checked together.
+//
+// One step rather than the two the one-time-code flow needed, because there is
+// nothing to wait for in between — no code is sent, so there is no page whose
+// only job is to say one is on its way.
+//
+// Every way of failing renders the same page with the same message. That is the
+// property the previous flow had and the one most worth keeping: a form that
+// distinguished "not an operator" from "wrong code" would answer, for anyone
+// who cared to ask it, which of the numbers they tried belongs to staff.
 func (c *Console) login(w http.ResponseWriter, r *http.Request) {
-	if !c.authEnabled {
-		c.render(w, r, http.StatusServiceUnavailable, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: false,
-		})
-		return
-	}
-
-	raw := strings.TrimSpace(r.FormValue("phone"))
-
-	// The allow-list is checked before a code is sent, not after it is
-	// redeemed. Sending to a non-operator would spend money on an SMS whose
-	// only possible outcome is a refusal, and would confirm to a stranger that
-	// this endpoint talks to a real delivery channel.
-	//
-	// The response is identical either way, so it does not reveal who is staff.
-	e164, err := phone.Normalize(raw)
-	switch {
-	case err != nil:
-		c.render(w, r, http.StatusBadRequest, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			Error:       "Nomor tidak valid. Gunakan nomor ponsel Indonesia.",
-		})
-		return
-	case !c.staff[e164]:
-		c.render(w, r, http.StatusOK, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			CodeSent:    true,
-			Notice:      "Jika nomor ini terdaftar sebagai operator, kode sudah dikirim.",
-		})
-		return
-	}
-
-	switch err := c.identity.RequestCode(r.Context(), raw); {
-	case err == nil, errors.Is(err, identity.ErrTooManyRequests):
-		// A rate-limited operator sees the same page as a successful one: they
-		// already have a code, and the useful next step is to enter it.
-		c.render(w, r, http.StatusOK, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			CodeSent:    true,
-			Notice:      "Jika nomor ini terdaftar sebagai operator, kode sudah dikirim.",
-		})
-	default:
-		c.log.Error("admin: request code", "err", err)
-		c.render(w, r, http.StatusInternalServerError, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			Error:       "Gagal mengirim kode. Coba lagi.",
-		})
-	}
-}
-
-func (c *Console) verify(w http.ResponseWriter, r *http.Request) {
-	if !c.authEnabled {
-		c.redirect(w, r, "/")
-		return
-	}
-
 	raw := strings.TrimSpace(r.FormValue("phone"))
 	code := strings.TrimSpace(r.FormValue("code"))
 
-	user, token, err := c.identity.VerifyCode(r.Context(), raw, code)
-	if err != nil {
+	refuse := func() {
 		c.render(w, r, http.StatusUnauthorized, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			CodeSent:    true,
-			Error:       "Kode salah atau sudah kedaluwarsa.",
+			Title:    "Masuk",
+			Enrolled: c.anyoneEnrolled(r),
+			Phone:    raw,
+			Error: "Nomor atau kode salah. Kode berganti setiap 30 detik, dan " +
+				"setelah beberapa kali gagal nomor dikunci 15 menit.",
+		})
+	}
+
+	// The allow-list is checked before the registry is touched, which is not
+	// only about disclosure: a stranger who guessed an operator's number could
+	// otherwise spend that operator's failed attempts for them, and lock them
+	// out of their own console.
+	e164, err := phone.Normalize(raw)
+	if err != nil || !c.staff[e164] {
+		refuse()
+		return
+	}
+
+	switch err := c.mfa.Verify(r.Context(), e164, code); {
+	case err == nil:
+	case errors.Is(err, mfa.ErrBadCode), errors.Is(err, mfa.ErrNotEnrolled), errors.Is(err, mfa.ErrLockedOut):
+		// Logged, because these are the three an operator will phone about and
+		// the page deliberately does not tell them apart.
+		c.log.Info("admin: sign-in refused", "phone", e164, "reason", err)
+		refuse()
+		return
+	default:
+		c.log.Error("admin: verify authenticator", "err", err)
+		c.render(w, r, http.StatusInternalServerError, "login.html", page{
+			Title:    "Masuk",
+			Enrolled: true,
+			Phone:    raw,
+			Error:    "Terjadi kesalahan. Coba lagi.",
 		})
 		return
 	}
 
-	// Verified, but that only proves who they are. A customer who guessed this
-	// URL and completed a perfectly valid login is still not an operator, so
-	// the session is discarded rather than handed back.
-	if !c.staff[user.Phone] {
-		if err := c.identity.EndSession(r.Context(), token); err != nil {
-			c.log.Error("admin: discard non-operator session", "err", err)
-		}
-		c.render(w, r, http.StatusForbidden, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Error:       "Akun ini bukan operator.",
+	// The code was right, so this number is who it says it is and is on the
+	// allow-list. identity.StartSession is what turns that into a session; it
+	// takes the number on trust, which is exactly why the two checks above come
+	// first and why nothing else in this repository calls it.
+	_, token, err := c.identity.StartSession(r.Context(), e164)
+	if err != nil {
+		c.log.Error("admin: start session", "err", err)
+		c.render(w, r, http.StatusInternalServerError, "login.html", page{
+			Title:    "Masuk",
+			Enrolled: true,
+			Phone:    raw,
+			Error:    "Terjadi kesalahan. Coba lagi.",
 		})
 		return
 	}
+	c.log.Info("admin: signed in", "operator", e164)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:  sessionCookie,
@@ -404,12 +383,11 @@ func (c *Console) logout(w http.ResponseWriter, r *http.Request) {
 func (c *Console) customers(w http.ResponseWriter, r *http.Request, op identity.User) {
 	q := strings.TrimSpace(r.URL.Query().Get("phone"))
 	p := page{
-		Title:       "Cari pelanggan",
-		Operator:    op.Phone,
-		AuthEnabled: c.authEnabled,
-		CSRF:        csrfToken(r),
-		Query:       q,
-		Verticals:   verticals,
+		Title:     "Cari pelanggan",
+		Operator:  op.Phone,
+		CSRF:      csrfToken(r),
+		Query:     q,
+		Verticals: verticals,
 	}
 
 	// Outcomes of the adjust POST, which redirects rather than rendering so
@@ -493,6 +471,21 @@ func (c *Console) adjust(w http.ResponseWriter, r *http.Request, op identity.Use
 
 	c.log.Info("admin: loyalty adjusted", "operator", op.Phone, "user", id, "points", points, "vertical", vertical)
 	c.redirect(w, r, "/customers?phone="+urlQueryEscape(r.FormValue("phone"))+"&ok=1")
+}
+
+// anyoneEnrolled reports whether any operator has an authenticator.
+//
+// A database error is reported as "yes", which is the useful way to be wrong:
+// the login form then works as normal and a genuinely correct code still gets
+// in, where answering "no" would replace the form with instructions to enrol
+// somebody who is already enrolled.
+func (c *Console) anyoneEnrolled(r *http.Request) bool {
+	n, err := c.mfa.Count(r.Context())
+	if err != nil {
+		c.log.Error("admin: count enrolments", "err", err)
+		return true
+	}
+	return n > 0
 }
 
 // operator resolves the session cookie and reports whether it belongs to staff.

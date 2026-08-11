@@ -32,6 +32,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/instagram"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
+	"github.com/bhaktiyudha/bykami/api/internal/mfa"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
 )
 
@@ -74,6 +75,8 @@ func main() {
 			err = frameCmd(*dsn, args[1:])
 		case "booking":
 			err = bookingCmd(*dsn, args[1:])
+		case "admin":
+			err = adminCmd(*dsn, *adminPhones, args[1:])
 		default:
 			log.Error("unknown command", "command", args[0])
 			usage()
@@ -97,7 +100,16 @@ func usage() {
 	fmt.Fprintln(out, "bykami — the platform monolith and operator console.")
 	fmt.Fprintln(out, "\nRun the server:")
 	fmt.Fprintln(out, "  bykami -addr 127.0.0.1:8080 -db /var/lib/bykami/bykami.db")
-	fmt.Fprintln(out, "\nManage the frame catalogue (also in the console, when a login is possible):")
+	fmt.Fprintln(out, "\nLet an operator into the console. Prints a QR code to scan with any")
+	fmt.Fprintln(out, "authenticator app; the number must also be in -admin-phones to be worth")
+	fmt.Fprintln(out, "anything. This is a shell job because the console cannot enrol its own")
+	fmt.Fprintln(out, "first operator — that would need the login it does not have yet:")
+	fmt.Fprintln(out, "  bykami -db … admin enroll 081234567890")
+	fmt.Fprintln(out, "  bykami -db … admin enroll 081234567890 /tmp/qr.png   # if the terminal cannot draw it")
+	fmt.Fprintln(out, "  bykami -db … admin list")
+	fmt.Fprintln(out, "  bykami -db … admin unlock 081234567890")
+	fmt.Fprintln(out, "  bykami -db … admin revoke 081234567890               # a lost phone")
+	fmt.Fprintln(out, "\nManage the frame catalogue (there is a console page for this too):")
 	fmt.Fprintln(out, "  bykami -db … frames list")
 	fmt.Fprintln(out, "  bykami -db … frames import strip-4.png \"Klasik Empat\" klasik")
 	fmt.Fprintln(out, "  bykami -db … frames publish klasik-empat")
@@ -201,11 +213,26 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 		BookingOrigins: splitOrigins(bookingOrigins),
 	})
 
-	console, err := admin.New(ident, ledger, catalogue, desk, calWorker, log, splitPhones(adminPhones), authEnabled)
+	// The console's authenticators. Unlike every other credential here this one
+	// needs nothing from the environment: the secrets are in the database, put
+	// there by `bykami admin enroll`, and there is no provider to sign up with.
+	// That is the whole point of it — the console had no usable login at all
+	// while it waited on a WhatsApp account.
+	auth := mfa.New(db)
+	enrolled, err := auth.Count(context.Background())
+	if err != nil {
+		return fmt.Errorf("admin authenticators: %w", err)
+	}
+
+	console, err := admin.New(ident, ledger, catalogue, desk, calWorker, auth, log, splitPhones(adminPhones))
 	if err != nil {
 		return fmt.Errorf("admin console: %w", err)
 	}
-	log.Info("admin console configured", "operators", len(splitPhones(adminPhones)))
+	// Both numbers, because either being zero means nobody can sign in, and the
+	// two are fixed in different places: the allow-list in the service
+	// configuration, the enrolments with a subcommand.
+	log.Info("admin console configured",
+		"operators", len(splitPhones(adminPhones)), "authenticators", enrolled)
 
 	// The URL space is split here rather than inside either package, because
 	// this is the only place that knows both exist. Go's ServeMux prefers the

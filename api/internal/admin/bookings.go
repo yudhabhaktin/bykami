@@ -32,14 +32,13 @@ func (c *Console) bookingDay(w http.ResponseWriter, r *http.Request, op identity
 	}
 
 	p := page{
-		Title:       "Booking",
-		Operator:    op.Phone,
-		AuthEnabled: c.authEnabled,
-		CSRF:        csrfToken(r),
-		Day:         day.In(wib),
-		DayISO:      day.In(wib).Format("2006-01-02"),
-		PrevDay:     day.AddDate(0, 0, -1).In(wib).Format("2006-01-02"),
-		NextDay:     day.AddDate(0, 0, 1).In(wib).Format("2006-01-02"),
+		Title:    "Booking",
+		Operator: op.Phone,
+		CSRF:     csrfToken(r),
+		Day:      day.In(wib),
+		DayISO:   day.In(wib).Format("2006-01-02"),
+		PrevDay:  day.AddDate(0, 0, -1).In(wib).Format("2006-01-02"),
+		NextDay:  day.AddDate(0, 0, 1).In(wib).Format("2006-01-02"),
 	}
 	if msg := r.URL.Query().Get("ok"); msg != "" {
 		p.Notice = msg

@@ -31,11 +31,10 @@ var wib = time.FixedZone("WIB", 7*60*60)
 
 func (c *Console) frameIndex(w http.ResponseWriter, r *http.Request, op identity.User) {
 	p := page{
-		Title:       "Frame",
-		Operator:    op.Phone,
-		AuthEnabled: c.authEnabled,
-		CSRF:        csrfToken(r),
-		Sheets:      frames.SheetSizes(),
+		Title:    "Frame",
+		Operator: op.Phone,
+		CSRF:     csrfToken(r),
+		Sheets:   frames.SheetSizes(),
 	}
 	if r.URL.Query().Get("ok") != "" {
 		p.Notice = r.URL.Query().Get("ok")

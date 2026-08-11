@@ -134,11 +134,19 @@ A vertical site can exchange these same tokens for a `Domain=.bykami.id` cookie
 when one exists to log into. Deciding that per surface is the whole point of the
 jar caveat, and nothing above forecloses it.
 
-**The auth routes are closed on the deployed box** — 503 until `-otp-delivery`
-is configured. That enforces two gates in code rather than in memory: the
-residency gate in `infrastructure.md`, and the fact that the only sender that
-exists writes one-time codes to the log. `/healthz` is ungated, so the deploy
-health check and the tunnel check still work. See `api/README.md`.
+**The customer auth routes are closed on the deployed box** — 503 until
+`-otp-delivery` is configured. That enforces two gates in code rather than in
+memory: the residency gate in `infrastructure.md`, and the fact that the only
+sender that exists writes one-time codes to the log. `/healthz` is ungated, so
+the deploy health check and the tunnel check still work. See `api/README.md`.
+
+**The operator console is deliberately not behind that gate.** It signs in with
+a time-based one-time password from an authenticator app, enrolled from a shell
+on the box — so the people who run the place are not waiting on a provider
+account bought for customers. Two different populations, two different trades:
+a customer gets the code they already expect, an operator installs an app once.
+Authorisation is unchanged and is still the allow-list above; the authenticator
+proves only that a number is who it says it is.
 
 ### Loyalty — `#SobatKAMi`
 
