@@ -1,4 +1,4 @@
-// Package admin is the operator console at app.bykami.id.
+// Package admin is the operator console at admin.bykami.id.
 //
 // Server-rendered HTML with no JavaScript and no build step. That is not
 // minimalism for its own sake: the alternative is a second toolchain, a bundle
@@ -48,6 +48,7 @@ import (
 
 	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
+	"github.com/bhaktiyudha/bykami/api/internal/gcal"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/mfa"
@@ -63,7 +64,18 @@ var templateFS embed.FS
 // from packages/ui for the same reason the tokens in layout.html are copied:
 // this is served by Go and never passes through the Astro build.
 //
-//go:embed logo.png icon.svg
+// geist-latin.woff2 is the same 29KB file the four sites are set in, and it is
+// here for the same reason the tokens are: so the console reads as part of the
+// platform rather than as a tool that happens to sit beside it. An earlier note
+// here refused a webfont as "a network round trip and a CSP exception bought
+// for nothing" — that was right while the console had no house typeface to
+// match. It now has one, and the round trip is same-origin, cached for a day,
+// and paid once by a handful of staff on known devices.
+//
+// OFL.txt travels with it because the SIL Open Font License requires the licence
+// to accompany the font wherever it goes; it is not served, only carried.
+//
+//go:embed logo.png icon.svg geist-latin.woff2
 var brandFS embed.FS
 
 // sessionCookie is host-only and therefore prefixed __Host-, which browsers
@@ -101,6 +113,15 @@ type Console struct {
 	// came in to have their photograph taken.
 	mfa *mfa.Registry
 
+	// connect runs the one-time Google consent that shares a calendar with the
+	// service account above. Nil when no OAuth client is configured, which
+	// leaves the console's paste-a-calendar-id form as the only way in — see
+	// internal/admin/google.go.
+	connect *gcal.Connect
+	// grants holds those consents for the few minutes a mapping run takes, and
+	// never writes them down.
+	grants *grants
+
 	// secure omits the Secure attribute in tests, which speak plain HTTP. It is
 	// never false in production — main.go does not expose it.
 	secure bool
@@ -109,7 +130,7 @@ type Console struct {
 // New returns the console. staffPhones are raw numbers in any Indonesian form;
 // they are normalised here and an unparseable one is an error rather than a
 // silently ignored entry.
-func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, calendar *booking.Worker, auth *mfa.Registry, log *slog.Logger, staffPhones []string) (*Console, error) {
+func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, calendar *booking.Worker, auth *mfa.Registry, connect *gcal.Connect, log *slog.Logger, staffPhones []string) (*Console, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"points": formatPoints,
 		"time":   func(t time.Time) string { return t.Format("2006-01-02 15:04") },
@@ -151,6 +172,8 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 		booking:  desk,
 		calendar: calendar,
 		mfa:      auth,
+		connect:  connect,
+		grants:   newGrants(),
 		log:      log,
 		tmpl:     tmpl,
 		staff:    staff,
@@ -175,6 +198,16 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("POST /settings/calendar/{id}", c.staffOnly(c.settingsCalendar))
 	mux.HandleFunc("POST /settings/sync", c.staffOnly(c.settingsSync))
 
+	mux.HandleFunc("POST /settings/google/start", c.staffOnly(c.googleStart))
+	// Not behind staffOnly, and the one route here that is not: Google's
+	// redirect is a cross-site navigation, which a SameSite=Strict session
+	// cookie is not sent on. It authenticates on the state cookie instead —
+	// see internal/admin/google.go.
+	mux.HandleFunc("GET /settings/google/callback", c.googleCallback)
+	mux.HandleFunc("GET /settings/google", c.staffOnly(c.googleMap))
+	mux.HandleFunc("POST /settings/google/connect", c.staffOnly(c.googleConnect))
+	mux.HandleFunc("POST /settings/google/finish", c.staffOnly(c.googleFinish))
+
 	mux.HandleFunc("GET /frames", c.staffOnly(c.frameIndex))
 	mux.HandleFunc("POST /frames", c.staffOnly(c.frameUpload))
 	mux.HandleFunc("GET /frames/{id}/art.png", c.staffOnly(c.frameArt))
@@ -183,11 +216,12 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("POST /frames/{id}/delete", c.staffOnly(c.frameDelete))
 
 	// Not behind staffOnly: the login page wears the same chrome as the rest of
-	// the console, so the logo has to load for someone who has not signed in.
-	// Neither file says anything a stranger could not read off the marketing
-	// site anyway.
+	// the console, so the logo and the typeface have to load for someone who has
+	// not signed in. None of the three says anything a stranger could not read
+	// off the marketing site anyway — they are the same files it serves.
 	mux.Handle("GET /logo.png", brandAsset("logo.png", "image/png"))
 	mux.Handle("GET /icon.svg", brandAsset("icon.svg", "image/svg+xml"))
+	mux.Handle("GET /geist.woff2", brandAsset("geist-latin.woff2", "font/woff2"))
 	return mux
 }
 
@@ -251,6 +285,28 @@ type page struct {
 
 	// Settings
 	ServiceAccount string
+	// GoogleConnect is whether the console can drive the calendar share itself,
+	// which decides whether the settings page offers a button or the manual
+	// instructions.
+	GoogleConnect bool
+
+	// The Google connect run. GoogleAccount is the address the operator signed
+	// in as, so a page that is about to hand a calendar to a service account can
+	// say whose calendars it is showing — the whole flow is run twice, once per
+	// account, and the two look identical otherwise.
+	GoogleAccount   string
+	GoogleCalendars []googleCalendarRow
+}
+
+// googleCalendarRow is one calendar on the signed-in Google account.
+type googleCalendarRow struct {
+	ID      string
+	Name    string
+	Primary bool
+	// Owned is false for a calendar shared *to* this account. Listed anyway, but
+	// not offerable: the grant this flow makes is one only an owner can make, so
+	// offering it would fail at the last step with a message from Google.
+	Owned bool
 }
 
 // calendarRow is one resource's calendar, as the console reports it. Flattened
@@ -567,8 +623,17 @@ func (c *Console) render(w http.ResponseWriter, _ *http.Request, status int, nam
 	// from the database. data: is not permitted: an <img> is the one element
 	// here whose source is operator-supplied, and allowing data: would make an
 	// injected src a way to render arbitrary bytes from this origin.
+	// form-action carries Google's sign-in origin because "Hubungkan Google"
+	// posts here and is answered with a redirect to it. Whether form-action is
+	// checked against the *redirect* target as well as the form's own action is
+	// a point browsers have disagreed on, so the origin is named rather than
+	// left to that: the cost of being wrong is a connect button that does
+	// nothing in one browser, diagnosed from a console error nobody is watching.
+	// font-src is the house typeface, served from this origin by the same
+	// handler that serves the logo. 'self' only — no data:, and no Google Fonts.
 	h.Set("Content-Security-Policy",
-		"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+		"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; font-src 'self'; "+
+			"form-action 'self' https://accounts.google.com; base-uri 'none'; frame-ancestors 'none'")
 	h.Set("Referrer-Policy", "same-origin")
 
 	w.WriteHeader(status)

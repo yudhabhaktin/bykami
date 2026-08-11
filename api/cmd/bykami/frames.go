@@ -25,7 +25,7 @@ import (
 // login that depends on nobody, and an operator can sign in and upload a frame.
 // This stays because a shell path to the catalogue is worth having on its own —
 // it is how the box is repaired when the console is the thing that is broken,
-// and it needs no browser on a machine that can reach app.bykami.id.
+// and it needs no browser on a machine that can reach admin.bykami.id.
 //
 // Same shape as `bykami-agent media`: a subcommand, run by somebody who already
 // has a shell on the box, reaching the database directly.

@@ -59,6 +59,10 @@ var (
 	// ErrNoService means the service id is not one this studio sells, or has been
 	// deactivated since the page was loaded.
 	ErrNoService = errors.New("booking: no such service")
+	// ErrChatOnly means the package is agreed over WhatsApp and has no slots to
+	// offer. Returned by both Availability and Book rather than only by the page,
+	// because the page is not the only thing that can post to the API.
+	ErrChatOnly = errors.New("booking: that package is arranged by chat")
 	// ErrNoBooking means no booking has that id, or the phone number given does
 	// not match the one that made it.
 	ErrNoBooking = errors.New("booking: no such booking")
@@ -109,7 +113,17 @@ type Service struct {
 	HeadcountMin    int
 	HeadcountMax    int
 	OrderIndex      int
+
+	// BookingMode is ModeWeb or ModeChat. See ErrChatOnly.
+	BookingMode string
 }
+
+// How a package is sold. A photographer session is quoted rather than booked, so
+// it is listed and priced but offers no slots — see 0007_chat_only_services.
+const (
+	ModeWeb  = "web"
+	ModeChat = "chat"
+)
 
 // span is how long the room is unavailable for: the session plus its changeover,
 // rounded up to the grid. A ten-minute session with no buffer still costs a slot.
@@ -197,7 +211,7 @@ func (d *Desk) Services(ctx context.Context) ([]Service, error) {
 		`SELECT s.id, s.resource_id, s.name, s.service_line, s.description,
 		        s.price_idr, s.price_per_person,
 		        s.duration_minutes, s.buffer_minutes,
-		        s.headcount_min, s.headcount_max, s.order_index
+		        s.headcount_min, s.headcount_max, s.order_index, s.booking_mode
 		 FROM booking_services s
 		 JOIN booking_resources r ON r.id = s.resource_id
 		 WHERE s.active = 1 AND r.active = 1
@@ -225,7 +239,7 @@ func (d *Desk) Service(ctx context.Context, id string) (Service, error) {
 		`SELECT s.id, s.resource_id, s.name, s.service_line, s.description,
 		        s.price_idr, s.price_per_person,
 		        s.duration_minutes, s.buffer_minutes,
-		        s.headcount_min, s.headcount_max, s.order_index
+		        s.headcount_min, s.headcount_max, s.order_index, s.booking_mode
 		 FROM booking_services s WHERE s.id = ?`, id)
 	s, err := scanService(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -245,6 +259,11 @@ func (d *Desk) Book(ctx context.Context, req Request) (Booking, error) {
 	svc, err := d.Service(ctx, req.ServiceID)
 	if err != nil {
 		return Booking{}, err
+	}
+	// Before anything else is checked, because a chat package has no slot to
+	// take and no agreed price to take it against.
+	if svc.BookingMode == ModeChat {
+		return Booking{}, fmt.Errorf("%w: %s", ErrChatOnly, svc.Name)
 	}
 
 	start := req.StartsAt.UTC().Truncate(time.Second)
@@ -488,7 +507,7 @@ func scanService(s scanner) (Service, error) {
 	if err := s.Scan(&svc.ID, &svc.ResourceID, &svc.Name, &svc.ServiceLine, &svc.Description,
 		&svc.PriceIDR, &perPerson,
 		&svc.DurationMinutes, &svc.BufferMinutes,
-		&svc.HeadcountMin, &svc.HeadcountMax, &svc.OrderIndex); err != nil {
+		&svc.HeadcountMin, &svc.HeadcountMax, &svc.OrderIndex, &svc.BookingMode); err != nil {
 		return Service{}, err
 	}
 	svc.PricePerPerson = perPerson != 0

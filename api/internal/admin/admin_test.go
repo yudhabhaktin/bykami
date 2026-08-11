@@ -17,6 +17,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/admin"
 	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
+	"github.com/bhaktiyudha/bykami/api/internal/gcal"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/mfa"
@@ -76,6 +77,14 @@ func newFixture(t *testing.T, staff ...string) fixture {
 // so admin.New receives a nil worker and the page says so.
 func newFixtureCal(t *testing.T, cal booking.Calendar, staff ...string) fixture {
 	t.Helper()
+	return newFixtureConnect(t, cal, nil, staff...)
+}
+
+// newFixtureConnect is newFixtureCal with the Google consent flow wired up. A
+// nil connect is the deployed default and every other fixture's case: the
+// console then offers the paste-a-calendar-id form and nothing else.
+func newFixtureConnect(t *testing.T, cal booking.Calendar, connect *gcal.Connect, staff ...string) fixture {
+	t.Helper()
 
 	db, err := store.Open(":memory:")
 	if err != nil {
@@ -94,7 +103,7 @@ func newFixtureCal(t *testing.T, cal booking.Calendar, staff ...string) fixture 
 	// its "no credential" path rather than a typed nil that would panic.
 	worker := booking.NewWorker(desk, cal, log, time.Minute, "Jajag")
 
-	c, err := admin.New(ident, ledger, frames.New(db), desk, worker, auth, log, staff)
+	c, err := admin.New(ident, ledger, frames.New(db), desk, worker, auth, connect, log, staff)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
@@ -438,7 +447,7 @@ func TestRevokingAnOperatorEndsAccessImmediately(t *testing.T) {
 	// Same identity service and the same live session, a console that no longer
 	// lists that number.
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), booking.New(f.db, 0), nil, f.auth, log, nil)
+	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), booking.New(f.db, 0), nil, f.auth, nil, log, nil)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
@@ -627,7 +636,7 @@ func TestUnparseableStaffNumberIsAStartupError(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	_, err = admin.New(identity.New(db, &capturingSender{}), loyalty.New(db), frames.New(db),
-		booking.New(db, 0), nil, mfa.New(db), log, []string{"not-a-phone-number"})
+		booking.New(db, 0), nil, mfa.New(db), nil, log, []string{"not-a-phone-number"})
 	if err == nil {
 		t.Fatal("an unparseable operator number was accepted")
 	}

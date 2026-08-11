@@ -88,6 +88,23 @@ app_instagram_account: ""
 #   ansible-playbook site.yml --tags app -e @app.vars.yml
 app_google_credentials: ""
 
+# An OAuth client, used only to make that share from the console instead of from
+# Google Calendar's settings screen.
+#
+# This does not walk back the paragraph above. The consent is spent once, on
+# writing the ACL rule the manual share writes, and then discarded — no refresh
+# token is requested, so there is none to expire after seven days and none to
+# store. Every ongoing call is still the service account's.
+#
+# From Google Cloud → Credentials → OAuth client ID → Web application, with the
+# redirect URI set to https://admin.bykami.id/settings/google/callback exactly.
+# The console builds that URI from the Host it was reached at, so it is the
+# console's own name and not the API's.
+# Both empty is a supported state: the console then prints the service-account
+# address and asks for the share to be made by hand, as it did before.
+app_google_oauth_client_id: ""
+app_google_oauth_client_secret: ""
+
 # How far ahead bookings may be made. 31 days is what the YouCanBook.me pages
 # this replaced offered, so it is the window the studio's customers already know.
 app_booking_window_days: 31

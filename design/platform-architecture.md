@@ -29,7 +29,8 @@ Non-vertical surfaces, which serve every vertical rather than belonging to one:
 
 | Surface | Domain | Notes |
 |---|---|---|
-| Operator admin | `app.bykami.id` | Host-only cookie — deliberately *not* in the `.bykami.id` jar |
+| Operator admin | `admin.bykami.id` | Host-only cookie — deliberately *not* in the `.bykami.id` jar |
+| Public API | `app.bykami.id` | Bearer tokens, no cookie. Same binary as the console; split by Host header |
 | Customer gallery | `gallery.bykami.id` | Static HTML, no JS, no cookies. See `kiosk.md` |
 | Kiosk UI | `http://localhost` on the booth PC | Served by the agent binary; a different origin from everything above |
 
@@ -54,7 +55,7 @@ own from zero. Mitigations below.
 surface placed under `bykami.id` must be one where stealing that cookie is
 impossible, or must not receive it. Two consequences already taken:
 
-- `app.bykami.id` (operator admin) sets a **host-only** cookie — no `Domain`
+- `admin.bykami.id` (operator admin) sets a **host-only** cookie — no `Domain`
   attribute — so the admin session never enters the jar and never leaks to a
   vertical.
 - `gallery.bykami.id` is the highest-risk surface on the platform: public URLs,
@@ -111,13 +112,16 @@ what keeps the ledger clean given the number *is* the account.
 **Settled: the JSON API issues bearer tokens and sets no cookie.** `api/internal/httpapi`
 is live at `app.bykami.id` and authenticates with `Authorization: Bearer`. The
 kiosk constraint above decides it on its own, and the jar caveat decides it
-again independently — `app.bykami.id` is the operator-admin surface and is
-explicitly outside the jar, so an API served there setting a `.bykami.id` cookie
-would contradict the rule two paragraphs down.
+again independently — `admin.bykami.id` is the operator-admin surface and is
+explicitly outside the jar, and the two share a process, so an API setting a
+`.bykami.id` cookie would contradict the rule two paragraphs down.
 
-**The operator console at `/` does set a cookie, and it is host-only.** A
-browser can carry one where the kiosk cannot, and an HTML form has nowhere to
-keep a bearer token without JavaScript. The cookie is `__Host-` prefixed, which
+**The operator console at `admin.bykami.id` does set a cookie, and it is
+host-only.** A browser can carry one where the kiosk cannot, and an HTML form
+has nowhere to keep a bearer token without JavaScript. The hostname is doing
+work here too: the console and the API are one binary, and serving them under
+one name would have put a cookie-bearing surface and a token-bearing one on the
+same origin. The cookie is `__Host-` prefixed, which
 browsers refuse unless it is `Secure`, `Path=/`, and carries no `Domain` — so
 the rule below is enforced by the browser rather than by remembering it.
 

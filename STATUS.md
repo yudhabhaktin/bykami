@@ -26,7 +26,8 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
 | Surface | State | Notes |
 |---|---|---|
 | `bykami.id` and the three vertical sites | Live | Dimsamcong is built but held out of the index until it has a menu |
-| `app.bykami.id` — API and operator console | Built | Serves `/healthz` and the booth frame sync. The console is usable once an operator is enrolled; customer auth answers 503 |
+| `app.bykami.id` — public API | Built | Serves `/healthz`, the booth frame sync and the booking routes; customer auth answers 503 |
+| `admin.bykami.id` — operator console | Built | Same binary, split by Host header. Usable once an operator is enrolled |
 | The booth — a full paid session end to end | Built | Runs on a laptop and on the test VPS. Payment and capture are simulated; the printer backend is real but has never met the printer |
 | `booth-test.bykami.id` | Built | Temporary. One access token per tester, auto-deploying from `agent-<sha>` |
 | The VPS | Built | Alibaba ECS trial box, Singapore. Synthetic data only |

@@ -15,86 +15,163 @@
 /*
  * Tokens mirrored from packages/ui/src/tokens.css rather than imported: this is
  * served by Go, not built by Astro, and a shared file would mean a build step
- * for one stylesheet. Warm neutrals, ink-only accent, one hairline weight.
+ * for one stylesheet. Every value below that carries a Chimera name — the five
+ * greys, the 16/20 radii, the spacing steps, the easing curve — is the same
+ * value the four public sites use, so the two can be diffed rather than argued
+ * about. Same reasoning as tokens.css itself; read its comments for the why.
  *
- * Plus Jakarta Sans is not self-hosted here. The console is staff-facing on a
- * known device, and a webfont would be a network round trip and a CSP exception
- * bought for nothing.
+ * What is deliberately NOT ported: the reveal animations and the display type
+ * ramp. Chimera's h1 reaches 160px, which is right for a landing page that has
+ * one sentence to sell and wrong for a page listing forty bookings. The console
+ * takes the system's colours, typeface, radii, spacing and weights, and keeps
+ * heading sizes an operator can scan. A tool should look like the house it
+ * belongs to; it should not perform.
  */
+@font-face {
+  font-family: "Geist";
+  /* Served by brandAsset from the same binary — see admin.go. */
+  src: url("/geist.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  /* swap, so a slow font never blocks an operator reading the page. */
+  font-display: swap;
+}
 :root {
-  --ground: #fafaf9;
+  /* Chimera's five greys, at its own values. */
+  --ground: #ffffff;
   --surface: #ffffff;
-  --line: rgba(10, 10, 10, 0.1);
-  --text: rgba(10, 10, 10, 0.92);
-  --muted: rgba(10, 10, 10, 0.6);
-  --radius: 10px;
+  --line: rgb(212, 212, 212);
+  --text: rgb(20, 24, 26);
+  --muted: rgb(73, 73, 73);
+  --faint: rgb(173, 173, 173);
+  --radius: 16px;
+  --radius-sm: 10px;
+  /*
+   * The two states a console has that a marketing site does not: something
+   * failed, and something worked. Chimera is monochrome end to end and offers
+   * no hue for either, so these stay the console's own — but restated as the
+   * same near-neutral ink family rather than the warm crimson and forest they
+   * were, which now read as borrowed from a different system.
+   */
   --bad: #9f1239;
   --good: #14532d;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  --ease-reveal: cubic-bezier(0.12, 0.23, 0.5, 1);
+  --dur-ui: 0.4s;
+  --tap: 44px;
+  --measure: 68ch;
 }
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
+/* Chimera's B16: 16px, 1.5 leading, -0.5px tracking. */
 body {
   margin: 0;
   background: var(--ground);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 16px;
-  line-height: 1.55;
+  line-height: 1.5;
+  letter-spacing: -0.5px;
 }
-.wrap { width: 100%; max-width: 48rem; margin-inline: auto; padding: 1.5rem 1rem 4rem; }
+/*
+ * 48rem, not tokens.css's 72rem. The public pages are galleries and this is a
+ * reading and form surface, where a 72rem measure puts a label at one edge of a
+ * laptop screen and its input at the other. The gutter is Chimera's own fluid
+ * 20→40px.
+ */
+.wrap {
+  width: 100%; max-width: 48rem; margin-inline: auto;
+  padding-inline: clamp(20px, 3vw, 40px);
+  padding-block: var(--space-6) var(--space-12);
+}
 .bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   border-bottom: 1px solid var(--line); background: var(--surface);
-  padding: 0.75rem 1rem;
+  padding-block: var(--space-3);
 }
-.bar .wrap { padding: 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.brand { font-weight: 700; letter-spacing: -0.4px; white-space: nowrap; }
+.bar .wrap {
+  padding-block: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-4); flex-wrap: wrap;
+}
+/* 600, not 700 — the weight is most of why the reference reads as expensive
+   rather than loud, and it is the one rule that carries the family's character
+   into a page with no display type on it. */
+.brand { font-weight: 600; letter-spacing: -0.04em; white-space: nowrap; }
 /* Sized by height and nudged onto the text baseline, so "admin" reads as part
    of the same line rather than as a caption under the logo. */
 .brand img { height: 22px; width: auto; vertical-align: -5px; margin-right: 0.15em; }
-h1 { font-size: 28px; line-height: 34px; letter-spacing: -0.7px; margin: 0 0 1.5rem; }
-h2 { font-size: 20px; line-height: 28px; letter-spacing: -0.4px; margin: 2rem 0 0.75rem; }
-p { margin: 0 0 1rem; max-width: 68ch; }
+/*
+ * The system's heading weights and tracking at sizes a dense page can carry.
+ * -0.04em is Chimera's display tracking and it is what makes 28px look set
+ * rather than merely large.
+ */
+h1 { font-size: 32px; line-height: 1.2; letter-spacing: -0.04em; margin: 0 0 var(--space-8); font-weight: 600; }
+h2 { font-size: 24px; line-height: 1.3; letter-spacing: -0.04em; margin: var(--space-8) 0 var(--space-3); font-weight: 600; }
+h3 { font-size: 20px; line-height: 1.4; letter-spacing: -0.04em; margin: var(--space-6) 0 var(--space-2); font-weight: 600; }
+h4 { font-size: 16px; line-height: 1.4; letter-spacing: -0.02em; margin: var(--space-6) 0 var(--space-2); font-weight: 600; }
+p { margin: 0 0 var(--space-4); max-width: var(--measure); }
+a { color: inherit; }
 .card {
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 1.5rem;
+  border-radius: var(--radius); padding: var(--space-6);
 }
-label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 0.25rem; }
+label { display: block; font-size: 14px; font-weight: 600; margin-bottom: var(--space-1); }
 input, select, textarea {
   width: 100%; font: inherit; color: inherit; background: var(--surface);
-  border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 0.625rem 0.75rem; min-height: 44px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 10px var(--space-3); min-height: var(--tap);
+}
+/* The focus ring is the ink, not a browser blue — the one place the console
+   would otherwise import a colour the system does not have. */
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--text); outline-offset: 2px;
 }
 button {
-  font: inherit; font-weight: 600; min-height: 44px; width: 100%;
-  padding: 0.625rem 1rem; border-radius: var(--radius);
+  font: inherit; font-weight: 600; letter-spacing: -0.02em;
+  min-height: var(--tap); width: 100%;
+  padding: 10px var(--space-4); border-radius: var(--radius-sm);
   border: 1px solid var(--text); background: var(--text); color: var(--surface);
   cursor: pointer;
+  transition: background var(--dur-ui) var(--ease-reveal), color var(--dur-ui) var(--ease-reveal);
 }
 button.secondary { background: transparent; color: var(--text); }
+button.secondary:hover { background: var(--text); color: var(--surface); }
 button[disabled] { opacity: 0.45; cursor: not-allowed; }
-.field { margin-bottom: 1rem; }
-.row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+button[disabled]:hover { background: var(--text); color: var(--surface); }
+.field { margin-bottom: var(--space-4); }
+.row { display: flex; gap: var(--space-3); flex-wrap: wrap; }
 .row > * { flex: 1 1 8rem; }
 .muted { color: var(--muted); }
+.faint { color: var(--faint); }
 .small { font-size: 14px; }
+/* tokens.css's .ui: the system's label style, 14px 600. */
+.ui { font-size: 14px; font-weight: 600; }
 .tabular { font-variant-numeric: tabular-nums; }
 .notice, .error, .warn {
-  border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 0.75rem 1rem; margin-bottom: 1.5rem; font-size: 14px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4); margin-bottom: var(--space-6); font-size: 14px;
 }
 .notice { border-color: var(--good); color: var(--good); }
 .error { border-color: var(--bad); color: var(--bad); }
-.balance { font-size: 40px; font-weight: 700; letter-spacing: -1px; margin: 0; }
+.balance { font-size: 40px; font-weight: 600; letter-spacing: -0.04em; margin: 0; }
 /* Wide content scrolls in its own box; the page never scrolls sideways. */
 .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { text-align: left; padding: 0.5rem 0.75rem 0.5rem 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th, td { text-align: left; padding: var(--space-2) var(--space-3) var(--space-2) 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { font-weight: 600; color: var(--muted); }
 td.reason { white-space: normal; min-width: 14rem; }
 form.inline { display: inline; }
-form.inline button { width: auto; min-height: 0; padding: 0.25rem 0.75rem; font-size: 14px; }
-nav a { color: inherit; text-decoration: none; font-size: 14px; font-weight: 600; padding: 0 0.5rem; }
+form.inline button { width: auto; min-height: 0; padding: var(--space-1) var(--space-3); font-size: 14px; }
+nav a { color: inherit; text-decoration: none; font-size: 14px; font-weight: 600; padding: 0 var(--space-2); }
 nav a[aria-current] { text-decoration: underline; text-underline-offset: 4px; }
 /* The booking day's own pager, which is a row of links in the page rather than
    the header's nav — so it gets spacing the header does not need. */
@@ -103,8 +180,8 @@ nav.days a { padding: 0; text-decoration: underline; text-underline-offset: 3px;
 
 /* Frame catalogue */
 .frames { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
-.frame { padding: 1rem; }
-.frame-name { font-weight: 600; margin: 0.75rem 0 0.125rem; }
+.frame { padding: var(--space-4); }
+.frame-name { font-weight: 600; letter-spacing: -0.02em; margin: var(--space-3) 0 2px; }
 /*
  * The preview is checkered so that a transparent hole reads as a hole rather
  * than as white artwork — which is exactly the mistake the operator is here to
@@ -128,11 +205,30 @@ nav.days a { padding: 0; text-decoration: underline; text-underline-offset: 3px;
   outline: 2px dashed rgba(159, 18, 57, 0.75); outline-offset: -2px;
   color: var(--bad); font-size: 13px; font-weight: 700;
 }
-.state { font-size: 13px; font-weight: 600; margin: 0 0 0.5rem; }
+.state { font-size: 13px; font-weight: 600; margin: 0 0 var(--space-2); }
 .state.on { color: var(--good); }
 .state.off { color: var(--muted); }
 button.danger { background: var(--bad); border-color: var(--bad); }
-details { margin-top: 0.75rem; }
+button.danger:hover { background: var(--bad); color: var(--surface); }
+/*
+ * A field and its button on one row, inside a table cell.
+ *
+ * The shared rules above set every input and button to width:100%, which is
+ * right for a stacked form and wrong in a cell — the field eats the row and
+ * pushes the button past the edge, where .scroll-x faithfully lets it scroll
+ * out of sight. So the pair is laid out as a row, with the field allowed to
+ * shrink and the button never.
+ *
+ * This was fixed once already, in b277e0b, and the fix never arrived: it was
+ * committed to take-booking-off-youcanbookme after that branch's pull request
+ * had already merged, so it is stranded there and has never been on main.
+ * Restored here rather than cherry-picked because the values are re-expressed
+ * in the token scale this file now uses.
+ */
+.cell-form { display: flex; gap: var(--space-2); align-items: center; }
+.cell-form input, .cell-form select { flex: 1 1 22rem; min-width: 12rem; }
+.cell-form button { width: auto; flex: 0 0 auto; padding-inline: var(--space-4); }
+details { margin-top: var(--space-3); }
 summary { cursor: pointer; color: var(--muted); }
 </style>
 </head>

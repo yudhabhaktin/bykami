@@ -120,6 +120,8 @@ func usage() {
 	fmt.Fprintln(out, "  BYKAMI_INSTAGRAM_ACCOUNT   the handle being mirrored, for labelling only")
 	fmt.Fprintln(out, "  BYKAMI_INSTAGRAM_BASE      override Meta's API host and version")
 	fmt.Fprintln(out, "  BYKAMI_GOOGLE_CREDENTIALS  base64 of a Google service-account key file; unset disables")
+	fmt.Fprintln(out, "  BYKAMI_GOOGLE_OAUTH_CLIENT_ID      OAuth client for connecting calendars from the console")
+	fmt.Fprintln(out, "  BYKAMI_GOOGLE_OAUTH_CLIENT_SECRET  its secret; both unset means share calendars by hand")
 	fmt.Fprintln(out, "                             calendar sync and booking then runs from the database alone")
 	fmt.Fprintln(out, "\nThe Instagram token rotates. What is in the environment is only a seed:")
 	fmt.Fprintln(out, "it is written to the database on first start and refreshed there from then")
@@ -134,7 +136,7 @@ func usage() {
 	fmt.Fprintln(out, "\nSeed the booking catalogue (hours, breaks and packages have no console page):")
 	fmt.Fprintln(out, "  bykami -db … booking seed")
 	fmt.Fprintln(out, "  bykami -db … booking resources")
-	fmt.Fprintln(out, "  bykami -db … booking calendar photobox studio@group.calendar.google.com")
+	fmt.Fprintln(out, "  bykami -db … booking calendar photobox-y2k studio@group.calendar.google.com")
 	fmt.Fprintln(out, "\nFlags:")
 	flag.PrintDefaults()
 }
@@ -224,7 +226,19 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 		return fmt.Errorf("admin authenticators: %w", err)
 	}
 
-	console, err := admin.New(ident, ledger, catalogue, desk, calWorker, auth, log, splitPhones(adminPhones))
+	// The console's own way to share a calendar with the service account above.
+	// Nil when unconfigured, which leaves the paste-a-calendar-id form as the
+	// only route — the share is then made by hand inside Google Calendar, as it
+	// was before. Not fatal when absent, unlike the signing key: nothing stops
+	// working without it, an operator just has more typing to do.
+	connect := gcal.NewConnect(
+		os.Getenv("BYKAMI_GOOGLE_OAUTH_CLIENT_ID"),
+		os.Getenv("BYKAMI_GOOGLE_OAUTH_CLIENT_SECRET"))
+	if connect != nil {
+		log.Info("google connect configured")
+	}
+
+	console, err := admin.New(ident, ledger, catalogue, desk, calWorker, auth, connect, log, splitPhones(adminPhones))
 	if err != nil {
 		return fmt.Errorf("admin console: %w", err)
 	}
@@ -239,14 +253,19 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 	// more specific pattern, so the console's "/" catch-all does not shadow the
 	// API — and an unknown path lands on the console's 404 rather than a bare
 	// one, which is what a browser is most likely to hit.
+	//
+	// This combined mux is what a request with no recognised hostname gets:
+	// localhost, the deploy's health probe, `astro dev`. Public traffic arrives
+	// under one of the two names and is split between them — see host.go.
+	consoleHandler := console.Handler()
 	root := http.NewServeMux()
-	root.Handle("/", console.Handler())
+	root.Handle("/", consoleHandler)
 	root.Handle("/healthz", api)
 	root.Handle("/v1/", api)
 
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: root,
+		Handler: byHost(consoleHandler, api, root),
 		// Bounded so a stalled client cannot pin a connection indefinitely. On a
 		// 1 GB box each held connection is memory that the next request needs.
 		ReadHeaderTimeout: 5 * time.Second,

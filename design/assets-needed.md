@@ -80,7 +80,7 @@ either impossible or unreliable to recover from Instagram screenshots.
       off centre shaves one strip and leaves a stripe of the other on it
 
 Importing these beats building an authoring tool, and it sidesteps the logo
-vector being blocked. **The importer exists** — upload at `app.bykami.id`, and
+vector being blocked. **The importer exists** — upload at `admin.bykami.id`, and
 the booths pull what is published. What is missing is the artwork, not a place
 to put it.
 

@@ -208,9 +208,9 @@ func TestTheSymbolGrowsWithTheInput(t *testing.T) {
 		bytes   int
 		version int
 	}{
-		{14, 1},  // exactly what version 1 holds at level M
-		{15, 2},  // one more, so the next version up
-		{26, 2},  // and the same boundary again
+		{14, 1}, // exactly what version 1 holds at level M
+		{15, 2}, // one more, so the next version up
+		{26, 2}, // and the same boundary again
 		{27, 3},
 		{106, 6},
 		{107, 7}, // the first version carrying a version-information block

@@ -24,7 +24,7 @@ import (
 //	bykami booking seed
 //	bykami booking resources
 //	bykami booking services
-//	bykami booking calendar photobox studio@group.calendar.google.com
+//	bykami booking calendar photobox-y2k studio@group.calendar.google.com
 func bookingCmd(dsn string, args []string) error {
 	if len(args) == 0 {
 		return errors.New(`booking: want "seed", "resources", "services" or "calendar"`)
@@ -67,6 +67,9 @@ type seedService struct {
 	perPerson                             bool
 	duration, buffer                      int
 	min, max                              int
+	// chatOnly lists the package and sends the customer to WhatsApp instead of
+	// offering slots. See 0007_chat_only_services.
+	chatOnly bool
 }
 
 // bookingSeed writes the studio as it trades today.
@@ -81,26 +84,36 @@ type seedService struct {
 // Idempotent. Re-running it after the studio changes a price in the database would
 // otherwise quietly put the old one back.
 func bookingSeed(ctx context.Context, db *sql.DB) error {
-	// Three resources, which is the decision the old booking tool got wrong: it
-	// presented six choices while serving one shared availability pool, so a
+	// A resource is an availability pool, which is the decision the old booking
+	// tool got wrong: it presented six choices while serving one pool, so a
 	// photobox booking blocked a self-photo session that could have run at the
 	// same time. Whether Pas Photo can truly run alongside self photo is an open
 	// question — both need the operator — and it is a row to move if not.
+	//
+	// The three booths are three pools because they are three machines: Y2K can
+	// be shooting while Vintage is. They are also on two different Google
+	// accounts — Y2K on the studio's, the other two on the booth account's — and
+	// a resource holds one calendar, so one row could not have described them
+	// even if the capacity had not mattered. See 0006_photobox_per_booth.
 	resources := []struct{ id, name string }{
-		{"photobox", "Photobox"},
+		{"photobox-y2k", "Photobox Y2K"},
+		{"photobox-vintage", "Photobox Vintage"},
+		{"photobox-maroon", "Photobox Maroon"},
 		{"self-photo", "Self photo"},
-		{"photographer", "Fotografer luar studio"},
+		// Not "luar studio" any more: the studio session below sits here too.
+		{"photographer", "Fotografer"},
 	}
 
 	services := []seedService{
-		// Photobox: 10-minute session, priced per person, two strips each.
-		{id: "photobox-y2k", resource: "photobox", name: "Y2K", line: "photobox",
+		// Photobox: 10-minute session, priced per person, two strips each. One
+		// booth per package, so each of these is the only service on its resource.
+		{id: "photobox-y2k", resource: "photobox-y2k", name: "Y2K", line: "photobox",
 			description: "2 strip print 2R tiap orang", price: 30_000, perPerson: true,
 			duration: 10, buffer: 20, min: 1, max: 5},
-		{id: "photobox-vintage", resource: "photobox", name: "Vintage", line: "photobox",
+		{id: "photobox-vintage", resource: "photobox-vintage", name: "Vintage", line: "photobox",
 			description: "2 strip print 2R tiap orang", price: 25_000, perPerson: true,
 			duration: 10, buffer: 20, min: 1, max: 5},
-		{id: "photobox-maroon", resource: "photobox", name: "Maroon", line: "photobox",
+		{id: "photobox-maroon", resource: "photobox-maroon", name: "Maroon", line: "photobox",
 			description: "2 strip print 2R tiap orang", price: 25_000, perPerson: true,
 			duration: 10, buffer: 20, min: 1, max: 5},
 
@@ -149,22 +162,45 @@ func bookingSeed(ctx context.Context, db *sql.DB) error {
 			description: "2 background, 2 baju, 5 print 4R, 10 file", price: 250_000,
 			duration: 40, buffer: 20, min: 2, max: 2},
 
-		// Off-site work, from the PDF. Hours rather than minutes, which is why the
-		// slot reservation is per half hour rather than per booking — see the
-		// migration. Travel time is not modelled: it is an open question for the
-		// owner, and a buffer guessed here would be a wrong answer in the schema.
+		// Photographer and videographer work is quoted, not booked: where, how
+		// long, how many people, one location or two. All of it is chatOnly, so
+		// the durations below are what the package promises the customer rather
+		// than a grid anything is reserved on.
+		//
+		// The studio session is the one package here with no price. It is new —
+		// it was never on the old booking page or in either PDF — and a number
+		// invented in a seed file is a number the studio would find itself held
+		// to. Zero renders as "Harga via chat", which is what actually happens.
+		//
+		// The line says "outdoor" and the package is indoors. packages/content
+		// has the right name for it, `in-studio-photographer`, but the database
+		// cannot: booking_services_line_known is a CHECK, growing a CHECK in
+		// SQLite means rebuilding the table, and a rebuild cannot run inside the
+		// single transaction each migration gets — bookings holds a foreign key
+		// into this table, and the drop fails whether the check is immediate or
+		// deferred. That transaction is what stops a half-applied migration on a
+		// box with one database and no standby, which is worth more than a tidy
+		// key. Nothing renders this value for a chat package: they are grouped
+		// under one heading of their own, so the word is never read by anybody.
+		{id: "fotografer-studio", resource: "photographer", name: "Fotografer Studio", line: "outdoor-photographer",
+			description: "Sesi foto dengan fotografer di studio", price: 0,
+			duration: 60, buffer: 0, min: 1, max: 30, chatOnly: true},
+
+		// Off-site work, from the PDF. Travel time is not modelled: it is an open
+		// question for the owner, and a buffer guessed here would be a wrong
+		// answer in the schema.
 		{id: "photographer-1h", resource: "photographer", name: "Fotografer 1 jam", line: "outdoor-photographer",
 			description: "Max 1 jam, semua file edit, 2 print 4R", price: 350_000,
-			duration: 60, buffer: 0, min: 1, max: 30},
+			duration: 60, buffer: 0, min: 1, max: 30, chatOnly: true},
 		{id: "photographer-90m", resource: "photographer", name: "Fotografer 1,5 jam", line: "outdoor-photographer",
 			description: "Max 1,5 jam, semua file edit, 4 print 4R", price: 500_000,
-			duration: 90, buffer: 0, min: 1, max: 30},
+			duration: 90, buffer: 0, min: 1, max: 30, chatOnly: true},
 		{id: "photographer-3h", resource: "photographer", name: "Fotografer 3 jam", line: "outdoor-photographer",
 			description: "Max 3 jam, semua file edit, 1 print 10R plus frame", price: 850_000,
-			duration: 180, buffer: 0, min: 1, max: 30},
+			duration: 180, buffer: 0, min: 1, max: 30, chatOnly: true},
 		{id: "videographer-3h", resource: "photographer", name: "Videografer 3 jam", line: "videographer",
 			description: "Max 3 jam, hasil edit 2–4 menit", price: 650_000,
-			duration: 180, buffer: 0, min: 1, max: 30},
+			duration: 180, buffer: 0, min: 1, max: 30, chatOnly: true},
 	}
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -188,14 +224,19 @@ func bookingSeed(ctx context.Context, db *sql.DB) error {
 		if s.perPerson {
 			perPerson = 1
 		}
+		mode := "web"
+		if s.chatOnly {
+			mode = "chat"
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO booking_services
 			   (id, resource_id, name, service_line, description, price_idr, price_per_person,
-			    duration_minutes, buffer_minutes, headcount_min, headcount_max, order_index, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			    duration_minutes, buffer_minutes, headcount_min, headcount_max, order_index,
+			    booking_mode, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT (id) DO NOTHING`,
 			s.id, s.resource, s.name, s.line, s.description, s.price, perPerson,
-			s.duration, s.buffer, s.min, s.max, i, now); err != nil {
+			s.duration, s.buffer, s.min, s.max, i, mode, now); err != nil {
 			return fmt.Errorf("seed service %s: %w", s.id, err)
 		}
 	}

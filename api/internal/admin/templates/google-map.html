@@ -1,0 +1,72 @@
+{{define "google-map.html"}}
+{{template "head" .}}
+
+<h1>Hubungkan Google</h1>
+{{template "messages" .}}
+
+<p>
+  Masuk sebagai <strong class="tabular">{{.GoogleAccount}}</strong>.
+  Pilih kalender untuk tiap ruang yang dikelola akun ini.
+</p>
+<p class="small muted">
+  Menyimpan satu baris membagikan kalender itu ke
+  <span class="tabular">{{.ServiceAccount}}</span> dengan izin “Make changes to
+  events”, lalu menyimpannya ke ruang tersebut. Ruang yang dikelola akun Google
+  lain dibiarkan saja — ulangi dari Pengaturan dengan akun itu.
+</p>
+
+<div class="scroll-x">
+  <table>
+    <thead>
+      <tr><th>Ruang</th><th>Kalender</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{range .Calendars}}
+        <tr>
+          <td>{{.Name}}<br><span class="small muted tabular">{{.Resource}}</span></td>
+          <td>
+            <form class="cell-form" method="post" action="/settings/google/connect">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="resource" value="{{.Resource}}">
+              <select name="calendar_id">
+                <option value="">— pilih kalender —</option>
+                {{range $.GoogleCalendars}}
+                  {{/*
+                    A calendar this account does not own is listed but cannot be
+                    chosen: the grant is one only an owner can make, so offering
+                    it would fail at the last step with a message from Google
+                    that says nothing about which account to use instead.
+                  */}}
+                  <option value="{{.ID}}" {{if not .Owned}}disabled{{end}}>
+                    {{.Name}}{{if .Primary}} (utama){{end}}{{if not .Owned}} — bukan milik akun ini{{end}}
+                  </option>
+                {{end}}
+              </select>
+              <button class="secondary" type="submit">Hubungkan</button>
+            </form>
+          </td>
+          <td class="small">
+            {{if .Calendar}}
+              <span class="state on">terhubung</span><br>
+              <span class="muted tabular">{{.Calendar}}</span>
+            {{else}}
+              <span class="state off">belum terhubung</span>
+            {{end}}
+          </td>
+        </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<form method="post" action="/settings/google/finish">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button type="submit">Selesai</button>
+</form>
+<p class="small muted">
+  Menutup sesi ini dan membuang izin Google. Izin juga hangus sendiri setelah
+  15 menit.
+</p>
+
+{{template "foot" .}}
+{{end}}

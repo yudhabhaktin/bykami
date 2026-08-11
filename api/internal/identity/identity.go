@@ -14,7 +14,7 @@
 // is still what the subdomain layout is for; it becomes a decision about which
 // surface sets a Domain=.bykami.id cookie over these same tokens. The jar has
 // no opt-out, so that decision is made per surface — see
-// design/platform-architecture.md — and app.bykami.id is explicitly excluded
+// design/platform-architecture.md — and admin.bykami.id is explicitly excluded
 // from it.
 package identity
 

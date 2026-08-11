@@ -46,6 +46,7 @@ func (c *Console) settings(w http.ResponseWriter, r *http.Request, op identity.U
 	if c.calendar != nil {
 		p.ServiceAccount = c.calendar.ServiceAccount()
 	}
+	p.GoogleConnect = c.connect != nil && c.calendar != nil
 
 	resources, err := c.booking.Resources(r.Context())
 	if err != nil {

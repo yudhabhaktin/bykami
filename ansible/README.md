@@ -194,7 +194,7 @@ sudo -u bykami /usr/local/bin/bykami -db /var/lib/bykami/bykami.db admin enroll 
 ```
 
 That prints a QR code in the terminal. Scan it with whatever authenticator the
-operator already has, and sign in at `https://app.bykami.id/` with the number and
+operator already has, and sign in at `https://admin.bykami.id/` with the number and
 the six digits it shows. If the terminal will not draw the square — a narrow
 window, or a font without block characters — the same command prints the secret
 in base32 to type in by hand, and takes an optional path to write a PNG instead.

@@ -49,6 +49,11 @@ func (d *Desk) Availability(ctx context.Context, serviceID string, from, to time
 	if err != nil {
 		return nil, err
 	}
+	// A chat package has no grid. Refused rather than answered with an empty
+	// list, which a caller cannot tell apart from a fully booked day.
+	if svc.BookingMode == ModeChat {
+		return nil, fmt.Errorf("%w: %s", ErrChatOnly, svc.Name)
+	}
 
 	now := d.now().UTC()
 	grid := slotMinutes * time.Minute

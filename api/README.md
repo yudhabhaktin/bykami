@@ -1,8 +1,12 @@
 # api — the phase 2 monolith
 
-One Go binary behind Cloudflare Tunnel at `app.bykami.id`. Identity, loyalty and
-booking are packages under `internal/`, not services — `design/infrastructure.md`
-records why splitting them on 2 vCPU would buy three GC heaps and no scaling.
+One Go binary behind Cloudflare Tunnel, answering on two hostnames: the public
+API at `app.bykami.id` and the operator console at `admin.bykami.id`. One
+process and one port — `cmd/bykami/host.go` picks the surface from the Host
+header, so a console page is not reachable at all on the address the booths
+know. Identity, loyalty and booking are packages under `internal/`, not services
+— `design/infrastructure.md` records why splitting them on 2 vCPU would buy
+three GC heaps and no scaling.
 
 | Package | Owns |
 |---|---|
@@ -79,7 +83,7 @@ and either alone would decide it:
   is a different origin from `bykami.id`, so it could not send a platform cookie
   even if one were set — `platform-architecture.md` calls this out as
   "token-based or nothing".
-- **`app.bykami.id` is deliberately outside the `.bykami.id` cookie jar.** It is
+- **`admin.bykami.id` is deliberately outside the `.bykami.id` cookie jar.** It is
   the operator-admin surface, and the jar has no opt-out: a `Domain=.bykami.id`
   cookie goes to *every* subdomain including `gallery.bykami.id`, which is the
   highest-risk surface on the platform.

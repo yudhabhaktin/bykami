@@ -91,9 +91,11 @@ booth_access_token: ""
 # Where the frame catalogue lives. Empty disables syncing, and the booth then
 # offers only the designs compiled into the binary.
 #
-# On this box it points at the operator console on the same host, which is what
-# makes the whole loop testable: upload a frame at app.bykami.id, publish it,
-# and it appears on booth-test.bykami.id a few minutes later.
+# On this box it points at the API on the same host, which is what makes the
+# whole loop testable: upload a frame at admin.bykami.id, publish it, and it
+# appears on booth-test.bykami.id a few minutes later. The URL here is the API's
+# name and not the console's — the agent pulls /v1, and app.bykami.id is where
+# that lives.
 booth_frame_sync: "https://app.bykami.id"
 booth_frame_sync_every: 5m
 
