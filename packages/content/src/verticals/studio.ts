@@ -107,8 +107,17 @@ export const studio: Vertical = {
     // where the number came from, so the shared constant carries this PDF as its
     // source.
     whatsapp: houseWhatsapp,
-    bookingUrl: blocked(
-      "YouCanBook.me calendars exist per design/booking-phase2.md but the URLs were never recorded.",
+    // The strongest source any fact here has: the page is built in this
+    // repository and deployed by its own CI, so this is read off the thing
+    // itself rather than off a document about it.
+    //
+    // It replaces the two YouCanBook.me calendars, whose URLs were never
+    // recorded and which are the reason this was blocked. Those presented six
+    // choices over one shared availability pool; this one knows the studio runs
+    // photobox and self-photo in parallel.
+    bookingUrl: verified(
+      "/booking",
+      "sites/studio/src/pages/booking.astro — in-house booking, live since 2026-08-10",
     ),
   },
 

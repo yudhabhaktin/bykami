@@ -20,12 +20,27 @@ import { valueOf, type Vertical } from "@bykami/content";
  */
 interface Props {
   vertical: Vertical;
+  /** The page this bar is rendering on, so it does not offer to go there. */
+  path?: string;
 }
 
-const { vertical } = Astro.props;
+const { vertical, path = "/" } = Astro.props;
 
 const whatsapp = vertical.nap ? valueOf(vertical.nap.whatsapp) : undefined;
-const booking = vertical.nap ? valueOf(vertical.nap.bookingUrl) : undefined;
+const bookingUrl = vertical.nap ? valueOf(vertical.nap.bookingUrl) : undefined;
+
+/**
+ * Dropped when the customer is already looking at it.
+ *
+ * Only possible since booking came in-house — while this pointed at somebody
+ * else's calendar there was no page of ours it could collide with. A permanent
+ * button offering the page you are on is a dead end, and on /booking it would
+ * sit over the form it duplicates.
+ *
+ * WhatsApp stays either way: somebody stuck halfway through picking a time is
+ * exactly who needs to reach a human.
+ */
+const booking = bookingUrl === path ? undefined : bookingUrl;
 
 const message = `Halo ${vertical.displayName}, saya mau tanya soal paket.`;
 const waHref = whatsapp
