@@ -32,7 +32,7 @@ type catalogue struct {
 
 type published struct {
 	id, name, layout string
-	cells            []cell
+	cells            []Cell
 	art              []byte
 }
 
@@ -59,7 +59,7 @@ func (c *catalogue) server(t *testing.T) *httptest.Server {
 				Name   string `json:"name"`
 				Group  string `json:"group"`
 				Layout string `json:"layout"`
-				Cells  []cell `json:"cells"`
+				Cells  []Cell `json:"cells"`
 				SHA256 string `json:"sha256"`
 			}{f.id, f.name, "", f.layout, f.cells, hex.EncodeToString(sum[:])})
 		}
@@ -99,7 +99,7 @@ func newWorker(t *testing.T, base, dir string, reload Reload) *Worker {
 	if reload == nil {
 		reload = func() error { return nil }
 	}
-	w := New(base, token, dir, time.Minute, reload, discard())
+	w := New(base, token, "jajag", dir, time.Minute, reload, nil, discard())
 	if w == nil {
 		t.Fatal("New returned nil with a base URL and a token")
 	}
@@ -109,7 +109,7 @@ func newWorker(t *testing.T, base, dir string, reload Reload) *Worker {
 func TestSyncInstallsAPublishedFrame(t *testing.T) {
 	cat := &catalogue{frames: []published{{
 		id: "wisuda-2026", name: "Wisuda 2026", layout: "strip2x6",
-		cells: []cell{{30, 36, 540, 450}, {30, 516, 540, 450}, {30, 996, 540, 450}},
+		cells: []Cell{{30, 36, 540, 450}, {30, 516, 540, 450}, {30, 996, 540, 450}},
 		art:   strip(t, 1),
 	}}}
 	srv := cat.server(t)
@@ -166,7 +166,7 @@ func TestSyncInstallsAPublishedFrame(t *testing.T) {
 func TestASecondSyncDownloadsNothingAndDoesNotReload(t *testing.T) {
 	cat := &catalogue{frames: []published{{
 		id: "klasik", name: "Klasik", layout: "strip2x6",
-		cells: []cell{{30, 36, 540, 450}}, art: strip(t, 2),
+		cells: []Cell{{30, 36, 540, 450}}, art: strip(t, 2),
 	}}}
 	srv := cat.server(t)
 	dir := t.TempDir()
@@ -189,8 +189,8 @@ func TestASecondSyncDownloadsNothingAndDoesNotReload(t *testing.T) {
 // "withdraw" means "withdraw from new booths".
 func TestWithdrawingAFrameRemovesItFromTheBooth(t *testing.T) {
 	cat := &catalogue{frames: []published{
-		{id: "keep", name: "Keep", layout: "strip2x6", cells: []cell{{30, 36, 540, 450}}, art: strip(t, 3)},
-		{id: "drop", name: "Drop", layout: "strip2x6", cells: []cell{{30, 36, 540, 450}}, art: strip(t, 4)},
+		{id: "keep", name: "Keep", layout: "strip2x6", cells: []Cell{{30, 36, 540, 450}}, art: strip(t, 3)},
+		{id: "drop", name: "Drop", layout: "strip2x6", cells: []Cell{{30, 36, 540, 450}}, art: strip(t, 4)},
 	}}
 	srv := cat.server(t)
 	dir := t.TempDir()
@@ -217,7 +217,7 @@ func TestWithdrawingAFrameRemovesItFromTheBooth(t *testing.T) {
 func TestChangedArtworkIsReinstalled(t *testing.T) {
 	cat := &catalogue{frames: []published{{
 		id: "klasik", name: "Klasik", layout: "strip2x6",
-		cells: []cell{{30, 36, 540, 450}}, art: strip(t, 5),
+		cells: []Cell{{30, 36, 540, 450}}, art: strip(t, 5),
 	}}}
 	srv := cat.server(t)
 	dir := t.TempDir()
@@ -336,7 +336,7 @@ func TestSafeID(t *testing.T) {
 func TestAFailedSyncLeavesTheInstalledFramesAlone(t *testing.T) {
 	cat := &catalogue{frames: []published{{
 		id: "klasik", name: "Klasik", layout: "strip2x6",
-		cells: []cell{{30, 36, 540, 450}}, art: strip(t, 7),
+		cells: []Cell{{30, 36, 540, 450}}, art: strip(t, 7),
 	}}}
 	srv := cat.server(t)
 	dir := t.TempDir()
@@ -364,7 +364,7 @@ func TestNewReturnsNilWhenSyncingIsNotConfigured(t *testing.T) {
 		{"https://app.bykami.id", ""},
 		{"", "a-token"},
 	} {
-		if w := New(tc.base, tc.tok, t.TempDir(), time.Minute, nil, discard()); w != nil {
+		if w := New(tc.base, tc.tok, "jajag", t.TempDir(), time.Minute, nil, nil, discard()); w != nil {
 			t.Errorf("New(%q, %q) returned a worker; an unenrolled booth should not poll", tc.base, tc.tok)
 		}
 	}

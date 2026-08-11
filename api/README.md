@@ -49,6 +49,8 @@ these are auth results and personal data, and Cloudflare sits in front.
 | `GET` | `/v1/me/loyalty` | `{"balance","entries"}` — balance is `SUM(points)` |
 | `GET` | `/v1/booth/frames` | Booth sync: manifest of published, in-season frames |
 | `GET` | `/v1/booth/frames/{id}` | The frame's PNG. `ETag`, so an unchanged poll is a 304 |
+| `POST` | `/v1/booth/templates` | The booth reporting what it actually offers → `{"want":[sha256]}` |
+| `PUT` | `/v1/booth/templates/art/{sha256}` | Artwork for a design the cloud has never seen → 204 |
 | `GET` | `/v1/booking/services` | What is on sale. Public, `max-age=300` |
 | `GET` | `/v1/booking/availability` | `?service=&from=&to=` → bookable start times, in WIB |
 | `POST` | `/v1/booking` | Takes a booking → 201, or 409 if the slot went |
@@ -166,11 +168,12 @@ keep correct so that staff can look up a phone number.
 | `POST /login` | Number plus the six digits an authenticator app is showing |
 | `GET /customers?phone=` | Balance and ledger history for one customer |
 | `POST /customers/{id}/adjust` | Writes a compensating entry |
-| `GET /frames` | The frame catalogue, with detected slots drawn over each one |
+| `GET /frames` | What each booth is actually offering, then the catalogue below it |
 | `POST /frames` | Upload a PNG. Everything else is read out of the file |
 | `POST /frames/{id}/publish` | Put it on the booths, or take it off |
 | `POST /frames/{id}/season` | Set or clear the date window |
 | `POST /frames/{id}/delete` | Remove it |
+| `GET /booth/art/{sha256}` | Artwork for a design a booth reported, addressed by hash |
 
 **A frame is a PNG and nothing else is typed in.** The sheet size comes from its
 dimensions and the photo cells from its transparent regions — flood-filled, then
@@ -228,6 +231,37 @@ notices the extra designs in a test — the booth still works, every frame still
 prints — and the tell arrives as a customer picking artwork that was supposed to
 be gone. Unpublish is the reversible half of the pair; `delete` is for artwork
 that was wrong rather than artwork that is finished.
+
+### Which is why `/frames` starts with the booths
+
+The catalogue is what an operator uploaded. It has never been what a customer
+sees, and the page used to show only the catalogue — so the built-in designs
+every session picks from appeared nowhere in the console, and reading a booth's
+real set meant `curl`ing its own `/api/state` over SSH.
+
+So the booth says. `agent/internal/framesync` posts its live template set after
+every poll and uploads the artwork for anything this side has never seen; the
+console lists it above the catalogue, labelling each design *dari katalog* or
+*bawaan aplikasi booth*, and marks a booth that has not reported for fifteen
+minutes as out of date rather than current.
+
+Three properties hold it in place:
+
+- **It is hearsay, not authority.** Nothing read from a report decides what a
+  booth is sent, which frames are live, or what a season means. A booth that
+  lied would mislead somebody reading a page and could not publish itself a
+  frame.
+- **It is a cache, like the sync.** A failed report is logged and retried; it
+  never blocks a session. The console going dark is not a reason for a booth in
+  Jajag to stop selling.
+- **Artwork is addressed by hash.** The same seven built-ins across a fleet are
+  stored once, a design already in the catalogue is never uploaded back, and the
+  poll after the first costs one small request.
+
+It also makes "Tayang di booth" mean what it says. That label used to mean only
+*published*, so a frame flipped on thirty seconds ago read exactly like one a
+booth had been failing to download for a week; a published frame no booth has
+now says **Terbit — belum sampai di booth**.
 
 **Seasons are dates, not a switch somebody flips.** A Ramadan frame that has to
 be turned off by hand is one that is still on the booth in August, and the

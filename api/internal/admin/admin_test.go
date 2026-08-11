@@ -103,7 +103,7 @@ func newFixtureConnect(t *testing.T, cal booking.Calendar, connect *gcal.Connect
 	// its "no credential" path rather than a typed nil that would panic.
 	worker := booking.NewWorker(desk, cal, log, time.Minute, "Jajag")
 
-	c, err := admin.New(ident, ledger, frames.New(db), desk, worker, auth, connect, log, staff)
+	c, err := admin.New(ident, ledger, frames.New(db), frames.NewBooths(db), desk, worker, auth, connect, log, staff)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestRevokingAnOperatorEndsAccessImmediately(t *testing.T) {
 	// Same identity service and the same live session, a console that no longer
 	// lists that number.
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), booking.New(f.db, 0), nil, f.auth, nil, log, nil)
+	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), frames.NewBooths(f.db), booking.New(f.db, 0), nil, f.auth, nil, log, nil)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestUnparseableStaffNumberIsAStartupError(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	_, err = admin.New(identity.New(db, &capturingSender{}), loyalty.New(db), frames.New(db),
-		booking.New(db, 0), nil, mfa.New(db), nil, log, []string{"not-a-phone-number"})
+		frames.NewBooths(db), booking.New(db, 0), nil, mfa.New(db), nil, log, []string{"not-a-phone-number"})
 	if err == nil {
 		t.Fatal("an unparseable operator number was accepted")
 	}

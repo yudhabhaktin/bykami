@@ -29,6 +29,50 @@ const maxUpload = 8 << 20
 // after.
 var wib = time.FixedZone("WIB", 7*60*60)
 
+// boothView is one booth's reported set, flattened for the template. Formatted
+// here rather than there for the reason calendarRow exists: a template cannot
+// decide what counts as out of date, and a policy inside one is a policy nobody
+// can test.
+type boothView struct {
+	Outlet   string
+	Reported string
+	// Silent means the booth has not reported in long enough that the list
+	// below is a historical record rather than a current one.
+	Silent  bool
+	Designs []designView
+}
+
+// designView is one frame a booth is offering.
+type designView struct {
+	ID     string
+	Name   string
+	Layout string
+	Cells  []frames.Cell
+
+	// The sheet this layout prints, which is the space Cells are measured in.
+	// Not the artwork's own pixel size: the overlay is scaled onto the sheet
+	// when it is composed, so the sheet is what the slots sit on.
+	Width  int
+	Height int
+
+	// Art is the artwork URL, empty for a design that draws no overlay — a
+	// plain photo template has no frame to show.
+	Art string
+
+	// FromCatalogue distinguishes a design an operator can do something about
+	// from one that lives inside the agent binary, where the only way to remove
+	// it is to ship a new one.
+	FromCatalogue bool
+}
+
+// boothSilent is how long a booth may go unheard-from before the page says so.
+//
+// Three polls. The agent reports every five minutes, so one missed report is a
+// blip on a shop's internet connection and three in a row is a booth that is
+// off, unplugged, or no longer talking to this server — which is the difference
+// between a list that is a few minutes old and a list that is a week old.
+const boothSilent = 15 * time.Minute
+
 func (c *Console) frameIndex(w http.ResponseWriter, r *http.Request, op identity.User) {
 	p := page{
 		Title:    "Frame",
@@ -51,7 +95,98 @@ func (c *Console) frameIndex(w http.ResponseWriter, r *http.Request, op identity
 		return
 	}
 	p.Frames = list
+
+	// The booths are a separate failure. A catalogue that loaded is worth
+	// showing even if the reports did not, because the upload form is on this
+	// page and it still works.
+	reports, err := c.booths.All(r.Context())
+	if err != nil {
+		c.log.Error("admin: list booth reports", "err", err)
+		p.Error = "Gagal memuat daftar frame di booth."
+		c.render(w, r, http.StatusOK, "frames.html", p)
+		return
+	}
+	p.Booths, p.OnBooth = boothViews(reports, list)
+	p.BoothsKnown = len(reports) > 0
 	c.render(w, r, http.StatusOK, "frames.html", p)
+}
+
+// boothViews flattens the reports into what the page draws, and returns the set
+// of catalogue ids that reached at least one booth.
+//
+// The second return is what turns "Tayang di booth" from a claim into a fact.
+// It used to mean only "published", so a frame that had been published thirty
+// seconds ago — or one a booth had been failing to download for a week — read
+// exactly like one a customer was already choosing.
+func boothViews(reports []frames.Booth, catalogue []frames.Frame) ([]boothView, map[string]bool) {
+	inCatalogue := make(map[string]bool, len(catalogue))
+	for _, f := range catalogue {
+		inCatalogue[f.ID] = true
+	}
+
+	now := time.Now().UTC()
+	onBooth := map[string]bool{}
+	out := make([]boothView, 0, len(reports))
+	for _, b := range reports {
+		v := boothView{
+			Outlet:   b.Outlet,
+			Reported: b.ReportedAt.In(wib).Format("2 Jan 2006, 15:04"),
+			Silent:   now.Sub(b.ReportedAt) > boothSilent,
+		}
+		for _, d := range b.Designs {
+			w, h := d.Layout.Sheet()
+			dv := designView{
+				Name: d.Name, ID: d.ID, Layout: string(d.Layout),
+				Cells: d.Cells, Width: w, Height: h,
+				FromCatalogue: inCatalogue[d.ID],
+			}
+			if d.SHA256 != "" {
+				dv.Art = "/booth/art/" + d.SHA256
+			}
+			if dv.FromCatalogue {
+				onBooth[d.ID] = true
+			}
+			v.Designs = append(v.Designs, dv)
+		}
+		out = append(out, v)
+	}
+	return out, onBooth
+}
+
+// boothArt serves a design's artwork by its hash.
+//
+// Its own route rather than /frames/{id}/art.png, because most of what a booth
+// offers has no catalogue row to hang an id off — the built-in designs exist
+// only inside the agent binary. The hash is the name for the same reason it is
+// the sync protocol: identical artwork on five booths is one stored copy.
+func (c *Console) boothArt(w http.ResponseWriter, r *http.Request, _ identity.User) {
+	sum := strings.TrimSuffix(r.PathValue("sha256"), ".png")
+
+	art, err := c.booths.Artwork(r.Context(), sum)
+	if errors.Is(err, frames.ErrNoArtwork) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		c.log.Error("admin: booth art", "err", err)
+		http.Error(w, "gagal memuat gambar", http.StatusInternalServerError)
+		return
+	}
+
+	h := w.Header()
+	h.Set("Content-Type", "image/png")
+	h.Set("X-Content-Type-Options", "nosniff")
+	// Genuinely immutable: the URL is the hash of the bytes it returns, so a
+	// design that changes is a different address.
+	h.Set("ETag", `"`+sum+`"`)
+	h.Set("Cache-Control", "private, max-age=300")
+	if r.Header.Get("If-None-Match") == `"`+sum+`"` {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	if _, err := w.Write(art); err != nil {
+		c.log.Error("admin: write booth art", "err", err)
+	}
 }
 
 // frameUpload takes the PNG and reads the rest of the design out of it.
