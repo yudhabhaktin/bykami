@@ -50,9 +50,12 @@ type API struct {
 	identity *identity.Service
 	loyalty  *loyalty.Ledger
 	frames   *frames.Catalogue
-	booking  *booking.Desk
-	health   HealthFunc
-	log      *slog.Logger
+	// booths is what booths report they are offering — the catalogue's mirror
+	// image, and hearsay rather than authority. See booth.go.
+	booths  *frames.Booths
+	booking *booking.Desk
+	health  HealthFunc
+	log     *slog.Logger
 
 	// Extra origins the booking routes accept, beyond the four *.bykami.id sites
 	// that originAllowed matches by suffix. This is how `astro dev` on
@@ -95,7 +98,10 @@ type Config struct {
 	Identity *identity.Service
 	Loyalty  *loyalty.Ledger
 	Frames   *frames.Catalogue
-	Booking  *booking.Desk
+	// Booths receives what each booth reports it is offering, which is the only
+	// way this side learns about the designs built into the agent binary.
+	Booths  *frames.Booths
+	Booking *booking.Desk
 
 	// Instagram is the mirrored feed, and InstagramAccount the handle it came
 	// from — carried through so the sites can label the section without holding
@@ -122,6 +128,7 @@ type Config struct {
 func New(cfg Config) http.Handler {
 	a := &API{
 		identity: cfg.Identity, loyalty: cfg.Loyalty, frames: cfg.Frames,
+		booths:    cfg.Booths,
 		booking:   cfg.Booking,
 		instagram: cfg.Instagram, instagramAccount: cfg.InstagramAccount,
 		health: cfg.Health, log: cfg.Log, authEnabled: cfg.AuthEnabled,
@@ -152,6 +159,14 @@ func New(cfg Config) http.Handler {
 	// than a session — see booth.go for why a booth is not a user.
 	mux.HandleFunc("GET /v1/booth/frames", a.booth(a.boothFrames))
 	mux.HandleFunc("GET /v1/booth/frames/{id}", a.booth(a.boothArtwork))
+
+	// And the booth saying what it ended up with, which is not the same list:
+	// it also holds the designs built into the agent binary and whatever is in
+	// that machine's -templates folder. Write-only from the booth's side and
+	// read only by the console — see booth.go for why it is authority for
+	// nothing.
+	mux.HandleFunc("POST /v1/booth/templates", a.booth(a.boothReport))
+	mux.HandleFunc("PUT /v1/booth/templates/art/{sha256}", a.booth(a.boothArtworkUpload))
 
 	// The social mirror. Public on purpose — see social.go: it is a copy of
 	// content that is already public, fetched by the browser of anyone reading

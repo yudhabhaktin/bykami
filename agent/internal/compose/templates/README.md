@@ -86,8 +86,14 @@ The three sources are **added together**, not chosen between: `cmd/bykami-agent`
 appends `-templates` and the synced catalogue onto these, and a frame only
 displaces one of them by carrying the same id. So changing this directory never
 removes a design from a booth — replacing what a customer is offered means
-editing here *and* running `bykami frames unpublish` against the catalogue. The
-failure is quiet, because a booth showing too many frames still works.
+editing here *and* running `bykami frames unpublish` against the catalogue.
+
+That failure used to be silent, because a booth showing too many frames still
+works. It is now visible: the agent reports its live set to the cloud after
+every poll, and `admin.bykami.id/frames` lists what each booth is actually
+offering above the catalogue, marking anything from this directory as *bawaan
+aplikasi booth*. The report is a cache like the sync itself — it never blocks a
+session, and a booth that cannot reach the server keeps selling.
 
 ## These are one outlet's frames
 

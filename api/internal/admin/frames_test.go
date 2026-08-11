@@ -2,6 +2,9 @@ package admin_test
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"image"
 	"image/color"
 	"image/png"
@@ -11,6 +14,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/bhaktiyudha/bykami/api/internal/frames"
 )
 
 // stripArt draws a 600×1800 strip with three clear rectangles — the shape of a
@@ -122,7 +128,13 @@ func TestAnUploadIsNotPublishedUntilSomebodySaysSo(t *testing.T) {
 		url.Values{"csrf": {csrf}, "publish": {"1"}}, cookie); w.Code != http.StatusSeeOther {
 		t.Fatalf("publish = %d, want 303: %s", w.Code, w.Body.String())
 	}
-	if body := f.framesPage(t, cookie); !strings.Contains(body, "Tayang di booth") {
+	// "Terbit" and not "Tayang di booth": no booth has said anything, so
+	// whether it arrived is unknown. See TestPublishedIsNotTheSameAsOnTheBooth.
+	body = f.framesPage(t, cookie)
+	switch {
+	case strings.Contains(body, "Draf — belum di booth"):
+		t.Error("the frame is still shown as a draft after publishing")
+	case !strings.Contains(body, "Terbit"):
 		t.Error("the frame is not shown as published after publishing")
 	}
 }
@@ -242,5 +254,110 @@ func TestArtworkComesBackByteForByte(t *testing.T) {
 	}
 	if !bytes.Equal(w.Body.Bytes(), art) {
 		t.Error("the artwork served back is not the artwork uploaded")
+	}
+}
+
+// report is a booth checking in with what it is offering.
+func (f fixture) report(t *testing.T, outlet string, designs ...frames.Design) {
+	t.Helper()
+	if _, err := frames.NewBooths(f.db).Report(context.Background(), outlet, designs); err != nil {
+		t.Fatalf("report %s: %v", outlet, err)
+	}
+}
+
+// The failure this page was rebuilt to fix. A booth's set is the catalogue plus
+// the designs compiled into its binary, so the console showed four frames while
+// customers chose from eleven — and nothing anywhere said so.
+func TestTheBoothSectionShowsDesignsThatAreNotInTheCatalogue(t *testing.T) {
+	f := newFixture(t, operatorPhone)
+	cookie := f.signIn(t, operatorPhone)
+
+	f.report(t, "jajag", frames.Design{
+		ID: "gacoan-1-taplak", Name: "Taplak Gacoan", Layout: frames.R4,
+		Cells: []frames.Cell{{X: 624, Y: 147, W: 560, H: 385}},
+	})
+
+	body := f.framesPage(t, cookie)
+	for _, want := range []string{"Di booth sekarang", "jajag", "Taplak Gacoan", "bawaan aplikasi booth"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the booth section is missing %q", want)
+		}
+	}
+}
+
+// Published means an operator flipped a switch. On the booth means a machine in
+// a shop downloaded it. The page used to call both of them "Tayang di booth".
+func TestPublishedIsNotTheSameAsOnTheBooth(t *testing.T) {
+	f := newFixture(t, operatorPhone)
+	cookie := f.signIn(t, operatorPhone)
+	csrf := csrfFrom(t, f.framesPage(t, cookie))
+
+	f.upload(t, cookie, csrf, "Wisuda", stripArt(t), nil)
+	if w := f.post(t, "/frames/wisuda/publish",
+		url.Values{"csrf": {csrf}, "publish": {"1"}}, cookie); w.Code != http.StatusSeeOther {
+		t.Fatalf("publish = %d, want 303", w.Code)
+	}
+
+	// A booth has reported, and this frame is not in what it reported — so it
+	// has been published and has not arrived.
+	f.report(t, "jajag", frames.Design{ID: "gacoan-1-taplak", Name: "Taplak Gacoan", Layout: frames.R4})
+	if body := f.framesPage(t, cookie); !strings.Contains(body, "Terbit — belum sampai di booth") {
+		t.Error("a published frame no booth has is not distinguished from one on sale")
+	}
+
+	// And once the booth has it, it is genuinely on sale.
+	f.report(t, "jajag",
+		frames.Design{ID: "gacoan-1-taplak", Name: "Taplak Gacoan", Layout: frames.R4},
+		frames.Design{ID: "wisuda", Name: "Wisuda", Layout: frames.Strip2x6})
+	if body := f.framesPage(t, cookie); !strings.Contains(body, "Tayang di booth") {
+		t.Error("a frame the booth reports is not shown as on the booth")
+	}
+}
+
+// A booth that has stopped reporting is showing a historical list. Saying so is
+// the difference between a page that is a few minutes stale and one that is a
+// week stale with no way to tell.
+func TestABoothThatHasGoneQuietSaysSo(t *testing.T) {
+	f := newFixture(t, operatorPhone)
+	cookie := f.signIn(t, operatorPhone)
+
+	f.report(t, "jajag", frames.Design{ID: "gacoan-1-taplak", Name: "Taplak Gacoan", Layout: frames.R4})
+	if _, err := f.db.Exec(`UPDATE booth_reports SET reported_at = ?`,
+		time.Now().Add(-2*time.Hour).Unix()); err != nil {
+		t.Fatalf("age the report: %v", err)
+	}
+
+	if body := f.framesPage(t, cookie); !strings.Contains(body, "kondisi terakhir yang diketahui") {
+		t.Error("a booth that has not reported for two hours is presented as current")
+	}
+}
+
+// The artwork for a built-in design has no catalogue row to hang an id off, so
+// it is served by hash — and, like every other route here, only to staff.
+func TestBoothArtworkIsServedByHashAndOnlyToStaff(t *testing.T) {
+	f := newFixture(t, operatorPhone)
+	cookie := f.signIn(t, operatorPhone)
+
+	art := stripArt(t)
+	sum := sha256.Sum256(art)
+	hash := hex.EncodeToString(sum[:])
+	booths := frames.NewBooths(f.db)
+	f.report(t, "jajag", frames.Design{
+		ID: "gacoan-1-taplak", Name: "Taplak Gacoan", Layout: frames.Strip2x6, SHA256: hash,
+	})
+	if err := booths.StoreArtwork(context.Background(), hash, art); err != nil {
+		t.Fatalf("StoreArtwork: %v", err)
+	}
+
+	w := f.get(t, "/booth/art/"+hash, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if !bytes.Equal(w.Body.Bytes(), art) {
+		t.Error("the bytes served are not the bytes the booth uploaded")
+	}
+
+	if w := f.get(t, "/booth/art/"+hash, ""); w.Code != http.StatusSeeOther {
+		t.Errorf("signed out = %d, want a redirect to the login page", w.Code)
 	}
 }

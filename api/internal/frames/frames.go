@@ -90,6 +90,22 @@ func SheetSizes() string {
 	return "600×1800 (strip 2×6in), 1200×1800 (4R), 1800×2400 (6×8in), all at 300 dpi"
 }
 
+// Sheet is the pixel size a layout prints at, and the coordinate space its
+// cells are in. Zero for a layout this server does not know.
+//
+// The reverse of the map above, and needed because a design reported by a booth
+// arrives with a layout and cells but no dimensions — the artwork it carries is
+// scaled onto the sheet when it is composed, so the sheet is what the cells are
+// measured against and what a preview has to be shaped like.
+func (l Layout) Sheet() (w, h int) {
+	for size, layout := range sheets {
+		if layout == l {
+			return size[0], size[1]
+		}
+	}
+	return 0, 0
+}
+
 // Frame is one design in the catalogue.
 type Frame struct {
 	// ID is a slug derived from the name. It becomes a directory name on the

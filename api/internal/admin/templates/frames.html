@@ -5,6 +5,64 @@
 
 {{template "messages" .}}
 
+<h2 style="margin-top:0">Di booth sekarang</h2>
+<p class="small muted">
+  Yang benar-benar dipilih pelanggan. Ini bukan isi katalog di bawah: booth
+  menjumlahkan desain bawaan aplikasinya dengan frame katalog yang terbit, jadi
+  daftar ini biasanya lebih panjang. Booth melapor tiap lima menit.
+</p>
+
+{{if not .Booths}}
+  <p class="muted">
+    Belum ada booth yang melapor. Booth yang versinya lama belum bisa melapor,
+    dan booth yang belum di-<em>enrol</em> tidak menghubungi server sama sekali —
+    keduanya tetap menjual seperti biasa.
+  </p>
+{{end}}
+
+{{range .Booths}}
+  <h3>{{.Outlet}} <span class="muted small tabular">({{len .Designs}} desain)</span></h3>
+  {{if .Silent}}
+    <p class="warn">
+      Laporan terakhir {{.Reported}}. Sudah lewat lima belas menit, jadi daftar
+      di bawah adalah kondisi terakhir yang diketahui, bukan kondisi sekarang.
+    </p>
+  {{else}}
+    <p class="small muted">Dilaporkan {{.Reported}}.</p>
+  {{end}}
+
+  {{if not .Designs}}
+    <p class="error">Booth ini tidak menawarkan satu desain pun.</p>
+  {{end}}
+
+  <div class="frames">
+  {{range .Designs}}
+    <div class="card frame">
+      <div class="preview" style="aspect-ratio: {{.Width}} / {{.Height}}">
+        {{if .Art}}<img src="{{.Art}}" alt="Frame {{.Name}}" loading="lazy">{{end}}
+        {{$w := .Width}}{{$h := .Height}}
+        {{range $i, $c := .Cells}}
+          <span class="slot" style="{{slot $c $w $h}}">{{inc $i}}</span>
+        {{end}}
+      </div>
+
+      <p class="frame-name">{{.Name}}</p>
+      <p class="small muted" style="margin:0">
+        {{.Layout}} · {{len .Cells}} foto
+        <br>
+        {{if .FromCatalogue}}
+          dari katalog
+        {{else}}
+          bawaan aplikasi booth
+        {{end}}
+      </p>
+    </div>
+  {{end}}
+  </div>
+{{end}}
+
+<h2>Unggah frame baru</h2>
+
 <div class="card">
   <p class="small muted">
     Unggah PNG-nya saja. Ukuran lembar dibaca dari dimensi file, dan posisi foto
@@ -68,10 +126,18 @@
       <br>{{season .}}
     </p>
 
-    {{if .Published}}
+    {{if not .Published}}
+      <p class="state off">Draf — belum di booth</p>
+    {{else if not $.BoothsKnown}}
+      <!--
+        No booth has ever reported, so whether this one arrived is genuinely
+        unknown and the page says only what it does know: that it was published.
+      -->
+      <p class="state on">Terbit</p>
+    {{else if index $.OnBooth .ID}}
       <p class="state on">Tayang di booth</p>
     {{else}}
-      <p class="state off">Draf — belum di booth</p>
+      <p class="state off">Terbit — belum sampai di booth</p>
     {{end}}
 
     <form method="post" action="/frames/{{.ID}}/publish">
