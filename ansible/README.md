@@ -170,40 +170,50 @@ match installs a stale binary or appears to sit on the current version forever.
 
 ### Opening the operator console
 
-Nobody can sign in to the console on a default deployment, and that is the gate
-working rather than a bug: the console logs in with the same phone OTP flow
-customers use, and `app_otp_delivery` is empty, so `/login` answers 503.
+Two steps, in either order, and neither needs a WhatsApp provider. The console
+signs in with an authenticator app rather than a code sent anywhere — see
+`api/README.md` for why it differs from the customer flow.
 
-Opening it needs two values, both in a gitignored vars file:
+**One: say who is an operator.** A gitignored vars file, because a phone number
+in a committed file is a phone number in the repository:
 
 ```yaml
 # app.vars.yml, mode 0600, gitignored
-app_otp_delivery: "log"
-app_admin_phones: "08xxxxxxxxxx"   # the operator's number, comma-separated for more
+app_admin_phones: "08xxxxxxxxxx"   # comma-separated for more than one
 ```
 
 ```bash
 ansible-playbook site.yml --tags app -e @app.vars.yml
 ```
 
-Then sign in at `https://app.bykami.id/`, and read the code out of the journal:
+**Two: enrol their authenticator**, on the box, over ssh:
 
 ```bash
-ssh <host> "journalctl -u bykami -n 30 | grep -o '\"code\":\"[0-9]*\"'"
+ssh <host>
+sudo -u bykami /usr/local/bin/bykami -db /var/lib/bykami/bykami.db admin enroll 08xxxxxxxxxx
 ```
 
-**Understand what `log` costs before setting it.** There is exactly one sender in
-the binary and it writes codes to the journal, so for as long as this is on, every
-one-time code on the platform — customers' as well as operators' — is readable by
-anything that can read the journal. On this box that is root, and root is the
-person deploying. It is a considered trade for a single-operator studio that needs
-the console before a WhatsApp provider account exists, not a thing to leave on
-once one does. It is logged at `Warn` on every send so the exposure is visible
-rather than silent.
+That prints a QR code in the terminal. Scan it with whatever authenticator the
+operator already has, and sign in at `https://admin.bykami.id/` with the number and
+the six digits it shows. If the terminal will not draw the square — a narrow
+window, or a font without block characters — the same command prints the secret
+in base32 to type in by hand, and takes an optional path to write a PNG instead.
 
-To close it again, unset `app_otp_delivery` and re-run the play. Sessions already
-issued survive — deliberately, see `internal/httpapi`: revoking every login by
-changing a delivery setting would be a surprising way for that flag to behave.
+`app_otp_delivery` has nothing to do with this and should stay empty. It gates
+the *customer* auth routes, and the only sender that exists writes one-time codes
+to the journal, where anything that can read the journal can read them. The
+console used to be the reason people were tempted to set it; it is not any more.
+
+To take an operator's access away, either remove them from `app_admin_phones` and
+re-run the play — which ends their access on the next request, since the
+allow-list is checked per request — or revoke the authenticator on the box:
+
+```bash
+sudo -u bykami /usr/local/bin/bykami -db /var/lib/bykami/bykami.db admin revoke 08xxxxxxxxxx
+```
+
+Removing them from the allow-list is the stronger of the two: it works even if
+somebody still holds a live session cookie.
 
 ### Connecting the studio's Google Calendars
 

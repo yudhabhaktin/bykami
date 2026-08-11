@@ -74,6 +74,16 @@ func seed(t *testing.T, db *sql.DB) {
 			s.duration, s.buffer, s.min, s.max)
 	}
 
+	// A package the studio quotes rather than sells through the page. Inserted
+	// on its own because booking_mode is the only thing that distinguishes it,
+	// and every row above is deliberately an ordinary bookable one.
+	exec(`INSERT INTO booking_services
+	        (id, resource_id, name, service_line, price_idr, price_per_person,
+	         duration_minutes, buffer_minutes, headcount_min, headcount_max,
+	         booking_mode, created_at)
+	      VALUES ('fotografer-studio', 'photographer', 'Fotografer Studio',
+	              'outdoor-photographer', 0, 0, 60, 0, 1, 30, 'chat', unixepoch())`)
+
 	// 09:00-21:00, every day.
 	for wd := range 7 {
 		exec(`INSERT INTO booking_hours (weekday, opens_at, closes_at) VALUES (?, 540, 1260)`, wd)
@@ -467,5 +477,53 @@ func TestGetAndDayReadWhatWasWritten(t *testing.T) {
 	day, _ = d.Day(ctx, wib(2026, 8, 12, 0, 0))
 	if len(day) != 1 || day[0].Status != "cancelled" {
 		t.Errorf("day view lost the cancelled booking: %+v", day)
+	}
+}
+
+// The studio still sells photographer work; it just does not sell it through a
+// calendar. Both halves matter: the package has to stay on the price list, and
+// neither entry point may hand out a slot for it.
+func TestAChatPackageIsListedButOffersNothingToBook(t *testing.T) {
+	d, _ := newDesk(t)
+	ctx := t.Context()
+
+	services, err := d.Services(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed *Service
+	for i, s := range services {
+		if s.ID == "fotografer-studio" {
+			listed = &services[i]
+		}
+	}
+	if listed == nil {
+		t.Fatal("the chat package fell off the price list")
+	}
+	if listed.BookingMode != ModeChat {
+		t.Errorf("booking_mode = %q, want %q", listed.BookingMode, ModeChat)
+	}
+
+	// Refused, not answered with an empty day: a caller cannot tell "no slots
+	// left" from "this never had slots".
+	if _, err := d.Availability(ctx,
+		"fotografer-studio", wib(2026, 8, 12, 0, 0), wib(2026, 8, 13, 0, 0)); !errors.Is(err, ErrChatOnly) {
+		t.Errorf("availability error = %v, want ErrChatOnly", err)
+	}
+
+	// And the page is not the only thing that can post here.
+	if _, err := d.Book(ctx,
+		request("fotografer-studio", wib(2026, 8, 12, 14, 0), 4)); !errors.Is(err, ErrChatOnly) {
+		t.Errorf("book error = %v, want ErrChatOnly", err)
+	}
+
+	// Nothing was reserved on the way to being refused.
+	var slots int
+	if err := d.db.QueryRow(
+		`SELECT COUNT(*) FROM booking_slots WHERE resource_id = 'photographer'`).Scan(&slots); err != nil {
+		t.Fatal(err)
+	}
+	if slots != 0 {
+		t.Errorf("%d slots held for a package that cannot be booked", slots)
 	}
 }

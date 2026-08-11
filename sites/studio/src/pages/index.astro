@@ -68,7 +68,7 @@ const gallery = [
 <BaseLayout
   vertical={vertical}
   title="Self Photo Studio Banyuwangi — studio by KAMI"
-  description="Self photo studio, photobox, dan pas foto di Jajag, Banyuwangi. Lihat daftar paket dan harga lengkap, lalu booking lewat WhatsApp."
+  description="Self photo studio, photobox, dan pas foto di Jajag, Banyuwangi. Lihat daftar paket dan harga lengkap, lalu booking jamnya online tanpa DP."
 >
   {/*
    * `.enter` is the CSS half of the reveal system — see tokens.css. The hero is
@@ -82,6 +82,23 @@ const gallery = [
       pakai remote shutter. Tanpa fotografer di dalam ruangan, hasil bisa langsung
       dicetak.
     </p>
+    {/*
+     * The one CTA above the fold, and it goes to the calendar rather than to
+     * WhatsApp.
+     *
+     * The sticky bar carries both routes on every page and keeps WhatsApp
+     * primary, because that is still how this market books. This is the other
+     * half of that argument: the self-serve path only gets used if it is offered
+     * at the moment somebody has just read what the studio does, and a customer
+     * who would rather chat has a permanent WhatsApp button three inches below
+     * their thumb. Nothing is taken away by putting this here.
+     *
+     * Third in the stagger, after the heading and the lede, so it arrives in
+     * reading order rather than ahead of the sentence that justifies it.
+     */}
+    <a class="btn ui enter" style="--enter-delay: 0.2s" href="/booking">
+      Cek jadwal & booking
+    </a>
   </section>
 
   <Gallery images={gallery} heading="Hasil di studio" label="Galeri" />
@@ -98,7 +115,8 @@ const gallery = [
     <ol>
       <li data-reveal data-reveal-y="16">Pilih paket sesuai jumlah orang dan durasi yang kamu mau.</li>
       <li data-reveal data-reveal-y="16" style="--reveal-delay: 0.07s">
-        Chat admin lewat WhatsApp untuk memesan slot.
+        <a href="/booking">Pilih jam lewat halaman booking</a> — langsung terkonfirmasi,
+        tanpa DP. Mau tanya dulu? Chat admin lewat WhatsApp.
       </li>
       <li data-reveal data-reveal-y="16" style="--reveal-delay: 0.14s">
         Datang ke studio, masuk ruang yang sudah siap dengan lighting.
@@ -127,6 +145,24 @@ const gallery = [
   .lede {
     font-size: 18px;
     color: var(--muted);
+  }
+
+  /*
+   * The same filled shape /booking uses for its primary action, not a third
+   * button style. The two pages are one flow and a customer crosses between
+   * them mid-decision; arriving at a differently-shaped button reads as
+   * arriving somewhere else.
+   */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--tap);
+    padding-inline: var(--space-6);
+    border-radius: var(--radius);
+    background: var(--text);
+    color: var(--surface);
+    text-decoration: none;
   }
 
 

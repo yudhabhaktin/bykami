@@ -29,10 +29,9 @@ const syncBudget = 12 * time.Second
 
 func (c *Console) settings(w http.ResponseWriter, r *http.Request, op identity.User) {
 	p := page{
-		Title:       "Pengaturan",
-		Operator:    op.Phone,
-		AuthEnabled: c.authEnabled,
-		CSRF:        csrfToken(r),
+		Title:    "Pengaturan",
+		Operator: op.Phone,
+		CSRF:     csrfToken(r),
 	}
 	if msg := r.URL.Query().Get("ok"); msg != "" {
 		p.Notice = msg
@@ -47,6 +46,7 @@ func (c *Console) settings(w http.ResponseWriter, r *http.Request, op identity.U
 	if c.calendar != nil {
 		p.ServiceAccount = c.calendar.ServiceAccount()
 	}
+	p.GoogleConnect = c.connect != nil && c.calendar != nil
 
 	resources, err := c.booking.Resources(r.Context())
 	if err != nil {

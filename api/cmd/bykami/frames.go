@@ -17,15 +17,15 @@ import (
 // frameCmd is the frame catalogue from the shell, alongside the console.
 //
 // The console is the tool an operator uses, and this does not replace it. It
-// exists because the console's login is the same OTP flow customers use, and on
-// a box with no delivery configured — the deployed state until residency is
-// settled — nobody can sign in at all. Without this, the catalogue could not be
-// filled until a WhatsApp provider exists, which is weeks of waiting to put a
-// PNG in a table.
+// was written when the console had no working login at all — that flow was the
+// customer OTP one, which needs a WhatsApp provider that did not exist — so the
+// catalogue could not otherwise be filled for as long as that took.
 //
-// It is also the only path that does not need auth opened to work, which is why
-// it is preferable to switching the development OTP sender on in production: a
-// one-time code in a log file is a one-time code in whatever reads that log.
+// That reason has since expired: `bykami admin enroll` gives the console a
+// login that depends on nobody, and an operator can sign in and upload a frame.
+// This stays because a shell path to the catalogue is worth having on its own —
+// it is how the box is repaired when the console is the thing that is broken,
+// and it needs no browser on a machine that can reach admin.bykami.id.
 //
 // Same shape as `bykami-agent media`: a subcommand, run by somebody who already
 // has a shell on the box, reaching the database directly.

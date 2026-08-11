@@ -3,6 +3,7 @@ package admin_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,9 +17,13 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/admin"
 	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
+	"github.com/bhaktiyudha/bykami/api/internal/gcal"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
+	"github.com/bhaktiyudha/bykami/api/internal/mfa"
+	"github.com/bhaktiyudha/bykami/api/internal/phone"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
+	"github.com/bhaktiyudha/bykami/api/internal/totp"
 )
 
 const (
@@ -51,18 +56,34 @@ type fixture struct {
 	sender *capturingSender
 	ident  *identity.Service
 	ledger *loyalty.Ledger
+	auth   *mfa.Registry
 	db     *sql.DB
+
+	// The enrolled secrets, by normalised number, so that a test can produce
+	// the code an operator's phone would be showing.
+	secrets map[string][]byte
 }
 
-func newFixture(t *testing.T, authEnabled bool, staff ...string) fixture {
+// newFixture builds a console whose staff are all enrolled and can sign in.
+// That is the ordinary state and what nearly every test wants; the ones about
+// enrolment itself use newFixtureCal and enrol by hand.
+func newFixture(t *testing.T, staff ...string) fixture {
 	t.Helper()
-	return newFixtureCal(t, nil, authEnabled, staff...)
+	return newFixtureCal(t, nil, staff...)
 }
 
 // newFixtureCal is newFixture with a calendar attached, for the settings page.
 // A nil calendar is the ordinary case and the deployed one: no Google credential,
 // so admin.New receives a nil worker and the page says so.
-func newFixtureCal(t *testing.T, cal booking.Calendar, authEnabled bool, staff ...string) fixture {
+func newFixtureCal(t *testing.T, cal booking.Calendar, staff ...string) fixture {
+	t.Helper()
+	return newFixtureConnect(t, cal, nil, staff...)
+}
+
+// newFixtureConnect is newFixtureCal with the Google consent flow wired up. A
+// nil connect is the deployed default and every other fixture's case: the
+// console then offers the paste-a-calendar-id form and nothing else.
+func newFixtureConnect(t *testing.T, cal booking.Calendar, connect *gcal.Connect, staff ...string) fixture {
 	t.Helper()
 
 	db, err := store.Open(":memory:")
@@ -76,16 +97,73 @@ func newFixtureCal(t *testing.T, cal booking.Calendar, authEnabled bool, staff .
 	ledger := loyalty.New(db)
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	desk := booking.New(db, 0)
+	auth := mfa.New(db)
 
 	// NewWorker returns nil for a nil calendar, which is what puts the console on
 	// its "no credential" path rather than a typed nil that would panic.
 	worker := booking.NewWorker(desk, cal, log, time.Minute, "Jajag")
 
-	c, err := admin.New(ident, ledger, frames.New(db), desk, worker, log, staff, authEnabled)
+	c, err := admin.New(ident, ledger, frames.New(db), desk, worker, auth, connect, log, staff)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
-	return fixture{h: c.Handler(), sender: sender, ident: ident, ledger: ledger, db: db}
+
+	f := fixture{
+		h: c.Handler(), sender: sender, ident: ident, ledger: ledger,
+		auth: auth, db: db, secrets: map[string][]byte{},
+	}
+	for _, s := range staff {
+		f.enrol(t, s)
+	}
+	return f
+}
+
+// enrol gives one number an authenticator and remembers its secret.
+func (f fixture) enrol(t *testing.T, rawPhone string) {
+	t.Helper()
+
+	e164, secret, err := f.auth.Enroll(context.Background(), rawPhone)
+	if err != nil {
+		t.Fatalf("enrol %s: %v", rawPhone, err)
+	}
+	f.secrets[e164] = secret
+}
+
+// code is what the authenticator for a number would be showing now.
+func (f fixture) code(t *testing.T, rawPhone string, at time.Time) string {
+	t.Helper()
+
+	e164, err := phone.Normalize(rawPhone)
+	if err != nil {
+		t.Fatalf("normalise %s: %v", rawPhone, err)
+	}
+	secret, ok := f.secrets[e164]
+	if !ok {
+		t.Fatalf("%s has no enrolled authenticator", e164)
+	}
+	return totp.Code(secret, at)
+}
+
+// wrongCode returns six digits this operator's authenticator is not showing,
+// and would not accept one step either side.
+//
+// Searched rather than hardcoded. A literal "000000" is the right code about
+// one run in three hundred thousand, and a test that fails that rarely is one
+// nobody can reproduce and everybody learns to re-run.
+func (f fixture) wrongCode(t *testing.T, rawPhone string, at time.Time) string {
+	t.Helper()
+
+	accepted := map[string]bool{}
+	for delta := -1; delta <= 1; delta++ {
+		accepted[f.code(t, rawPhone, at.Add(time.Duration(delta)*totp.Period))] = true
+	}
+	for i := range 10 {
+		if candidate := fmt.Sprintf("%06d", i); !accepted[candidate] {
+			return candidate
+		}
+	}
+	t.Fatal("could not find a wrong code")
+	return ""
 }
 
 func (f fixture) get(t *testing.T, path, cookie string) *httptest.ResponseRecorder {
@@ -115,13 +193,25 @@ func (f fixture) post(t *testing.T, path string, form url.Values, cookie string)
 func (f fixture) signIn(t *testing.T, phone string) string {
 	t.Helper()
 
-	if w := f.post(t, "/login", url.Values{"phone": {phone}}, ""); w.Code != http.StatusOK {
-		t.Fatalf("login = %d", w.Code)
+	now := time.Now()
+	w := f.post(t, "/login", url.Values{
+		"phone": {phone}, "code": {f.code(t, phone, now)},
+	}, "")
+
+	// A second sign-in inside the same half-minute would present a code whose
+	// step has already been spent, and the replay guard would refuse it. The
+	// next step's code is inside the skew window and strictly later, so it is
+	// accepted — which keeps a test that signs in twice from failing for a
+	// reason that has nothing to do with what it is testing.
+	if w.Code == http.StatusUnauthorized {
+		w = f.post(t, "/login", url.Values{
+			"phone": {phone}, "code": {f.code(t, phone, now.Add(totp.Period))},
+		}, "")
 	}
-	w := f.post(t, "/verify", url.Values{"phone": {phone}, "code": {f.sender.last()}}, "")
 	if w.Code != http.StatusSeeOther {
-		t.Fatalf("verify = %d, want 303: %s", w.Code, w.Body.String())
+		t.Fatalf("login = %d, want 303: %s", w.Code, w.Body.String())
 	}
+
 	for _, ck := range w.Result().Cookies() {
 		if ck.Name == cookieName {
 			return ck.Value
@@ -143,7 +233,7 @@ func csrfFrom(t *testing.T, body string) string {
 }
 
 func TestRootServesTheLoginPage(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 
 	w := f.get(t, "/", "")
 
@@ -154,7 +244,9 @@ func TestRootServesTheLoginPage(t *testing.T) {
 		t.Errorf("content-type = %q, want text/html", ct)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Masuk", "Nomor WhatsApp operator", `action="/login"`} {
+	// Both fields on the one form: the number and the code its authenticator is
+	// showing. There is no page in between, because nothing is sent anywhere.
+	for _, want := range []string{"Masuk", "Nomor operator", "autentikator", `action="/login"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
@@ -165,74 +257,67 @@ func TestRootServesTheLoginPage(t *testing.T) {
 	}
 }
 
-// The deployed state: the form says why it cannot be used rather than failing
-// at the submit.
-func TestLoginPageDeclaresTheClosedGate(t *testing.T) {
-	f := newFixture(t, false, operatorPhone)
+// A console nobody has enrolled against cannot be signed in to by anyone, and
+// says which command fixes that — rather than refusing every correct code with
+// a message about the code being wrong.
+func TestLoginPageSaysWhenNobodyIsEnrolled(t *testing.T) {
+	f := newFixture(t, operatorPhone)
+	// Listed as staff, but with no authenticator — which is the state of a box
+	// the moment this lands, before anybody has run the enrol command.
+	if err := f.auth.Revoke(context.Background(), operatorPhone); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
 
 	body := f.get(t, "/", "").Body.String()
 
-	if !strings.Contains(body, "OTP belum aktif") {
-		t.Error("closed gate is not explained on the page")
+	if !strings.Contains(body, "Belum ada operator yang terdaftar") {
+		t.Error("an empty registry is not explained on the page")
 	}
-	if !strings.Contains(body, "disabled") {
-		t.Error("submit is not disabled while delivery is off")
-	}
-}
-
-func TestLoginRefusedWhileDeliveryIsOff(t *testing.T) {
-	f := newFixture(t, false, operatorPhone)
-
-	w := f.post(t, "/login", url.Values{"phone": {operatorPhone}}, "")
-
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", w.Code)
-	}
-	if f.sender.sent != 0 {
-		t.Errorf("sender called %d times behind a closed gate", f.sender.sent)
+	if !strings.Contains(body, "admin enroll") {
+		t.Error("the page does not say how to enrol somebody")
 	}
 }
 
-// A stranger must not be able to use this form to discover who is an operator,
-// and must not be able to make it spend money on an SMS.
-func TestNonOperatorGetsIdenticalResponseAndNoCode(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+// A stranger must not be able to use this form to discover who is an operator.
+// With one form and one message the property is easier to hold than it was
+// across two steps, but it is the same property and worth the same test.
+func TestEveryRefusalLooksTheSame(t *testing.T) {
+	f := newFixture(t, operatorPhone)
 
-	operator := f.post(t, "/login", url.Values{"phone": {operatorPhone}}, "")
-	sentAfterOperator := f.sender.sent
-
-	stranger := f.post(t, "/login", url.Values{"phone": {customerPhone}}, "")
+	// An operator with the wrong code, and a stranger with the same wrong code.
+	wrong := f.wrongCode(t, operatorPhone, time.Now())
+	operator := f.post(t, "/login", url.Values{
+		"phone": {operatorPhone}, "code": {wrong},
+	}, "")
+	stranger := f.post(t, "/login", url.Values{
+		"phone": {customerPhone}, "code": {wrong},
+	}, "")
 
 	if operator.Code != stranger.Code {
 		t.Errorf("status differs: operator %d, stranger %d", operator.Code, stranger.Code)
 	}
-	// The pages echo back the number that was typed, so compare with that one
-	// varying part removed. What must not differ is anything else — the notice,
-	// the form state, or whether a code-entry field appeared.
+	// The page echoes back the number that was typed, so compare with that one
+	// varying part removed. Nothing else may differ.
 	a := strings.ReplaceAll(operator.Body.String(), operatorPhone, "PHONE")
 	b := strings.ReplaceAll(stranger.Body.String(), customerPhone, "PHONE")
 	if a != b {
 		t.Error("response differs between an operator and a stranger, which reveals who is staff")
 	}
-	if f.sender.sent != sentAfterOperator {
-		t.Error("a code was sent to a non-operator")
-	}
 }
 
-// The privilege boundary. A customer can hold a completely valid session — the
-// login flow is the same one they use — and must still not reach the console.
-func TestValidNonOperatorLoginIsRefusedAndItsSessionDestroyed(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+// The privilege boundary, and the reason enrolment can be an ordinary shell
+// command: a correct code from a number nobody put on the allow-list opens
+// nothing at all.
+func TestACorrectCodeFromANonOperatorIsRefused(t *testing.T) {
+	f := newFixture(t, operatorPhone)
+	f.enrol(t, customerPhone) // a real authenticator, just not an operator's
 
-	// Mint a genuine session for a customer, straight through identity so the
-	// allow-list check in /login cannot be what stops it.
-	if err := f.ident.RequestCode(context.Background(), customerPhone); err != nil {
-		t.Fatalf("request code: %v", err)
-	}
-	w := f.post(t, "/verify", url.Values{"phone": {customerPhone}, "code": {f.sender.last()}}, "")
+	w := f.post(t, "/login", url.Values{
+		"phone": {customerPhone}, "code": {f.code(t, customerPhone, time.Now())},
+	}, "")
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
 	}
 	for _, ck := range w.Result().Cookies() {
 		if ck.Name == cookieName && ck.Value != "" {
@@ -241,8 +326,46 @@ func TestValidNonOperatorLoginIsRefusedAndItsSessionDestroyed(t *testing.T) {
 	}
 }
 
+// A stranger who guesses an operator's number must not be able to spend that
+// operator's failed attempts and lock them out of their own console. The
+// allow-list is checked first, so the registry never sees the attempt.
+func TestAGuessAtANumberCannotLockTheOperatorOut(t *testing.T) {
+	f := newFixture(t, operatorPhone)
+
+	for range 10 {
+		f.post(t, "/login", url.Values{
+			"phone": {customerPhone}, "code": {"000000"},
+		}, "")
+	}
+
+	if token := f.signIn(t, operatorPhone); token == "" {
+		t.Error("the operator was locked out by guesses at somebody else's number")
+	}
+}
+
+// The guard the spent-step record exists for. A code stays valid for the rest
+// of its period, so one read over a shoulder must not be worth a second login.
+func TestACodeCannotBeUsedTwice(t *testing.T) {
+	f := newFixture(t, operatorPhone)
+	code := f.code(t, operatorPhone, time.Now())
+
+	if w := f.post(t, "/login", url.Values{"phone": {operatorPhone}, "code": {code}}, ""); w.Code != http.StatusSeeOther {
+		t.Fatalf("first use = %d, want 303", w.Code)
+	}
+	w := f.post(t, "/login", url.Values{"phone": {operatorPhone}, "code": {code}}, "")
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("second use = %d, want 401", w.Code)
+	}
+	for _, ck := range w.Result().Cookies() {
+		if ck.Name == cookieName && ck.Value != "" {
+			t.Error("a replayed code was issued a session")
+		}
+	}
+}
+
 func TestOperatorSignsInAndReachesTheConsole(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 
 	token := f.signIn(t, operatorPhone)
 
@@ -258,10 +381,11 @@ func TestOperatorSignsInAndReachesTheConsole(t *testing.T) {
 // The cookie's scoping is the rule platform-architecture.md sets for this
 // hostname: it must never enter the .bykami.id jar.
 func TestSessionCookieIsHostOnlyAndLocked(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 
-	f.post(t, "/login", url.Values{"phone": {operatorPhone}}, "")
-	w := f.post(t, "/verify", url.Values{"phone": {operatorPhone}, "code": {f.sender.last()}}, "")
+	w := f.post(t, "/login", url.Values{
+		"phone": {operatorPhone}, "code": {f.code(t, operatorPhone, time.Now())},
+	}, "")
 
 	var ck *http.Cookie
 	for _, got := range w.Result().Cookies() {
@@ -294,7 +418,7 @@ func TestSessionCookieIsHostOnlyAndLocked(t *testing.T) {
 }
 
 func TestConsoleRequiresASession(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 
 	for _, tc := range []struct{ name, cookie string }{
 		{"no cookie", ""},
@@ -313,7 +437,7 @@ func TestConsoleRequiresASession(t *testing.T) {
 // session — so revoking an operator takes effect immediately rather than
 // whenever their session happens to expire.
 func TestRevokingAnOperatorEndsAccessImmediately(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	token := f.signIn(t, operatorPhone)
 
 	if w := f.get(t, "/customers", token); w.Code != http.StatusOK {
@@ -323,7 +447,7 @@ func TestRevokingAnOperatorEndsAccessImmediately(t *testing.T) {
 	// Same identity service and the same live session, a console that no longer
 	// lists that number.
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), booking.New(f.db, 0), nil, log, nil, true)
+	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), booking.New(f.db, 0), nil, f.auth, nil, log, nil)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
@@ -338,7 +462,7 @@ func TestRevokingAnOperatorEndsAccessImmediately(t *testing.T) {
 }
 
 func TestCustomerLookupShowsBalanceAndHistory(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	token := f.signIn(t, operatorPhone)
 
 	// Give the customer an account and some history.
@@ -365,7 +489,7 @@ func TestCustomerLookupShowsBalanceAndHistory(t *testing.T) {
 }
 
 func TestLookupOfAnUnknownNumber(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	token := f.signIn(t, operatorPhone)
 
 	body := f.get(t, "/customers?phone="+customerPhone, token).Body.String()
@@ -376,7 +500,7 @@ func TestLookupOfAnUnknownNumber(t *testing.T) {
 }
 
 func TestAdjustWritesACompensatingEntry(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	token := f.signIn(t, operatorPhone)
 
 	if err := f.ident.RequestCode(context.Background(), customerPhone); err != nil {
@@ -421,7 +545,7 @@ func TestAdjustWritesACompensatingEntry(t *testing.T) {
 }
 
 func TestAdjustRequiresCSRF(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	token := f.signIn(t, operatorPhone)
 
 	for _, tc := range []struct{ name, csrf string }{
@@ -441,7 +565,7 @@ func TestAdjustRequiresCSRF(t *testing.T) {
 }
 
 func TestAdjustValidation(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	token := f.signIn(t, operatorPhone)
 
 	if err := f.ident.RequestCode(context.Background(), customerPhone); err != nil {
@@ -478,7 +602,7 @@ func TestAdjustValidation(t *testing.T) {
 }
 
 func TestLogoutEndsTheSession(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	token := f.signIn(t, operatorPhone)
 
 	if w := f.post(t, "/logout", nil, token); w.Code != http.StatusSeeOther {
@@ -494,7 +618,7 @@ func TestLogoutEndsTheSession(t *testing.T) {
 // The allow-list is normalised, so an operator configured as +62… is the same
 // person as one who types 0812… into the form.
 func TestStaffListIsNormalised(t *testing.T) {
-	f := newFixture(t, true, "+6281234567890")
+	f := newFixture(t, "+6281234567890")
 
 	if token := f.signIn(t, "0812-3456-7890"); token == "" {
 		t.Error("a differently-formatted operator number was not recognised")
@@ -512,14 +636,14 @@ func TestUnparseableStaffNumberIsAStartupError(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	_, err = admin.New(identity.New(db, &capturingSender{}), loyalty.New(db), frames.New(db),
-		booking.New(db, 0), nil, log, []string{"not-a-phone-number"}, true)
+		booking.New(db, 0), nil, mfa.New(db), nil, log, []string{"not-a-phone-number"})
 	if err == nil {
 		t.Fatal("an unparseable operator number was accepted")
 	}
 }
 
 func TestConsolePagesAreNotStorable(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	token := f.signIn(t, operatorPhone)
 
 	for _, path := range []string{"/", "/customers"} {

@@ -224,6 +224,12 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   is:inline
   set:html={`(() => {
   var apiBase = ${JSON.stringify(apiBase)};
+  // Interpolated rather than passed through define:vars, which Astro discards on
+  // a set:html script. Empty when the vertical has no number recorded, and the
+  // chat packages are then simply not rendered — a dead WhatsApp link is worse
+  // than an absent one.
+  var waNumber = ${JSON.stringify(whatsapp ?? "")};
+  var waName = ${JSON.stringify(vertical.displayName)};
 
   var flow = document.querySelector("[data-flow]");
   if (!flow) return;
@@ -289,8 +295,14 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
         "Daftar paket sedang tidak bisa dimuat. Silakan chat admin lewat WhatsApp.";
     });
 
-  function renderServices(services) {
-    if (!services.length) {
+  function renderServices(all) {
+    // Two kinds of package, and they cannot share a renderer: one leads to a
+    // calendar, the other to a conversation.
+    var services = [];
+    var chat = [];
+    all.forEach(function (s) { (s.booking_mode === "chat" ? chat : services).push(s); });
+
+    if (!services.length && !chat.length) {
       el("[data-services-loading]").textContent =
         "Belum ada paket yang bisa dibooking online. Silakan chat admin lewat WhatsApp.";
       return;
@@ -332,8 +344,54 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
       host.appendChild(ul);
     });
 
+    renderChatPackages(host, chat);
+
     el("[data-services-loading]").hidden = true;
     host.hidden = false;
+  }
+
+  // Packages the studio quotes rather than sells: a photographer session is
+  // priced off where, how long and how many people, so the page's job is to
+  // start that conversation rather than to take a slot against a number nobody
+  // has agreed. Anchors, not buttons — this leaves the page.
+  //
+  // No duration or headcount line here, unlike a bookable package. Those numbers
+  // are what a session promises once it is agreed, and printing "60 menit"
+  // beside a package with no price reads as a quote.
+  function renderChatPackages(host, chat) {
+    if (!chat.length || !waNumber) return;
+
+    var h = document.createElement("h4");
+    h.textContent = "Fotografer & videografer";
+    host.appendChild(h);
+
+    var note = document.createElement("p");
+    note.className = "muted chat-note";
+    note.textContent =
+      "Paket ini diatur lewat chat — jadwal dan harga menyesuaikan lokasi, durasi dan jumlah orang.";
+    host.appendChild(note);
+
+    var ul = document.createElement("ul");
+    ul.className = "picks";
+    chat.forEach(function (s) {
+      var li = document.createElement("li");
+      var a = document.createElement("a");
+      a.className = "card pick pick-chat";
+      a.href = "https://wa.me/" + waNumber + "?text=" +
+        encodeURIComponent("Halo " + waName + ", saya mau tanya paket " + s.name + ".");
+      a.rel = "noopener";
+      a.innerHTML =
+        '<span class="pick-name">' + esc(s.name) + "</span>" +
+        '<span class="pick-price tabular">' +
+        (s.price_idr > 0
+          ? idr.format(s.price_idr) + (s.price_per_person ? '<span class="muted"> / orang</span>' : "")
+          : '<span class="muted">Harga via chat</span>') + "</span>" +
+        (s.description ? '<span class="pick-desc muted">' + esc(s.description) + "</span>" : "") +
+        '<span class="pick-spec muted ui">Chat admin di WhatsApp →</span>';
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
+    host.appendChild(ul);
   }
 
   function esc(s) {
@@ -709,6 +767,20 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
 
   :global([data-flow] .pick-price) {
     font-size: 18px;
+  }
+
+  /* The chat packages are anchors wearing the same card as the buttons beside
+     them, so the underline a link would otherwise carry has to come off. */
+  :global([data-flow] .pick-chat) {
+    text-decoration: none;
+  }
+
+  :global([data-flow] .pick-chat .pick-spec) {
+    margin-top: var(--space-1);
+  }
+
+  :global([data-flow] .chat-note) {
+    margin: 0 0 var(--space-3);
   }
 
   /* The day strip scrolls rather than wrapping: a month wrapped is a block of

@@ -584,9 +584,11 @@ purge that had always deleted at 7.
 
 ## Frames come from the cloud
 
-The catalogue lives at `app.bykami.id` (`api/internal/frames`): an operator
-uploads a PNG, the console reads its cells out of the transparent regions, and
-publishing it puts it on every booth. `-frame-sync https://app.bykami.id` plus
+The catalogue lives in the cloud binary (`api/internal/frames`): an operator
+uploads a PNG at `admin.bykami.id`, the console reads its cells out of the
+transparent regions, and publishing it puts it on every booth. The booth reads
+it from the API's own name, which is a different hostname on the same process —
+`-frame-sync https://app.bykami.id` plus
 `BYKAMI_BOOTH_TOKEN` turns the pull on; the worker polls every five minutes and
 writes designs into `<root>/frames`, swapping the live template set without a
 restart.

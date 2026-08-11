@@ -151,8 +151,9 @@ that shapes the data model.
                    bykami.id · studio. · booth. · dimsamcong.
 
    api/            one Go binary on a VPS, behind Cloudflare Tunnel
-                   app.bykami.id — accounts, loyalty ledger,
-                   frame catalogue, operator console
+                   app.bykami.id   — accounts, loyalty ledger,
+                                     frame catalogue, booking
+                   admin.bykami.id — operator console
                         ▲
                         │  /v1  — pulls published frames every 5 min
                         │
@@ -284,7 +285,7 @@ it.
 | `packages/content` | The catalogue as typed data. Every publishable fact carries its provenance |
 | `packages/ui` | Shared layout and headers, including the indexing gate |
 | `apps/kiosk` | The booth's React UI. Built into a bundle the agent embeds |
-| `api/` | The cloud monolith at `app.bykami.id` — identity, loyalty, frames, operator console |
+| `api/` | The cloud monolith — identity, loyalty, frames and booking at `app.bykami.id`, the operator console at `admin.bykami.id` |
 | `agent/` | The booth binary — capture, compose, print, delivery, retention |
 | `ansible/` | What is inside the VPS: base hardening, `cloudflared`, the app, the test booth |
 | `infra/cloudflare` | Pages projects, the Zero Trust tunnel, ingress, DNS. State in R2 |

@@ -44,6 +44,11 @@ type serviceBody struct {
 	DurationMinutes int    `json:"duration_minutes"`
 	HeadcountMin    int    `json:"headcount_min"`
 	HeadcountMax    int    `json:"headcount_max"`
+	// "web" offers slots; "chat" is listed and priced but arranged over
+	// WhatsApp. Always sent, never omitted: a page that has to guess the mode
+	// from a missing field will guess "web" and render a calendar that cannot
+	// work.
+	BookingMode string `json:"booking_mode"`
 }
 
 type servicesResponse struct {
@@ -77,6 +82,7 @@ func (a *API) bookingServices(w http.ResponseWriter, r *http.Request) {
 			DurationMinutes: s.DurationMinutes,
 			HeadcountMin:    s.HeadcountMin,
 			HeadcountMax:    s.HeadcountMax,
+			BookingMode:     s.BookingMode,
 		})
 	}
 
@@ -131,6 +137,11 @@ func (a *API) bookingAvailability(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 	case errors.Is(err, booking.ErrNoService):
 		a.fail(w, http.StatusNotFound, "no such service")
+		return
+	// 409 rather than 404: the service exists and is on sale, it just does not
+	// sell through a calendar.
+	case errors.Is(err, booking.ErrChatOnly):
+		a.fail(w, http.StatusConflict, "paket itu diatur lewat chat")
 		return
 	default:
 		a.internal(w, "booking availability", err)
@@ -269,6 +280,8 @@ func (a *API) createBooking(w http.ResponseWriter, r *http.Request) {
 		a.write(w, http.StatusCreated, newBookingBody(b))
 	case errors.Is(err, booking.ErrNoService):
 		a.fail(w, http.StatusNotFound, "paket tidak ditemukan")
+	case errors.Is(err, booking.ErrChatOnly):
+		a.fail(w, http.StatusConflict, "paket itu diatur lewat chat, bukan lewat halaman ini")
 	// 409 rather than 400: the request was well formed and would have worked a
 	// moment earlier. A client should offer another time, not correct anything.
 	case errors.Is(err, booking.ErrSlotTaken):

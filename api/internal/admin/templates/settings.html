@@ -7,22 +7,44 @@
 <h2>Google Calendar</h2>
 
 {{if .ServiceAccount}}
-  {{/*
-    The one step of the whole setup that cannot be done from here, printed here
-    anyway. It happens inside Google, and the address is otherwise buried in a
-    JSON file on the server — so an operator who has to perform it would have no
-    way to find out what to type.
-  */}}
-  <p>
-    Bagikan tiap kalender studio ke alamat ini, dengan izin
-    <strong>“Make changes to events”</strong>:
-  </p>
-  <p class="tabular"><strong>{{.ServiceAccount}}</strong></p>
-  <p class="small muted">
-    Buka Google Calendar → setelan kalender → “Share with specific people” →
-    tambahkan alamat di atas. Setelah itu tempel Calendar ID di bawah dan tekan
-    “Tes sinkron sekarang”.
-  </p>
+  {{if .GoogleConnect}}
+    {{/*
+      The share used to be the one step of the setup that could not be done from
+      here: it happens inside Google. It still happens inside Google — this
+      button just drives it, by spending one consent on writing the same
+      permission the manual flow writes, and then throwing the consent away.
+    */}}
+    <form method="post" action="/settings/google/start">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit">Hubungkan Google</button>
+    </form>
+    <p class="small muted">
+      Masuk sebagai pemilik kalender, pilih kalender untuk tiap ruang, selesai.
+      Jalankan sekali per akun Google — Y2K ada di akun studio, Vintage dan
+      Maroon di akun booth. Tidak ada token yang disimpan.
+    </p>
+    <p class="small muted">
+      Cara manual masih jalan: bagikan kalender ke
+      <span class="tabular">{{.ServiceAccount}}</span> dengan izin
+      <strong>“Make changes to events”</strong>, lalu tempel Calendar ID di bawah.
+    </p>
+  {{else}}
+    {{/*
+      No OAuth client configured, so the share has to be made by hand. The
+      address is otherwise buried in a JSON file on the server — an operator who
+      has to perform this would have no way to find out what to type.
+    */}}
+    <p>
+      Bagikan tiap kalender studio ke alamat ini, dengan izin
+      <strong>“Make changes to events”</strong>:
+    </p>
+    <p class="tabular"><strong>{{.ServiceAccount}}</strong></p>
+    <p class="small muted">
+      Buka Google Calendar → setelan kalender → “Share with specific people” →
+      tambahkan alamat di atas. Setelah itu tempel Calendar ID di bawah dan tekan
+      “Tes sinkron sekarang”.
+    </p>
+  {{end}}
 {{else}}
   {{/*
     A different failure from an unshared calendar, and it has to read differently:
@@ -47,7 +69,7 @@
         <tr>
           <td>{{.Name}}<br><span class="small muted tabular">{{.Resource}}</span></td>
           <td>
-            <form method="post" action="/settings/calendar/{{.Resource}}">
+            <form class="cell-form" method="post" action="/settings/calendar/{{.Resource}}">
               <input type="hidden" name="csrf" value="{{$.CSRF}}">
               {{/*
                 Kosongkan untuk melepas — the empty string detaches, which is the

@@ -1,14 +1,21 @@
 # api — the phase 2 monolith
 
-One Go binary behind Cloudflare Tunnel at `app.bykami.id`. Identity, loyalty and
-booking are packages under `internal/`, not services — `design/infrastructure.md`
-records why splitting them on 2 vCPU would buy three GC heaps and no scaling.
+One Go binary behind Cloudflare Tunnel, answering on two hostnames: the public
+API at `app.bykami.id` and the operator console at `admin.bykami.id`. One
+process and one port — `cmd/bykami/host.go` picks the surface from the Host
+header, so a console page is not reachable at all on the address the booths
+know. Identity, loyalty and booking are packages under `internal/`, not services
+— `design/infrastructure.md` records why splitting them on 2 vCPU would buy
+three GC heaps and no scaling.
 
 | Package | Owns |
 |---|---|
 | `internal/store` | SQLite, pragmas, embedded migrations |
 | `internal/phone` | Indonesian mobile numbers → E.164 |
 | `internal/identity` | Phone-first accounts, OTP challenges, sessions |
+| `internal/totp` | RFC 6238 codes and the `otpauth://` URI. Pure arithmetic |
+| `internal/mfa` | Operator authenticators: enrolment, replay guard, lockout |
+| `internal/qr` | A QR symbol, drawn to a terminal or a PNG. No dependency |
 | `internal/loyalty` | The append-only `#SobatKAMi` ledger |
 | `internal/httpapi` | JSON transport. Parse, authenticate, delegate, encode |
 | `internal/booking` | Availability, bookings, and the calendar sync loop |
@@ -76,7 +83,7 @@ and either alone would decide it:
   is a different origin from `bykami.id`, so it could not send a platform cookie
   even if one were set — `platform-architecture.md` calls this out as
   "token-based or nothing".
-- **`app.bykami.id` is deliberately outside the `.bykami.id` cookie jar.** It is
+- **`admin.bykami.id` is deliberately outside the `.bykami.id` cookie jar.** It is
   the operator-admin surface, and the jar has no opt-out: a `Domain=.bykami.id`
   cookie goes to *every* subdomain including `gallery.bykami.id`, which is the
   highest-risk surface on the platform.
@@ -156,7 +163,7 @@ keep correct so that staff can look up a phone number.
 | | |
 |---|---|
 | `GET /` | Login, or a redirect to the console when already signed in |
-| `POST /login` `POST /verify` | The same OTP flow customers use |
+| `POST /login` | Number plus the six digits an authenticator app is showing |
 | `GET /customers?phone=` | Balance and ledger history for one customer |
 | `POST /customers/{id}/adjust` | Writes a compensating entry |
 | `GET /frames` | The frame catalogue, with detected slots drawn over each one |
@@ -186,10 +193,10 @@ hole.
 
 ### The catalogue is also a subcommand
 
-The console is the tool for this, but its login is the same OTP flow customers
-use — and on a box with no delivery configured, which is the deployed state,
-nobody can sign in at all. So the catalogue is reachable from a shell too, the
-same way `bykami-agent media` is:
+The console is the tool for this, and the catalogue is reachable from a shell
+too, the same way `bykami-agent media` is. That began as a workaround for a
+console nobody could sign in to; it survives the fix because a shell path is how
+the box gets repaired when the console is the broken thing:
 
 ```bash
 bykami -db /var/lib/bykami/bykami.db frames list
@@ -201,8 +208,9 @@ bykami -db … frames season ramadan-2027 2027-02-08 2027-03-09
 `import` prints the detected slots so they can be checked, and leaves the frame
 unpublished — the same rule the console follows, for the same reason.
 
-This is preferable to switching the development OTP sender on to get a login: a
-one-time code in a log file is a one-time code in whatever reads that log.
+It was always preferable to switching the development OTP sender on to get a
+login, which is what the alternative used to be: a one-time code in a log file
+is a one-time code in whatever reads that log.
 
 **A booth's frames are the built-ins *plus* whatever is published here.**
 `agent/cmd/bykami-agent` appends the synced set onto `compose.Builtin()` rather
@@ -232,6 +240,64 @@ the ledger will be within a year — and object storage would add a bucket, a
 credential to rotate and a second thing that can be down while the database is
 up. In the database the bytes share a backup and a transaction with the row
 describing them, so a restore cannot produce a frame with no picture.
+
+### Signing in — an authenticator, not a code sent anywhere
+
+The console asks for a number and the six digits an authenticator app is
+showing. One form, one submit; nothing is sent to the operator, so there is no
+page whose only job is to say a code is on its way.
+
+That is a deliberate departure from how customers sign in, and the reason is
+that the console had no working login for months. Its login *was* the customer
+OTP flow, which needs a WhatsApp provider account nobody has bought yet — so on
+the deployed box the answer to "who can use the operator console" was nobody,
+and the frame catalogue grew a shell subcommand to work around it. A
+time-based one-time password needs no provider, no delivery and nothing to pay
+for: the secret is agreed once and both ends compute the same number from the
+clock.
+
+Customers keep the code-over-WhatsApp flow. Asking somebody who came in to have
+their photograph taken to install an authenticator is a worse trade than the
+code they already expect.
+
+**Enrolment is a shell command, and has to be.** Doing it in the console would
+need somebody already signed in to the console, which is the thing that does not
+exist until the first enrolment does:
+
+```bash
+bykami -db /var/lib/bykami/bykami.db admin enroll 081234567890
+bykami -db … admin enroll 081234567890 /tmp/qr.png   # if the terminal will not draw it
+bykami -db … admin list
+bykami -db … admin unlock 081234567890
+bykami -db … admin revoke 081234567890               # a lost phone
+```
+
+`enroll` prints a QR code to the terminal, the `otpauth://` URI behind it, and
+the secret in base32 for typing in by hand — the picture is the part most likely
+not to render, so the fallback is always printed beside it. It refuses to
+overwrite an existing enrolment: replacing one silently breaks whatever is on
+that operator's phone, and nobody finds out until they next try to sign in.
+
+**Enrolling somebody is not granting them anything**, and that is what makes the
+command safe to run. The allow-list below still decides who may use the console;
+a secret created for a number that is not on it produces perfectly valid codes
+that open nothing. `admin list` marks such a row `not an operator`, because from
+the operator's side that state is indistinguishable from a broken one.
+
+Two guards sit behind the check. A time step is spent once, so a code read over
+somebody's shoulder is not worth a second login within its half-minute; and five
+consecutive wrong codes lock the enrolment for fifteen minutes, because six
+digits across a three-step window is one guess in three hundred thousand and
+that is only safe while guessing is slow. The lock is on the enrolment rather
+than the caller, since every request arrives through the same tunnel from the
+same address. `admin unlock` lifts it early.
+
+Every way of failing renders the same page with the same message — wrong number,
+wrong code, not enrolled, locked out. A form that told them apart would answer,
+for anyone who cared to ask it, which numbers belong to staff. The allow-list is
+checked before the registry is touched for a second reason: otherwise a stranger
+who guessed an operator's number could spend that operator's failed attempts and
+lock them out.
 
 **Who is an operator is configuration, not data.** `-admin-phones` is a
 comma-separated allow-list, checked against the *currently verified* session on
@@ -266,10 +332,10 @@ actor column and an anonymous adjustment cannot be defended later.
 - **Earn and burn have no HTTP route.** Earning is a machine action from the
   kiosk and needs a credential that is neither a customer's session token nor an
   operator's — that is the open staff/device auth question in `design/kiosk.md`.
-- **Nobody can actually sign in to the console** on the deployed box, because
-  login uses the OTP flow and delivery is off. That is the gate above, working.
 - **A real OTP sender.** WhatsApp is intended and needs a provider account. It
-  is the single thing blocking the console from being usable.
+  blocks *customer* logins and everything downstream of them. It no longer
+  blocks the console, which is the one thing it used to block that had no
+  business waiting on a provider — see the authenticator section above.
 - **No per-booth identity.** One shared secret admits every booth, so a single
   booth cannot be revoked without rotating all of them. Worth fixing when there
   is a second outlet, not before.

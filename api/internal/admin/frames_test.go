@@ -81,7 +81,7 @@ func (f fixture) framesPage(t *testing.T, cookie string) string {
 }
 
 func TestUploadingAPNGProducesAWorkingFrame(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
@@ -108,7 +108,7 @@ func TestUploadingAPNGProducesAWorkingFrame(t *testing.T) {
 // inferred from a picture, and the operator looking at the detected slots is
 // what catches a wrong inference.
 func TestAnUploadIsNotPublishedUntilSomebodySaysSo(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	f.upload(t, cookie, csrf, "Draf", stripArt(t), nil)
@@ -128,7 +128,7 @@ func TestAnUploadIsNotPublishedUntilSomebodySaysSo(t *testing.T) {
 }
 
 func TestUploadRejectsArtworkWithNothingToFill(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
@@ -158,7 +158,7 @@ func TestUploadRejectsArtworkWithNothingToFill(t *testing.T) {
 }
 
 func TestFrameRoutesAreStaffOnly(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	f.upload(t, cookie, csrf, "Rahasia", stripArt(t), nil)
@@ -171,18 +171,17 @@ func TestFrameRoutesAreStaffOnly(t *testing.T) {
 		}
 	}
 
-	// A verified customer who is not staff. They can log in perfectly well;
-	// that must not be enough to read or change the catalogue.
-	if w := f.post(t, "/login", url.Values{"phone": {customerPhone}}, ""); w.Code != http.StatusOK {
-		t.Fatalf("customer login = %d", w.Code)
-	}
+	// A token that never came from a sign-in. Sessions are only ever issued to
+	// an allow-listed number, so this and "no cookie at all" are the two ways a
+	// stranger can arrive; that a non-operator cannot get a session in the first
+	// place is TestACorrectCodeFromANonOperatorIsRefused's job.
 	if w := f.get(t, "/frames", "not-a-real-session"); w.Code != http.StatusSeeOther {
 		t.Errorf("GET /frames with a bogus cookie = %d, want a redirect", w.Code)
 	}
 }
 
 func TestChangingAFrameNeedsTheCSRFToken(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	f.upload(t, cookie, csrf, "Klasik", stripArt(t), nil)
@@ -204,7 +203,7 @@ func TestChangingAFrameNeedsTheCSRFToken(t *testing.T) {
 }
 
 func TestSeasonRoundTripsThroughTheForm(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
@@ -228,7 +227,7 @@ func TestSeasonRoundTripsThroughTheForm(t *testing.T) {
 }
 
 func TestArtworkComesBackByteForByte(t *testing.T) {
-	f := newFixture(t, true, operatorPhone)
+	f := newFixture(t, operatorPhone)
 	cookie := f.signIn(t, operatorPhone)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	art := stripArt(t)

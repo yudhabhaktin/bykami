@@ -167,6 +167,8 @@
       BYKAMI_INSTAGRAM_TOKEN={{ app_instagram_token }}
       BYKAMI_INSTAGRAM_ACCOUNT={{ app_instagram_account }}
       BYKAMI_GOOGLE_CREDENTIALS={{ app_google_credentials }}
+      BYKAMI_GOOGLE_OAUTH_CLIENT_ID={{ app_google_oauth_client_id }}
+      BYKAMI_GOOGLE_OAUTH_CLIENT_SECRET={{ app_google_oauth_client_secret }}
     dest: /etc/bykami.env
     owner: root
     group: root

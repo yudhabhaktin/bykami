@@ -3,46 +3,37 @@
 
 <h1>Masuk</h1>
 
-{{if not .AuthEnabled}}
+{{if not .Enrolled}}
   <p class="error">
-    <strong>Pengiriman kode OTP belum aktif.</strong><br>
-    Login belum bisa diselesaikan di deployment ini. Ini disengaja: kotak ini
-    masih dibatasi ke data sintetis sampai soal residensi data diputuskan, dan
-    satu-satunya pengirim yang ada menulis kode ke log.
+    <strong>Belum ada operator yang terdaftar.</strong><br>
+    Konsol ini belum bisa dimasuki siapa pun. Aplikasi autentikator harus
+    didaftarkan dulu dari server, sekali per operator:<br>
+    <code>bykami -db … admin enroll 0812…</code>
   </p>
 {{end}}
 
 <div class="card">
   {{template "messages" .}}
 
-  {{if .CodeSent}}
-    <form method="post" action="/verify">
-      <input type="hidden" name="phone" value="{{.Phone}}">
-      <div class="field">
-        <label for="code">Kode 6 digit</label>
-        <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
-               pattern="[0-9]{6}" maxlength="6" required autofocus class="tabular">
-      </div>
-      <button type="submit">Masuk</button>
-    </form>
-    <p class="small muted" style="margin-top:1rem">
-      Kode berlaku 5 menit. Salah memasukkan 5 kali membatalkan kode.
-    </p>
-    <form method="post" action="/login" style="margin-top:0.5rem">
-      <input type="hidden" name="phone" value="{{.Phone}}">
-      <button class="secondary" type="submit">Kirim ulang kode</button>
-    </form>
-  {{else}}
-    <form method="post" action="/login">
-      <div class="field">
-        <label for="phone">Nomor WhatsApp operator</label>
-        <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel"
-               placeholder="0812…" value="{{.Phone}}" required
-               {{if not .AuthEnabled}}disabled{{end}} autofocus>
-      </div>
-      <button type="submit" {{if not .AuthEnabled}}disabled{{end}}>Kirim kode</button>
-    </form>
-  {{end}}
+  <form method="post" action="/login">
+    <div class="field">
+      <label for="phone">Nomor operator</label>
+      <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="username"
+             placeholder="0812…" value="{{.Phone}}" required autofocus>
+    </div>
+    <div class="field">
+      <label for="code">Kode dari aplikasi autentikator</label>
+      <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9]{6}" maxlength="6" required class="tabular">
+    </div>
+    <button type="submit">Masuk</button>
+  </form>
+
+  <p class="small muted" style="margin-top:1rem">
+    Kode berganti setiap 30 detik. Tidak ada kode yang dikirim lewat WhatsApp
+    atau SMS — kode dibuat sendiri oleh aplikasi di ponsel Anda, jadi tidak ada
+    yang bisa dicegat di jalan.
+  </p>
 </div>
 
 <p class="small muted" style="margin-top:1.5rem">

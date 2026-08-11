@@ -26,7 +26,8 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
 | Surface | State | Notes |
 |---|---|---|
 | `bykami.id` and the three vertical sites | Live | Dimsamcong is built but held out of the index until it has a menu |
-| `app.bykami.id` — API and operator console | Built | Serves `/healthz` and the booth frame sync. Auth answers 503 |
+| `app.bykami.id` — public API | Built | Serves `/healthz`, the booth frame sync and the booking routes; customer auth answers 503 |
+| `admin.bykami.id` — operator console | Built | Same binary, split by Host header. Usable once an operator is enrolled |
 | The booth — a full paid session end to end | Built | Runs on a laptop and on the test VPS. Payment and capture are simulated; the printer backend is real but has never met the printer |
 | `booth-test.bykami.id` | Built | Temporary. One access token per tester, auto-deploying from `agent-<sha>` |
 | The VPS | Built | Alibaba ECS trial box, Singapore. Synthetic data only |
@@ -51,10 +52,14 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
       derived from the session token
 - [x] Deployed to the VPS behind Cloudflare Tunnel, with a health-gated rollout
       and nightly backups copied off-box to R2 under a storage cap
-- [~] **Auth is closed on the deployed box, deliberately.** With no OTP delivery
-      configured every auth route answers 503, which also means nobody can sign
-      in to the console. Two gates hold it: data residency is unresolved, and
-      the only sender that exists writes codes to a log
+- [x] The console signs in with an authenticator app — TOTP, enrolled from the
+      shell with `bykami admin enroll`, which prints a QR code. It depends on no
+      provider, which is why it exists: the console's login used to be the
+      customer OTP flow and therefore blocked on WhatsApp
+- [~] **Customer auth is closed on the deployed box, deliberately.** With no OTP
+      delivery configured every customer auth route answers 503. Two gates hold
+      it: data residency is unresolved, and the only sender that exists writes
+      codes to a log. The console is no longer behind this
 - [ ] Earn and burn have no HTTP route. That needs a device credential which is
       neither a customer session nor an operator one — the open question in
       `design/kiosk.md`
@@ -141,7 +146,7 @@ Nothing here is a code problem. Roughly in order of what it unblocks.
 | Waiting on | Unblocks |
 |---|---|
 | Confirmation of the unverified prices | Turns `Offer` schema on across the sites. 66 facts currently render without structured data |
-| A WhatsApp provider account | OTP delivery, and with it every auth route and the operator console |
+| A WhatsApp provider account | OTP delivery, and with it every customer auth route. No longer the operator console, which now signs in with an authenticator app |
 | Business entity, NPWP, bank account | Xendit onboarding, and with it the booth taking real money |
 | A Google service account, and each studio calendar shared with it | Connecting booking to the calendar the owner actually works from. Until then availability comes from our database alone. The console page for it exists; see `ansible/README.md` |
 | Whether MINI is 5 minutes or 15 | The owner and the booth say 5; the calendar the studio was selling on said 15. 5 is what ships |

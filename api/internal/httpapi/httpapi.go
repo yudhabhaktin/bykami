@@ -9,7 +9,7 @@
 // Everything is bearer-token authenticated, deliberately, and not cookies. The
 // first consumer is the kiosk, which runs at http://localhost on the booth PC —
 // a different origin from bykami.id, so it could not send a platform cookie
-// even if one were set. And app.bykami.id is the operator-admin surface, which
+// even if one were set. And admin.bykami.id is the operator-admin surface, which
 // platform-architecture.md keeps out of the .bykami.id cookie jar on purpose.
 // Tokens sidestep both facts rather than working around either. Cookie SSO for
 // the vertical sites is a separate decision on a separate surface.

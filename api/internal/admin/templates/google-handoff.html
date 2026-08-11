@@ -1,0 +1,30 @@
+{{define "google-handoff.html"}}
+{{template "head" .}}
+
+{{/*
+  The one page in this console rendered without a session, because Google's
+  redirect is a cross-site navigation and the SameSite=Strict session cookie is
+  not sent on one. So it carries nothing an operator's session would carry — no
+  name, no numbers, no navigation — and its only job is to give the operator
+  something to click. That click is a same-site navigation, which is what brings
+  the session cookie back and puts the next page behind staffOnly again.
+*/}}
+
+<h1>Hubungkan Google</h1>
+{{template "messages" .}}
+
+{{if .Error}}
+  <p><a href="/settings">Kembali ke Pengaturan</a></p>
+{{else}}
+  <p>
+    <a href="/settings/google"><strong>Lanjutkan memilih kalender →</strong></a>
+  </p>
+  <p class="small muted">
+    Izin Google ini hanya dipakai sekali, untuk membagikan kalender yang kamu
+    pilih ke service account. Setelah itu izinnya dibuang — tidak ada token yang
+    disimpan.
+  </p>
+{{end}}
+
+{{template "foot" .}}
+{{end}}

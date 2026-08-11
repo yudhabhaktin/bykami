@@ -1,4 +1,4 @@
-// Package admin is the operator console at app.bykami.id.
+// Package admin is the operator console at admin.bykami.id.
 //
 // Server-rendered HTML with no JavaScript and no build step. That is not
 // minimalism for its own sake: the alternative is a second toolchain, a bundle
@@ -48,8 +48,10 @@ import (
 
 	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
+	"github.com/bhaktiyudha/bykami/api/internal/gcal"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
+	"github.com/bhaktiyudha/bykami/api/internal/mfa"
 	"github.com/bhaktiyudha/bykami/api/internal/phone"
 )
 
@@ -62,7 +64,18 @@ var templateFS embed.FS
 // from packages/ui for the same reason the tokens in layout.html are copied:
 // this is served by Go and never passes through the Astro build.
 //
-//go:embed logo.png icon.svg
+// geist-latin.woff2 is the same 29KB file the four sites are set in, and it is
+// here for the same reason the tokens are: so the console reads as part of the
+// platform rather than as a tool that happens to sit beside it. An earlier note
+// here refused a webfont as "a network round trip and a CSP exception bought
+// for nothing" — that was right while the console had no house typeface to
+// match. It now has one, and the round trip is same-origin, cached for a day,
+// and paid once by a handful of staff on known devices.
+//
+// OFL.txt travels with it because the SIL Open Font License requires the licence
+// to accompany the font wherever it goes; it is not served, only carried.
+//
+//go:embed logo.png icon.svg geist-latin.woff2
 var brandFS embed.FS
 
 // sessionCookie is host-only and therefore prefixed __Host-, which browsers
@@ -94,9 +107,20 @@ type Console struct {
 	// one until someone tries to log in.
 	staff map[string]bool
 
-	// authEnabled mirrors the API's gate. False means no code can be sent, so
-	// the login form says so instead of failing at the submit.
-	authEnabled bool
+	// mfa holds the operator authenticators and checks their codes. It is the
+	// console's only way in, and deliberately not the API's — customers still
+	// sign in with a one-time code, which is the right trade for somebody who
+	// came in to have their photograph taken.
+	mfa *mfa.Registry
+
+	// connect runs the one-time Google consent that shares a calendar with the
+	// service account above. Nil when no OAuth client is configured, which
+	// leaves the console's paste-a-calendar-id form as the only way in — see
+	// internal/admin/google.go.
+	connect *gcal.Connect
+	// grants holds those consents for the few minutes a mapping run takes, and
+	// never writes them down.
+	grants *grants
 
 	// secure omits the Secure attribute in tests, which speak plain HTTP. It is
 	// never false in production — main.go does not expose it.
@@ -106,7 +130,7 @@ type Console struct {
 // New returns the console. staffPhones are raw numbers in any Indonesian form;
 // they are normalised here and an unparseable one is an error rather than a
 // silently ignored entry.
-func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, calendar *booking.Worker, log *slog.Logger, staffPhones []string, authEnabled bool) (*Console, error) {
+func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, calendar *booking.Worker, auth *mfa.Registry, connect *gcal.Connect, log *slog.Logger, staffPhones []string) (*Console, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"points": formatPoints,
 		"time":   func(t time.Time) string { return t.Format("2006-01-02 15:04") },
@@ -142,16 +166,18 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 	}
 
 	return &Console{
-		identity:    ident,
-		loyalty:     ledger,
-		frameCat:    cat,
-		booking:     desk,
-		calendar:    calendar,
-		log:         log,
-		tmpl:        tmpl,
-		staff:       staff,
-		authEnabled: authEnabled,
-		secure:      true,
+		identity: ident,
+		loyalty:  ledger,
+		frameCat: cat,
+		booking:  desk,
+		calendar: calendar,
+		mfa:      auth,
+		connect:  connect,
+		grants:   newGrants(),
+		log:      log,
+		tmpl:     tmpl,
+		staff:    staff,
+		secure:   true,
 	}, nil
 }
 
@@ -161,7 +187,6 @@ func (c *Console) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", c.index)
 	mux.HandleFunc("POST /login", c.login)
-	mux.HandleFunc("POST /verify", c.verify)
 	mux.HandleFunc("POST /logout", c.logout)
 	mux.HandleFunc("GET /customers", c.staffOnly(c.customers))
 	mux.HandleFunc("POST /customers/{id}/adjust", c.staffOnly(c.adjust))
@@ -173,6 +198,16 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("POST /settings/calendar/{id}", c.staffOnly(c.settingsCalendar))
 	mux.HandleFunc("POST /settings/sync", c.staffOnly(c.settingsSync))
 
+	mux.HandleFunc("POST /settings/google/start", c.staffOnly(c.googleStart))
+	// Not behind staffOnly, and the one route here that is not: Google's
+	// redirect is a cross-site navigation, which a SameSite=Strict session
+	// cookie is not sent on. It authenticates on the state cookie instead —
+	// see internal/admin/google.go.
+	mux.HandleFunc("GET /settings/google/callback", c.googleCallback)
+	mux.HandleFunc("GET /settings/google", c.staffOnly(c.googleMap))
+	mux.HandleFunc("POST /settings/google/connect", c.staffOnly(c.googleConnect))
+	mux.HandleFunc("POST /settings/google/finish", c.staffOnly(c.googleFinish))
+
 	mux.HandleFunc("GET /frames", c.staffOnly(c.frameIndex))
 	mux.HandleFunc("POST /frames", c.staffOnly(c.frameUpload))
 	mux.HandleFunc("GET /frames/{id}/art.png", c.staffOnly(c.frameArt))
@@ -181,11 +216,12 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("POST /frames/{id}/delete", c.staffOnly(c.frameDelete))
 
 	// Not behind staffOnly: the login page wears the same chrome as the rest of
-	// the console, so the logo has to load for someone who has not signed in.
-	// Neither file says anything a stranger could not read off the marketing
-	// site anyway.
+	// the console, so the logo and the typeface have to load for someone who has
+	// not signed in. None of the three says anything a stranger could not read
+	// off the marketing site anyway — they are the same files it serves.
 	mux.Handle("GET /logo.png", brandAsset("logo.png", "image/png"))
 	mux.Handle("GET /icon.svg", brandAsset("icon.svg", "image/svg+xml"))
+	mux.Handle("GET /geist.woff2", brandAsset("geist-latin.woff2", "font/woff2"))
 	return mux
 }
 
@@ -214,16 +250,18 @@ func brandAsset(name, mime string) http.Handler {
 // view: the shared chrome needs the same three fields on every page, and
 // keeping them in separate types means remembering to populate them separately.
 type page struct {
-	Title       string
-	Operator    string
-	AuthEnabled bool
-	CSRF        string
-	Notice      string
-	Error       string
+	Title    string
+	Operator string
+	CSRF     string
+	Notice   string
+	Error    string
 
-	// Login flow
+	// Login. Enrolled is whether any operator has an authenticator at all —
+	// none means the console cannot be signed in to by anybody, and the page
+	// says which command fixes that rather than refusing every correct code
+	// with no explanation.
 	Phone     string
-	CodeSent  bool
+	Enrolled  bool
 	Verticals []string
 
 	// Customer views
@@ -247,6 +285,28 @@ type page struct {
 
 	// Settings
 	ServiceAccount string
+	// GoogleConnect is whether the console can drive the calendar share itself,
+	// which decides whether the settings page offers a button or the manual
+	// instructions.
+	GoogleConnect bool
+
+	// The Google connect run. GoogleAccount is the address the operator signed
+	// in as, so a page that is about to hand a calendar to a service account can
+	// say whose calendars it is showing — the whole flow is run twice, once per
+	// account, and the two look identical otherwise.
+	GoogleAccount   string
+	GoogleCalendars []googleCalendarRow
+}
+
+// googleCalendarRow is one calendar on the signed-in Google account.
+type googleCalendarRow struct {
+	ID      string
+	Name    string
+	Primary bool
+	// Owned is false for a calendar shared *to* this account. Listed anyway, but
+	// not offerable: the grant this flow makes is one only an owner can make, so
+	// offering it would fail at the last step with a message from Google.
+	Owned bool
 }
 
 // calendarRow is one resource's calendar, as the console reports it. Flattened
@@ -269,106 +329,81 @@ func (c *Console) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.render(w, r, http.StatusOK, "login.html", page{
-		Title:       "Masuk",
-		AuthEnabled: c.authEnabled,
+		Title:    "Masuk",
+		Enrolled: c.anyoneEnrolled(r),
 	})
 }
 
+// login is the whole sign-in: a number and the six digits its authenticator is
+// showing, checked together.
+//
+// One step rather than the two the one-time-code flow needed, because there is
+// nothing to wait for in between — no code is sent, so there is no page whose
+// only job is to say one is on its way.
+//
+// Every way of failing renders the same page with the same message. That is the
+// property the previous flow had and the one most worth keeping: a form that
+// distinguished "not an operator" from "wrong code" would answer, for anyone
+// who cared to ask it, which of the numbers they tried belongs to staff.
 func (c *Console) login(w http.ResponseWriter, r *http.Request) {
-	if !c.authEnabled {
-		c.render(w, r, http.StatusServiceUnavailable, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: false,
-		})
-		return
-	}
-
-	raw := strings.TrimSpace(r.FormValue("phone"))
-
-	// The allow-list is checked before a code is sent, not after it is
-	// redeemed. Sending to a non-operator would spend money on an SMS whose
-	// only possible outcome is a refusal, and would confirm to a stranger that
-	// this endpoint talks to a real delivery channel.
-	//
-	// The response is identical either way, so it does not reveal who is staff.
-	e164, err := phone.Normalize(raw)
-	switch {
-	case err != nil:
-		c.render(w, r, http.StatusBadRequest, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			Error:       "Nomor tidak valid. Gunakan nomor ponsel Indonesia.",
-		})
-		return
-	case !c.staff[e164]:
-		c.render(w, r, http.StatusOK, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			CodeSent:    true,
-			Notice:      "Jika nomor ini terdaftar sebagai operator, kode sudah dikirim.",
-		})
-		return
-	}
-
-	switch err := c.identity.RequestCode(r.Context(), raw); {
-	case err == nil, errors.Is(err, identity.ErrTooManyRequests):
-		// A rate-limited operator sees the same page as a successful one: they
-		// already have a code, and the useful next step is to enter it.
-		c.render(w, r, http.StatusOK, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			CodeSent:    true,
-			Notice:      "Jika nomor ini terdaftar sebagai operator, kode sudah dikirim.",
-		})
-	default:
-		c.log.Error("admin: request code", "err", err)
-		c.render(w, r, http.StatusInternalServerError, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			Error:       "Gagal mengirim kode. Coba lagi.",
-		})
-	}
-}
-
-func (c *Console) verify(w http.ResponseWriter, r *http.Request) {
-	if !c.authEnabled {
-		c.redirect(w, r, "/")
-		return
-	}
-
 	raw := strings.TrimSpace(r.FormValue("phone"))
 	code := strings.TrimSpace(r.FormValue("code"))
 
-	user, token, err := c.identity.VerifyCode(r.Context(), raw, code)
-	if err != nil {
+	refuse := func() {
 		c.render(w, r, http.StatusUnauthorized, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Phone:       raw,
-			CodeSent:    true,
-			Error:       "Kode salah atau sudah kedaluwarsa.",
+			Title:    "Masuk",
+			Enrolled: c.anyoneEnrolled(r),
+			Phone:    raw,
+			Error: "Nomor atau kode salah. Kode berganti setiap 30 detik, dan " +
+				"setelah beberapa kali gagal nomor dikunci 15 menit.",
+		})
+	}
+
+	// The allow-list is checked before the registry is touched, which is not
+	// only about disclosure: a stranger who guessed an operator's number could
+	// otherwise spend that operator's failed attempts for them, and lock them
+	// out of their own console.
+	e164, err := phone.Normalize(raw)
+	if err != nil || !c.staff[e164] {
+		refuse()
+		return
+	}
+
+	switch err := c.mfa.Verify(r.Context(), e164, code); {
+	case err == nil:
+	case errors.Is(err, mfa.ErrBadCode), errors.Is(err, mfa.ErrNotEnrolled), errors.Is(err, mfa.ErrLockedOut):
+		// Logged, because these are the three an operator will phone about and
+		// the page deliberately does not tell them apart.
+		c.log.Info("admin: sign-in refused", "phone", e164, "reason", err)
+		refuse()
+		return
+	default:
+		c.log.Error("admin: verify authenticator", "err", err)
+		c.render(w, r, http.StatusInternalServerError, "login.html", page{
+			Title:    "Masuk",
+			Enrolled: true,
+			Phone:    raw,
+			Error:    "Terjadi kesalahan. Coba lagi.",
 		})
 		return
 	}
 
-	// Verified, but that only proves who they are. A customer who guessed this
-	// URL and completed a perfectly valid login is still not an operator, so
-	// the session is discarded rather than handed back.
-	if !c.staff[user.Phone] {
-		if err := c.identity.EndSession(r.Context(), token); err != nil {
-			c.log.Error("admin: discard non-operator session", "err", err)
-		}
-		c.render(w, r, http.StatusForbidden, "login.html", page{
-			Title:       "Masuk",
-			AuthEnabled: true,
-			Error:       "Akun ini bukan operator.",
+	// The code was right, so this number is who it says it is and is on the
+	// allow-list. identity.StartSession is what turns that into a session; it
+	// takes the number on trust, which is exactly why the two checks above come
+	// first and why nothing else in this repository calls it.
+	_, token, err := c.identity.StartSession(r.Context(), e164)
+	if err != nil {
+		c.log.Error("admin: start session", "err", err)
+		c.render(w, r, http.StatusInternalServerError, "login.html", page{
+			Title:    "Masuk",
+			Enrolled: true,
+			Phone:    raw,
+			Error:    "Terjadi kesalahan. Coba lagi.",
 		})
 		return
 	}
+	c.log.Info("admin: signed in", "operator", e164)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:  sessionCookie,
@@ -404,12 +439,11 @@ func (c *Console) logout(w http.ResponseWriter, r *http.Request) {
 func (c *Console) customers(w http.ResponseWriter, r *http.Request, op identity.User) {
 	q := strings.TrimSpace(r.URL.Query().Get("phone"))
 	p := page{
-		Title:       "Cari pelanggan",
-		Operator:    op.Phone,
-		AuthEnabled: c.authEnabled,
-		CSRF:        csrfToken(r),
-		Query:       q,
-		Verticals:   verticals,
+		Title:     "Cari pelanggan",
+		Operator:  op.Phone,
+		CSRF:      csrfToken(r),
+		Query:     q,
+		Verticals: verticals,
 	}
 
 	// Outcomes of the adjust POST, which redirects rather than rendering so
@@ -495,6 +529,21 @@ func (c *Console) adjust(w http.ResponseWriter, r *http.Request, op identity.Use
 	c.redirect(w, r, "/customers?phone="+urlQueryEscape(r.FormValue("phone"))+"&ok=1")
 }
 
+// anyoneEnrolled reports whether any operator has an authenticator.
+//
+// A database error is reported as "yes", which is the useful way to be wrong:
+// the login form then works as normal and a genuinely correct code still gets
+// in, where answering "no" would replace the form with instructions to enrol
+// somebody who is already enrolled.
+func (c *Console) anyoneEnrolled(r *http.Request) bool {
+	n, err := c.mfa.Count(r.Context())
+	if err != nil {
+		c.log.Error("admin: count enrolments", "err", err)
+		return true
+	}
+	return n > 0
+}
+
 // operator resolves the session cookie and reports whether it belongs to staff.
 func (c *Console) operator(r *http.Request) (identity.User, string, bool) {
 	ck, err := r.Cookie(sessionCookie)
@@ -574,8 +623,17 @@ func (c *Console) render(w http.ResponseWriter, _ *http.Request, status int, nam
 	// from the database. data: is not permitted: an <img> is the one element
 	// here whose source is operator-supplied, and allowing data: would make an
 	// injected src a way to render arbitrary bytes from this origin.
+	// form-action carries Google's sign-in origin because "Hubungkan Google"
+	// posts here and is answered with a redirect to it. Whether form-action is
+	// checked against the *redirect* target as well as the form's own action is
+	// a point browsers have disagreed on, so the origin is named rather than
+	// left to that: the cost of being wrong is a connect button that does
+	// nothing in one browser, diagnosed from a console error nobody is watching.
+	// font-src is the house typeface, served from this origin by the same
+	// handler that serves the logo. 'self' only — no data:, and no Google Fonts.
 	h.Set("Content-Security-Policy",
-		"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+		"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; font-src 'self'; "+
+			"form-action 'self' https://accounts.google.com; base-uri 'none'; frame-ancestors 'none'")
 	h.Set("Referrer-Policy", "same-origin")
 
 	w.WriteHeader(status)

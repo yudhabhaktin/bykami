@@ -105,7 +105,24 @@ export const nap = z.object({
   /** schema.org `openingHours` strings, e.g. "Mo-Su 09:00-21:00". */
   openingHours: sourced(z.array(z.string().min(1)).min(1)),
   whatsapp: sourced(z.string().regex(/^62\d{8,13}$/, "E.164 without +, ID only")),
-  bookingUrl: sourced(z.url()).optional(),
+  /**
+   * Where a customer picks a time.
+   *
+   * An absolute URL or a site-relative path, and it accepts the second because
+   * booking came in-house. This was an external YouCanBook.me address when the
+   * field was written, so a full URL was the only shape it could take; the
+   * calendar it named is gone and the replacement is a page on the vertical's
+   * own site. Writing that as `https://studio.bykami.id/booking` would be a
+   * cross-origin spelling of a same-origin link — it would leave `astro dev`
+   * for production mid-flow, and it is the one link on the site a customer
+   * follows while deciding.
+   *
+   * Same rule as Nav, which links its own property with "/" and the other three
+   * by hostname.
+   */
+  bookingUrl: sourced(
+    z.union([z.url(), z.string().regex(/^\/\S*$/, "a site-relative path, e.g. /booking")]),
+  ).optional(),
 });
 
 export const brand = z.object({

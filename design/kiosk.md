@@ -607,7 +607,7 @@ so **import the existing flat files rather than building an authoring tool**.
 That also sidesteps the logo-vector blocker in `assets-needed.md`.
 
 **Built, as a catalogue rather than an editor.** An operator uploads a PNG at
-`app.bykami.id`; the sheet size comes from its dimensions and the photo cells
+`admin.bykami.id`; the sheet size comes from its dimensions and the photo cells
 come from its transparent regions, so nothing about a frame is typed in twice.
 A rectangle typed next to a picture that already contains it is a chance to
 disagree with the picture, and the symptom is a face printed off its slot,
