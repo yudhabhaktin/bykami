@@ -5,12 +5,12 @@
 {{template "messages" .}}
 
 <p>
-  Masuk sebagai <strong class="tabular">{{.GoogleAccount}}</strong>.
+  Masuk sebagai <strong class="tabular">{{.GoogleAccount | email}}</strong>.
   Pilih kalender untuk tiap ruang yang dikelola akun ini.
 </p>
 <p class="small muted">
   Menyimpan satu baris membagikan kalender itu ke
-  <span class="tabular">{{.ServiceAccount}}</span> dengan izin “Make changes to
+  <span class="tabular">{{.ServiceAccount | email}}</span> dengan izin “Make changes to
   events”, lalu menyimpannya ke ruang tersebut. Ruang yang dikelola akun Google
   lain dibiarkan saja — ulangi dari Pengaturan dengan akun itu.
 </p>
