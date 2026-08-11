@@ -1,7 +1,6 @@
 ---
 import { byId, valueOf } from "@bykami/content";
 import BaseLayout from "@bykami/ui/BaseLayout.astro";
-import PriceList from "@bykami/ui/PriceList.astro";
 import SectionHeader from "@bykami/ui/SectionHeader.astro";
 
 const vertical = byId("studio");
@@ -64,12 +63,19 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
       whose browser cannot run the flow has to be left no worse off than before.
       Hidden the moment BaseLayout's head script marks the document scripted.
     */}
+    {/*
+      "di bawah" until the price list below it went: this page showed the whole
+      catalogue twice, once as cards you can click and once as cards you cannot,
+      and the second copy was the one a visitor scrolled past. The list still
+      exists in full on the home page, which is where this now sends anyone who
+      cannot run the flow.
+    */}
     <p class="fallback">
       Untuk memilih jam sendiri, aktifkan JavaScript.
       {waHref && (
         <>
           {" "}Atau <a href={waHref} rel="noopener">chat admin lewat WhatsApp</a> — daftar
-          paket dan harga ada di bawah.
+          paket dan harga ada di <a href="/#harga">halaman depan</a>.
         </>
       )}
     </p>
@@ -198,15 +204,20 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   </section>
 
   {/*
-    The crawlable half, and the same component the home page uses. Every price,
-    duration and capacity in the catalogue is here as text with no JavaScript
-    involved, which is what the SEO contract asserts and what an answer engine
-    quotes. The flow above offers whatever the API says is bookable; this is what
-    the studio publishes. If the two ever disagree the visitor still reads a
-    correct price list and is offered only slots that exist, which is the right
-    way round for that failure.
+    No price list under the flow.
+
+    There was one — the same component the home page uses, rendering the whole
+    catalogue as crawlable text. It was here on the argument that a page selling
+    packages should state its prices without JavaScript. It said them twice
+    instead: every package above, with a photograph and a price and a button,
+    and then every package again below, with a photograph and a price and
+    nothing to press. A visitor who had just been asked "mau paket yang mana?"
+    scrolled into a second answer to the same question.
+
+    Nothing crawlable is lost. `/` carries the identical component under the
+    same `#harga` anchor, and it is the page a search engine ranks for the
+    catalogue anyway; the fallback above now points there.
   */}
-  <PriceList vertical={vertical} heading="Semua paket & harga" />
 </BaseLayout>
 
 {/*
@@ -244,6 +255,71 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   };
   var DAYS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+  // The photograph on each package card, so somebody choosing between MIDI and
+  // MOTIF MIDI can see that the difference is the wall behind them. The prices
+  // and headcounts never said that; only the word "motif" in a description did.
+  //
+  // Keyed by service id but named after the room, because a room is what the
+  // picture is of and two packages can share one: BIG MAXI is sold in the same
+  // plain-backdrop room as MAXI, and MOTIF SQUAD in the same patterned one as
+  // MOTIF FAMILY, so those cards borrow the photograph of their smaller sibling
+  // rather than go without.
+  //
+  // The photographer and videographer packages have no entry. Nothing has been
+  // shot of work away from the studio, and the nearest photograph in any other
+  // line would be a picture of a room those packages do not happen in. Their
+  // cards render exactly as they did before.
+  var SHOTS = {
+    "self-basic-mini": "Contoh hasil di ruang self photo latar polos",
+    "self-basic-midi": "Contoh hasil di ruang self photo latar polos",
+    "self-basic-maxi": "Contoh hasil di ruang self photo latar polos",
+    "motif-black-molding": "Contoh hasil di ruang self photo latar motif Black Molding",
+    "motif-mediteranian": "Contoh hasil di ruang self photo latar motif Mediteranian",
+    "photobox-y2k": "Contoh hasil di bilik Photobox Y2K",
+    "photobox-vintage": "Contoh hasil di bilik Photobox Vintage",
+    "photobox-maroon": "Contoh hasil di bilik Photobox Maroon",
+    "pas-formal": "Contoh hasil pas foto formal di empat warna latar",
+    "pas-marry-me": "Contoh hasil pas foto pasangan berlatar biru",
+    "pas-kedinasan": "Contoh hasil pas foto pasangan berseragam dinas berlatar kuning",
+  };
+  var THUMBS = {
+    "self-mini": "self-basic-mini",
+    "self-midi": "self-basic-midi",
+    "self-maxi": "self-basic-maxi",
+    "self-big-maxi": "self-basic-maxi",
+    "motif-midi": "motif-black-molding",
+    "motif-family": "motif-mediteranian",
+    "motif-squad": "motif-mediteranian",
+    "photobox-y2k": "photobox-y2k",
+    "photobox-vintage": "photobox-vintage",
+    "photobox-maroon": "photobox-maroon",
+    "pas-formal": "pas-formal",
+    "pas-marry-me": "pas-marry-me",
+    "pas-kedinasan": "pas-kedinasan",
+  };
+
+  // Returns markup because the cards around it are built that way, but the
+  // element is assembled rather than concatenated: esc() below escapes for text
+  // content and leaves a double quote alone, which is the wrong tool for an alt
+  // attribute. outerHTML escapes what an attribute needs.
+  //
+  // loading="lazy" because the whole list arrives after a fetch and most of it
+  // is below the fold; the dimensions are the file's own, so a row keeps its
+  // height while the picture is still coming and the list does not jump.
+  function thumb(id) {
+    var shot = THUMBS[id];
+    if (!shot) return "";
+    var img = document.createElement("img");
+    img.className = "pick-thumb";
+    img.setAttribute("src", "/img/paket/" + shot + ".jpg");
+    img.alt = SHOTS[shot];
+    img.width = 264;
+    img.height = 264;
+    img.loading = "lazy";
+    img.decoding = "async";
+    return img.outerHTML;
+  }
 
   var el = function (sel) { return flow.querySelector(sel); };
   var steps = {
@@ -329,6 +405,8 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
         b.type = "button";
         b.className = "card pick";
         b.innerHTML =
+          thumb(s.id) +
+          '<span class="pick-body">' +
           '<span class="pick-name">' + esc(s.name) + "</span>" +
           '<span class="pick-price tabular">' + idr.format(s.price_idr) +
           (s.price_per_person ? '<span class="muted"> / orang</span>' : "") + "</span>" +
@@ -336,7 +414,8 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
           (s.headcount_min === s.headcount_max
             ? s.headcount_max + " orang"
             : s.headcount_min + "–" + s.headcount_max + " orang") + "</span>" +
-          (s.description ? '<span class="pick-desc muted">' + esc(s.description) + "</span>" : "");
+          (s.description ? '<span class="pick-desc muted">' + esc(s.description) + "</span>" : "") +
+          "</span>";
         b.addEventListener("click", function () { chooseService(s); });
         li.appendChild(b);
         ul.appendChild(li);
@@ -380,14 +459,20 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
       a.href = "https://wa.me/" + waNumber + "?text=" +
         encodeURIComponent("Halo " + waName + ", saya mau tanya paket " + s.name + ".");
       a.rel = "noopener";
+      // Wrapped in .pick-body like the bookable cards even though there is no
+      // photograph to sit beside: .pick lays its children out in a row now, so a
+      // card whose spans were direct children would print its name, price and
+      // description side by side.
       a.innerHTML =
+        '<span class="pick-body">' +
         '<span class="pick-name">' + esc(s.name) + "</span>" +
         '<span class="pick-price tabular">' +
         (s.price_idr > 0
           ? idr.format(s.price_idr) + (s.price_per_person ? '<span class="muted"> / orang</span>' : "")
           : '<span class="muted">Harga via chat</span>') + "</span>" +
         (s.description ? '<span class="pick-desc muted">' + esc(s.description) + "</span>" : "") +
-        '<span class="pick-spec muted ui">Chat admin di WhatsApp →</span>';
+        '<span class="pick-spec muted ui">Chat admin di WhatsApp →</span>' +
+        "</span>";
       li.appendChild(a);
       ul.appendChild(li);
     });
@@ -746,8 +831,9 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   }
 
   :global([data-flow] .pick) {
-    display: grid;
-    gap: var(--space-1);
+    display: flex;
+    gap: var(--space-4);
+    align-items: flex-start;
     width: 100%;
     padding: var(--space-4);
     text-align: left;
@@ -755,6 +841,28 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     cursor: pointer;
     font: inherit;
     color: inherit;
+  }
+
+  :global([data-flow] .pick-body) {
+    display: grid;
+    gap: var(--space-1);
+    /* The name, price and spec are the card; without this the flex item refuses
+       to shrink past its longest word and a long package name pushes the
+       thumbnail out of the padding. */
+    min-width: 0;
+  }
+
+  /* Square, and the same square on every card whatever shape the photograph
+     started as — a picker whose rows are different heights reads as a list of
+     unrelated things rather than a range to choose from. The files are cropped
+     square already; object-fit is the guard, not the mechanism. */
+  :global([data-flow] .pick-thumb) {
+    flex: 0 0 auto;
+    width: 88px;
+    height: 88px;
+    border-radius: calc(var(--radius) - var(--space-2));
+    object-fit: cover;
+    background: var(--line);
   }
 
   :global([data-flow] .pick:hover) {
