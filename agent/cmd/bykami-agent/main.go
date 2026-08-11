@@ -13,9 +13,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -259,7 +262,7 @@ func run(c config, log *slog.Logger) error {
 	// The booth's credential for the cloud catalogue. Environment only — there
 	// is no flag — for the same reason the access token prefers one: argv is
 	// world-readable through ps.
-	frameSync := framesync.New(c.frameSync, os.Getenv("BYKAMI_BOOTH_TOKEN"), syncDir, c.syncEvery,
+	frameSync := framesync.New(c.frameSync, os.Getenv("BYKAMI_BOOTH_TOKEN"), c.outlet, syncDir, c.syncEvery,
 		func() error {
 			ts, err := loadTemplates(syncDir, c.templates, log)
 			if err != nil {
@@ -268,7 +271,13 @@ func run(c config, log *slog.Logger) error {
 			live.Store(ts)
 			log.Info("templates reloaded", "templates", len(ts))
 			return nil
-		}, log)
+		},
+		// What this booth ends up offering, which is not what it was sent: the
+		// designs built into this binary and anything in -templates are added
+		// to the synced set, so the console cannot work it out from its own
+		// side. Read from the live set rather than rebuilt, so the report is
+		// what a customer is being shown at that moment.
+		func() []framesync.Design { return reportable(live.All(), log) }, log)
 
 	srv, err := httpd.New(httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
@@ -473,6 +482,53 @@ func loadTemplates(syncDir, localDir string, log *slog.Logger) ([]compose.Templa
 		out = overlay(out, extra)
 	}
 	return out, nil
+}
+
+// reportable describes the live template set for the cloud console.
+//
+// The artwork is read every time rather than cached. It is a handful of files
+// of a few tens of kilobytes, read once per poll — five minutes apart — and the
+// alternative is a cache that has to be invalidated when a sync swaps the set,
+// which is a bug waiting for the day somebody edits -templates in place.
+//
+// A design whose overlay cannot be read is still reported, without artwork. It
+// is on the booth and a customer can pick it, so leaving it out of the report
+// would hide the very thing the report exists to show.
+func reportable(ts []compose.Template, log *slog.Logger) []framesync.Design {
+	out := make([]framesync.Design, 0, len(ts))
+	for _, t := range ts {
+		d := framesync.Design{
+			ID: t.ID, Name: t.Name, Layout: string(t.Layout),
+			Cells: make([]framesync.Cell, 0, len(t.Cells)),
+		}
+		for _, c := range t.Cells {
+			d.Cells = append(d.Cells, framesync.Cell{X: c.X, Y: c.Y, W: c.W, H: c.H})
+		}
+
+		if t.Overlay != "" {
+			if png, err := readAsset(t); err != nil {
+				log.Warn("could not read a template's artwork for the report; reporting it without a preview",
+					"template", t.ID, "err", err)
+			} else {
+				sum := sha256.Sum256(png)
+				d.SHA256, d.PNG = hex.EncodeToString(sum[:]), png
+			}
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// readAsset reads a template's overlay through the template's own fs.FS, which
+// is the only handle on it: a built-in design's bytes are inside the binary and
+// have no path on disk at all.
+func readAsset(t compose.Template) ([]byte, error) {
+	f, _, err := t.Asset("overlay")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
 }
 
 // overlay adds ts to out, replacing any design already there with the same id.

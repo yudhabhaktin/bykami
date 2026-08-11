@@ -93,7 +93,10 @@ type Console struct {
 	identity *identity.Service
 	loyalty  *loyalty.Ledger
 	frameCat *frames.Catalogue
-	booking  *booking.Desk
+	// booths is what each booth reports it is offering. Read here and written
+	// only by the booths themselves — see internal/frames/booth.go.
+	booths  *frames.Booths
+	booking *booking.Desk
 	// The calendar sync, or nil when no Google credential is configured. Only the
 	// settings page reads it: to print the address calendars must be shared with,
 	// and to run a sync on demand.
@@ -130,7 +133,7 @@ type Console struct {
 // New returns the console. staffPhones are raw numbers in any Indonesian form;
 // they are normalised here and an unparseable one is an error rather than a
 // silently ignored entry.
-func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, desk *booking.Desk, calendar *booking.Worker, auth *mfa.Registry, connect *gcal.Connect, log *slog.Logger, staffPhones []string) (*Console, error) {
+func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, booths *frames.Booths, desk *booking.Desk, calendar *booking.Worker, auth *mfa.Registry, connect *gcal.Connect, log *slog.Logger, staffPhones []string) (*Console, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"points": formatPoints,
 		"time":   func(t time.Time) string { return t.Format("2006-01-02 15:04") },
@@ -169,6 +172,7 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 		identity: ident,
 		loyalty:  ledger,
 		frameCat: cat,
+		booths:   booths,
 		booking:  desk,
 		calendar: calendar,
 		mfa:      auth,
@@ -214,6 +218,13 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("POST /frames/{id}/publish", c.staffOnly(c.framePublish))
 	mux.HandleFunc("POST /frames/{id}/season", c.staffOnly(c.frameSeason))
 	mux.HandleFunc("POST /frames/{id}/delete", c.staffOnly(c.frameDelete))
+
+	// Artwork for a design a booth reported, addressed by hash rather than by
+	// id. Its own prefix and not /frames/…: most of what a booth offers has no
+	// catalogue row, and a pattern under /frames would collide with the one
+	// above — /frames/art/art.png matches both, which ServeMux refuses at
+	// registration rather than at request time.
+	mux.HandleFunc("GET /booth/art/{sha256}", c.staffOnly(c.boothArt))
 
 	// Not behind staffOnly: the login page wears the same chrome as the rest of
 	// the console, so the logo and the typeface have to load for someone who has
@@ -274,6 +285,19 @@ type page struct {
 	// Frame catalogue
 	Frames []frames.Frame
 	Sheets string
+
+	// What the booths report they are actually offering, which is the catalogue
+	// plus the designs built into the agent binary plus anything in that
+	// machine's own templates folder. OnBooth is the catalogue ids that reached
+	// at least one of them — the difference between a frame being published and
+	// a frame being on sale.
+	Booths  []boothView
+	OnBooth map[string]bool
+	// BoothsKnown separates "no booth has this frame" from "no booth has said".
+	// Without it a console whose booths have never reported would mark every
+	// published frame as undelivered, which is a worse lie than the one this
+	// page was built to fix.
+	BoothsKnown bool
 
 	// The booking day
 	Bookings  []booking.Booking

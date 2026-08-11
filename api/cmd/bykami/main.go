@@ -158,6 +158,10 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 	ident := identity.New(db, sender)
 	ledger := loyalty.New(db)
 	catalogue := frames.New(db)
+	// What the booths say they are offering, which is the catalogue plus the
+	// designs compiled into the agent binary plus whatever is in each machine's
+	// own templates folder. Written by the booths, read by the console.
+	booths := frames.NewBooths(db)
 
 	// The booth sync secret, from the environment rather than a flag. A token
 	// in argv is readable by every process on the box through ps; an
@@ -208,7 +212,7 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 	calWorker := booking.NewWorker(desk, calendarFor(calendar), log, 0, studioLocation)
 
 	api := httpapi.New(httpapi.Config{
-		Identity: ident, Loyalty: ledger, Frames: catalogue, Booking: desk,
+		Identity: ident, Loyalty: ledger, Frames: catalogue, Booths: booths, Booking: desk,
 		Instagram: mirror, InstagramAccount: igAccount,
 		Health: db.PingContext, Log: log,
 		AuthEnabled: authEnabled, BoothToken: boothToken,
@@ -238,7 +242,7 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 		log.Info("google connect configured")
 	}
 
-	console, err := admin.New(ident, ledger, catalogue, desk, calWorker, auth, connect, log, splitPhones(adminPhones))
+	console, err := admin.New(ident, ledger, catalogue, booths, desk, calWorker, auth, connect, log, splitPhones(adminPhones))
 	if err != nil {
 		return fmt.Errorf("admin console: %w", err)
 	}

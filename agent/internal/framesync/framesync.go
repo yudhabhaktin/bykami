@@ -22,6 +22,7 @@
 package framesync
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -51,7 +52,9 @@ const DefaultInterval = 5 * time.Minute
 // rather than written to disk as a frame.
 const maxArtwork = 8 << 20
 
-type cell struct {
+// Cell is where one photo goes on the sheet, in pixels at 300 dpi. Exported
+// because it travels back out in the report as well as in with the manifest.
+type Cell struct {
 	X int `json:"x"`
 	Y int `json:"y"`
 	W int `json:"w"`
@@ -65,7 +68,7 @@ type manifest struct {
 		Name   string `json:"name"`
 		Group  string `json:"group"`
 		Layout string `json:"layout"`
-		Cells  []cell `json:"cells"`
+		Cells  []Cell `json:"cells"`
 		SHA256 string `json:"sha256"`
 	} `json:"frames"`
 }
@@ -75,12 +78,35 @@ type manifest struct {
 // keeping it there is what stops this package importing half the binary.
 type Reload func() error
 
+// Design is one frame this booth is offering, for the report back. Same reason
+// Reload is a callback: the worker is told what the set is rather than working
+// it out, because working it out means knowing about built-ins, the local
+// directory and the order they overlay in.
+type Design struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Layout string `json:"layout"`
+	Cells  []Cell `json:"cells"`
+	SHA256 string `json:"sha256"`
+
+	// PNG is the overlay artwork, or nil for a design that draws none. Sent
+	// only when the server says it does not have these bytes, which after the
+	// first report is never.
+	PNG []byte `json:"-"`
+}
+
+// Snapshot returns what the booth is offering right now. Called after each
+// poll, so it sees the set the reload above produced.
+type Snapshot func() []Design
+
 type Worker struct {
 	base     string
 	token    string
+	outlet   string
 	dir      string
 	interval time.Duration
 	reload   Reload
+	designs  Snapshot
 	log      *slog.Logger
 	client   *http.Client
 }
@@ -89,7 +115,11 @@ type Worker struct {
 //
 // Nil rather than an error: no base URL and no token is the normal state of a
 // booth that has not been enrolled, and it should start and sell photos.
-func New(base, token, dir string, interval time.Duration, reload Reload, log *slog.Logger) *Worker {
+//
+// outlet names this booth in the report, and designs is what it is offering.
+// A nil designs disables reporting and leaves the pull half working, which is
+// what a caller with nothing to say should pass.
+func New(base, token, outlet, dir string, interval time.Duration, reload Reload, designs Snapshot, log *slog.Logger) *Worker {
 	if base == "" || token == "" {
 		return nil
 	}
@@ -97,8 +127,8 @@ func New(base, token, dir string, interval time.Duration, reload Reload, log *sl
 		interval = DefaultInterval
 	}
 	return &Worker{
-		base: strings.TrimSuffix(base, "/"), token: token, dir: dir,
-		interval: interval, reload: reload, log: log,
+		base: strings.TrimSuffix(base, "/"), token: token, outlet: outlet, dir: dir,
+		interval: interval, reload: reload, designs: designs, log: log,
 		// Bounded, because this runs behind a shop's internet connection and a
 		// stalled poll must not hold a goroutine until the process restarts.
 		client: &http.Client{Timeout: 60 * time.Second},
@@ -117,12 +147,134 @@ func (w *Worker) Run(ctx context.Context) error {
 			// package doc for why this is never fatal.
 			w.log.Warn("frame sync failed; keeping the frames already installed", "err", err)
 		}
+		// After the sync, so the report describes the set the sync produced
+		// rather than the one it replaced. Separately fallible for the same
+		// reason everything else here is: the console being unable to show what
+		// this booth has is not a reason for the booth to stop selling.
+		if err := w.Report(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			w.log.Warn("could not tell the server what this booth is offering", "err", err)
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
 		}
 	}
+}
+
+// Report tells the server what this booth is actually offering, and uploads the
+// artwork for anything the server has never seen.
+//
+// This exists because a booth's frame set is not the catalogue. It is the
+// catalogue plus the designs compiled into this binary plus whatever is in the
+// local -templates folder, added together — so the operator console could show
+// four frames while a customer chose from eleven, and the only way to find out
+// was to read this booth's own state over SSH.
+//
+// Nothing here changes what the booth offers. It is a report, not a handshake:
+// the response is consulted only to decide which PNGs still need uploading.
+func (w *Worker) Report(ctx context.Context) error {
+	if w.designs == nil {
+		return nil
+	}
+	designs := w.designs()
+
+	want, err := w.postReport(ctx, designs)
+	if err != nil {
+		return err
+	}
+	if len(want) == 0 {
+		// The common case by an enormous margin: the artwork was uploaded on
+		// the first report after this binary was installed and has not changed
+		// since. Content-addressed, so the same seven built-ins across a fleet
+		// are uploaded once between them.
+		return nil
+	}
+
+	byHash := make(map[string][]byte, len(designs))
+	for _, d := range designs {
+		if d.SHA256 != "" && d.PNG != nil {
+			byHash[d.SHA256] = d.PNG
+		}
+	}
+	for _, sum := range want {
+		png, ok := byHash[sum]
+		if !ok {
+			// The server asked for a hash this booth did not offer. Skipped
+			// rather than treated as an error: the rest of the uploads are fine
+			// and should happen.
+			w.log.Warn("the server asked for artwork this booth did not report", "sha256", sum)
+			continue
+		}
+		if err := w.putArtwork(ctx, sum, png); err != nil {
+			// One failed upload does not abandon the others, exactly as one bad
+			// frame does not abandon a sync. The next report asks again.
+			w.log.Warn("could not upload frame artwork", "sha256", sum, "err", err)
+		}
+	}
+	return nil
+}
+
+func (w *Worker) postReport(ctx context.Context, designs []Design) ([]string, error) {
+	// A non-nil slice, so a booth offering nothing sends "templates":[] rather
+	// than a null the server has to treat as the same thing.
+	if designs == nil {
+		designs = []Design{}
+	}
+	body, err := json.Marshal(struct {
+		Outlet    string   `json:"outlet"`
+		Templates []Design `json:"templates"`
+	}{Outlet: w.outlet, Templates: designs})
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.base+"/v1/booth/templates", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+w.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := w.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("framesync: report: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		// The body carries which design the server objected to, and the person
+		// who can fix that is reading this log.
+		msg, _ := io.ReadAll(io.LimitReader(res.Body, 1<<10))
+		return nil, fmt.Errorf("framesync: report: %s: %s", res.Status, strings.TrimSpace(string(msg)))
+	}
+
+	var out struct {
+		Want []string `json:"want"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&out); err != nil {
+		return nil, fmt.Errorf("framesync: decode report response: %w", err)
+	}
+	return out.Want, nil
+}
+
+func (w *Worker) putArtwork(ctx context.Context, sum string, png []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		w.base+"/v1/booth/templates/art/"+sum, bytes.NewReader(png))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+w.token)
+	req.Header.Set("Content-Type", "image/png")
+
+	res, err := w.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("artwork: %s", res.Status)
+	}
+	return nil
 }
 
 // Sync fetches the manifest, writes what changed, and reloads.
@@ -307,7 +459,7 @@ func safeID(id string) bool {
 	return true
 }
 
-func cellsJSON(cells []cell) string {
+func cellsJSON(cells []Cell) string {
 	var b strings.Builder
 	b.WriteByte('[')
 	for i, c := range cells {
