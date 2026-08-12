@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -63,6 +64,7 @@ func seed(t *testing.T, db *sql.DB) {
 	}{
 		{"photobox-y2k", "photobox", "photobox", 30_000, 1, 10, 0, 1, 5},
 		{"self-mini", "self-photo", "self-photo", 45_000, 0, 15, 0, 1, 2},
+		{"self-midi", "self-photo", "self-photo", 70_000, 0, 20, 10, 3, 4},
 		{"pas-kedinasan", "self-photo", "pas-foto", 250_000, 0, 40, 0, 2, 2},
 		{"photographer-3h", "photographer", "outdoor-photographer", 850_000, 0, 180, 0, 1, 10},
 	} {
@@ -83,6 +85,28 @@ func seed(t *testing.T, db *sql.DB) {
 	         booking_mode, created_at)
 	      VALUES ('fotografer-studio', 'photographer', 'Fotografer Studio',
 	              'outdoor-photographer', 0, 0, 60, 0, 1, 30, 'chat', unixepoch())`)
+
+	// Two walls, offered by one package and by nothing else.
+	//
+	// Only self-midi gets them, deliberately: every other package in this seed
+	// stays free of the choice, so the cases above that book photobox-y2k or
+	// self-mini go on asserting what they were written to assert rather than
+	// quietly becoming backdrop tests.
+	//
+	// The order they are paired in is the reverse of their alphabetical order, so
+	// a query that dropped order_index and fell back to the id would put Ivory
+	// first and be caught.
+	for _, b := range []struct{ id, name string }{
+		{"white", "White"},
+		{"ivory", "Ivory"},
+	} {
+		exec(`INSERT INTO booking_backdrops (id, name, created_at) VALUES (?, ?, unixepoch())`,
+			b.id, b.name)
+	}
+	for i, id := range []string{"white", "ivory"} {
+		exec(`INSERT INTO booking_service_backdrops (service_id, backdrop_id, order_index)
+		      VALUES ('self-midi', ?, ?)`, id, i)
+	}
 
 	// 09:00-21:00, every day.
 	for wd := range 7 {
@@ -116,6 +140,12 @@ func request(service string, at time.Time, heads int) Request {
 		Phone:     "+6281234567890",
 		Email:     "rina@example.com",
 	}
+}
+
+// against names the wall, for the one package in this seed that offers a choice.
+func against(req Request, backdrop string) Request {
+	req.BackdropID = backdrop
+	return req
 }
 
 func TestBookingReservesTheSlot(t *testing.T) {
@@ -477,6 +507,164 @@ func TestGetAndDayReadWhatWasWritten(t *testing.T) {
 	day, _ = d.Day(ctx, wib(2026, 8, 12, 0, 0))
 	if len(day) != 1 || day[0].Status != "cancelled" {
 		t.Errorf("day view lost the cancelled booking: %+v", day)
+	}
+}
+
+// The catalogue has to say which walls a package can be shot against, and say it
+// in the order the package offers them — the page renders that order verbatim,
+// and pas foto leading with red and blue is not the order an id sort produces.
+func TestTheCatalogueCarriesEachPackagesBackdrops(t *testing.T) {
+	d, _ := newDesk(t)
+	ctx := t.Context()
+
+	services, err := d.Services(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string][]string, len(services))
+	for _, s := range services {
+		for _, b := range s.Backdrops {
+			got[s.ID] = append(got[s.ID], b.Name)
+		}
+	}
+
+	if want := []string{"White", "Ivory"}; !slices.Equal(got["self-midi"], want) {
+		t.Errorf("self-midi offers %v, want %v — order_index is what puts White first", got["self-midi"], want)
+	}
+	// Not an empty picker: a booth's backdrop is part of the booth.
+	if len(got["photobox-y2k"]) != 0 {
+		t.Errorf("the photobox offers %v, want nothing", got["photobox-y2k"])
+	}
+
+	// The single read has to agree with the list. It is the one Book uses, so a
+	// version that forgot to load them would accept any wall for any package.
+	one, err := d.Service(ctx, "self-midi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(one.Backdrops) != 2 {
+		t.Errorf("Service() returned %d backdrops, want 2", len(one.Backdrops))
+	}
+}
+
+func TestABookingCarriesTheWallToHang(t *testing.T) {
+	d, _ := newDesk(t)
+	ctx := t.Context()
+
+	b, err := d.Book(ctx, against(request("self-midi", wib(2026, 8, 12, 14, 0), 3), "ivory"))
+	if err != nil {
+		t.Fatalf("book: %v", err)
+	}
+	if b.BackdropID != "ivory" || b.Backdrop != "Ivory" {
+		t.Errorf("booked against %q/%q, want ivory/Ivory", b.BackdropID, b.Backdrop)
+	}
+
+	// Read back through the join rather than from what Book returned, because the
+	// console and the calendar both take this path and neither has the request.
+	got, err := d.Get(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Backdrop != "Ivory" {
+		t.Errorf("read back %q, want Ivory", got.Backdrop)
+	}
+
+	// A package with no choice reads back empty rather than as some default wall
+	// the operator would then hang for nothing.
+	p, err := d.Book(ctx, request("photobox-y2k", wib(2026, 8, 12, 14, 0), 2))
+	if err != nil {
+		t.Fatalf("photobox: %v", err)
+	}
+	if p.BackdropID != "" || p.Backdrop != "" {
+		t.Errorf("the photobox booked against %q/%q, want neither", p.BackdropID, p.Backdrop)
+	}
+}
+
+// The three ways a request can be wrong about a wall, and the case that matters
+// most is the first: defaulting an unanswered choice would put a roll in front
+// of a customer who never picked it, which is the failure this exists to stop.
+func TestBookingRefusesAWallThePackageDoesNotOffer(t *testing.T) {
+	d, _ := newDesk(t)
+	ctx := t.Context()
+	at := wib(2026, 8, 12, 14, 0)
+
+	tests := []struct {
+		name string
+		req  Request
+		want error
+	}{
+		{
+			"no wall chosen for a package that offers six",
+			request("self-midi", at, 3),
+			ErrBackdropRequired,
+		},
+		{
+			"a wall the studio does not have",
+			against(request("self-midi", at, 3), "chartreuse"),
+			ErrBackdropUnknown,
+		},
+		{
+			"a wall named for a package with no choice",
+			against(request("photobox-y2k", at, 2), "ivory"),
+			ErrBackdropUnknown,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := d.Book(ctx, tc.req); !errors.Is(err, tc.want) {
+				t.Errorf("got %v, want %v", err, tc.want)
+			}
+		})
+	}
+
+	// Nothing was held on the way to being refused. Book checks the wall before it
+	// touches booking_slots, and a version that checked afterwards would leave the
+	// room reserved against a booking that was never written.
+	var slots int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM booking_slots`).Scan(&slots); err != nil {
+		t.Fatal(err)
+	}
+	if slots != 0 {
+		t.Errorf("%d slots held for bookings that were refused", slots)
+	}
+}
+
+// A wall taken out of service stops being offered and stays readable on the
+// bookings that already chose it — which is why it is deactivated rather than
+// deleted, and why the name is joined rather than copied.
+func TestAWithdrawnWallIsNoLongerOfferedButStillReads(t *testing.T) {
+	d, db := newDesk(t)
+	ctx := t.Context()
+
+	b, err := d.Book(ctx, against(request("self-midi", wib(2026, 8, 12, 14, 0), 3), "ivory"))
+	if err != nil {
+		t.Fatalf("book: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE booking_backdrops SET active = 0 WHERE id = 'ivory'`); err != nil {
+		t.Fatal(err)
+	}
+
+	svc, err := d.Service(ctx, "self-midi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range svc.Backdrops {
+		if w.ID == "ivory" {
+			t.Error("a withdrawn wall is still on sale")
+		}
+	}
+	if _, err := d.Book(ctx,
+		against(request("self-midi", wib(2026, 8, 13, 14, 0), 3), "ivory")); !errors.Is(err, ErrBackdropUnknown) {
+		t.Errorf("booking a withdrawn wall returned %v, want ErrBackdropUnknown", err)
+	}
+
+	got, err := d.Get(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Backdrop != "Ivory" {
+		t.Errorf("the existing booking lost its wall: %q", got.Backdrop)
 	}
 }
 

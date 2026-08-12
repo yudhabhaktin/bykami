@@ -25,7 +25,15 @@ func seedBookingCatalogue(t *testing.T, db *sql.DB) {
 		`INSERT INTO booking_services
 		   (id, resource_id, name, service_line, price_idr, duration_minutes, buffer_minutes,
 		    headcount_min, headcount_max, created_at)
-		 VALUES ('photobox-y2k', 'photobox', 'Y2K', 'photobox', 30000, 10, 20, 1, 5, unixepoch())`,
+		 VALUES ('photobox-y2k', 'photobox', 'Y2K', 'photobox', 30000, 10, 20, 1, 5, unixepoch()),
+		        ('self-midi', 'self-photo', 'MIDI', 'self-photo', 70000, 20, 10, 1, 4, unixepoch())`,
+		// One package that asks which wall to hang and one that does not, because
+		// the day view has to print both without the second reading as a blank
+		// somebody forgot to fill in.
+		`INSERT INTO booking_backdrops (id, name, created_at)
+		 VALUES ('duck-egg', 'Duck Egg', unixepoch())`,
+		`INSERT INTO booking_service_backdrops (service_id, backdrop_id, order_index)
+		 VALUES ('self-midi', 'duck-egg', 0)`,
 		`INSERT INTO booking_hours (weekday, opens_at, closes_at)
 		 VALUES (0,540,1260),(1,540,1260),(2,540,1260),(3,540,1260),(4,540,1260),(5,540,1260),(6,540,1260)`,
 	}
@@ -88,6 +96,40 @@ func TestBookingDayShowsWhoIsComing(t *testing.T) {
 	// morning.
 	if strings.Contains(body, "07:00") {
 		t.Error("a booking time was rendered in UTC")
+	}
+}
+
+// The whole reason the choice is stored. An operator reads this page between
+// sessions and has a few minutes to hang a roll; a booking that does not say
+// which one is a booking they find out about when the customer walks in.
+func TestBookingDayShowsTheBackgroundToPrepare(t *testing.T) {
+	f := newFixture(t, operator)
+	seedBookingCatalogue(t, f.db)
+	at := tomorrowAt(15)
+
+	desk := booking.New(f.db, 0)
+	if _, err := desk.Book(t.Context(), booking.Request{
+		ServiceID:  "self-midi",
+		StartsAt:   at,
+		Headcount:  3,
+		Name:       "Sari Handayani",
+		Phone:      "+6281299997777",
+		BackdropID: "duck-egg",
+	}); err != nil {
+		t.Fatalf("book: %v", err)
+	}
+	// A package with no choice, on the other resource so the two do not collide.
+	bookOne(t, f.db, "Rina Wulandari", at)
+
+	cookie := f.signIn(t, operator)
+	body := f.get(t, "/bookings?day="+at.Format("2006-01-02"), cookie).Body.String()
+
+	// The name, not the id — the operator hangs "Duck Egg", nobody says "duck-egg".
+	if !strings.Contains(body, "Duck Egg") {
+		t.Error("the day view does not say which background to prepare")
+	}
+	if strings.Contains(body, "duck-egg") {
+		t.Error("the day view shows a backdrop id where a name belongs")
 	}
 }
 

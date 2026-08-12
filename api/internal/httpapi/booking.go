@@ -49,6 +49,17 @@ type serviceBody struct {
 	// from a missing field will guess "web" and render a calendar that cannot
 	// work.
 	BookingMode string `json:"booking_mode"`
+	// The walls this package may be shot against, in the order it presents them.
+	// Sent as [] rather than omitted for the same reason booking_mode is always
+	// present: "this package has no backdrop choice" and "this response predates
+	// backdrops" are different facts, and a client that cannot tell them apart
+	// will render an empty picker for the photobox.
+	Backdrops []backdropBody `json:"backdrops"`
+}
+
+type backdropBody struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type servicesResponse struct {
@@ -71,6 +82,10 @@ func (a *API) bookingServices(w http.ResponseWriter, r *http.Request) {
 
 	out := servicesResponse{Services: make([]serviceBody, 0, len(services))}
 	for _, s := range services {
+		walls := make([]backdropBody, 0, len(s.Backdrops))
+		for _, b := range s.Backdrops {
+			walls = append(walls, backdropBody{ID: b.ID, Name: b.Name})
+		}
 		out.Services = append(out.Services, serviceBody{
 			ID:              s.ID,
 			Resource:        s.ResourceID,
@@ -83,6 +98,7 @@ func (a *API) bookingServices(w http.ResponseWriter, r *http.Request) {
 			HeadcountMin:    s.HeadcountMin,
 			HeadcountMax:    s.HeadcountMax,
 			BookingMode:     s.BookingMode,
+			Backdrops:       walls,
 		})
 	}
 
@@ -190,6 +206,10 @@ type bookingRequest struct {
 	Email     string `json:"email"`
 	Notes     string `json:"notes"`
 	Terms     bool   `json:"terms"`
+	// The backdrop id, from the package's own list. Required where that list is
+	// not empty — see booking.ErrBackdropRequired for why an unanswered choice is
+	// refused rather than defaulted.
+	Backdrop string `json:"backdrop"`
 }
 
 type bookingBodyResponse struct {
@@ -201,6 +221,10 @@ type bookingBodyResponse struct {
 	Name      string `json:"name"`
 	Phone     string `json:"phone"`
 	Status    string `json:"status"`
+	// The wall's name rather than its id, because the only thing that reads this
+	// prints it: a confirmation screen saying "Ivory" is the customer's record of
+	// what they asked the studio to hang.
+	Backdrop string `json:"backdrop"`
 }
 
 func newBookingBody(b booking.Booking) bookingBodyResponse {
@@ -213,6 +237,7 @@ func newBookingBody(b booking.Booking) bookingBodyResponse {
 		Name:      b.Name,
 		Phone:     b.Phone,
 		Status:    b.Status,
+		Backdrop:  b.Backdrop,
 	}
 }
 
@@ -265,14 +290,15 @@ func (a *API) createBooking(w http.ResponseWriter, r *http.Request) {
 	}
 
 	b, err := a.booking.Book(r.Context(), booking.Request{
-		ServiceID: req.Service,
-		StartsAt:  start,
-		Headcount: req.Headcount,
-		Name:      strings.TrimSpace(req.Name),
-		Phone:     e164,
-		Email:     strings.TrimSpace(req.Email),
-		Notes:     strings.TrimSpace(req.Notes),
-		UserID:    userID,
+		ServiceID:  req.Service,
+		StartsAt:   start,
+		Headcount:  req.Headcount,
+		Name:       strings.TrimSpace(req.Name),
+		Phone:      e164,
+		Email:      strings.TrimSpace(req.Email),
+		Notes:      strings.TrimSpace(req.Notes),
+		UserID:     userID,
+		BackdropID: strings.TrimSpace(req.Backdrop),
 	})
 
 	switch {
@@ -294,6 +320,13 @@ func (a *API) createBooking(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, http.StatusBadRequest, "waktu itu terlalu jauh ke depan")
 	case errors.Is(err, booking.ErrHeadcount):
 		a.fail(w, http.StatusBadRequest, "jumlah orang tidak sesuai paket")
+	case errors.Is(err, booking.ErrBackdropRequired):
+		a.fail(w, http.StatusBadRequest, "pilih background dulu")
+	// 400 rather than 409: unlike a taken slot, this did not become wrong while
+	// the customer was filling the form. Either the page is stale or the value was
+	// made up, and both call for a reload rather than another time.
+	case errors.Is(err, booking.ErrBackdropUnknown):
+		a.fail(w, http.StatusBadRequest, "background itu tidak tersedia untuk paket ini")
 	case errors.Is(err, booking.ErrNotOnTheGrid):
 		a.fail(w, http.StatusBadRequest, "starts_at must be on the half hour")
 	default:

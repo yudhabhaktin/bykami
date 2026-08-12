@@ -83,6 +83,14 @@ var (
 	ErrTooFar = errors.New("booking: that time is too far ahead")
 	// ErrHeadcount means the group does not fit the package it was booked on.
 	ErrHeadcount = errors.New("booking: that package is not for that many people")
+	// ErrBackdropRequired means the package offers a choice of wall and the
+	// request made none. Refused rather than defaulted to the first one: a
+	// background nobody picked is one the operator hangs and the customer did not
+	// ask for, which is the failure this whole feature exists to stop.
+	ErrBackdropRequired = errors.New("booking: that package needs a background chosen")
+	// ErrBackdropUnknown means the wall is not one this package is shot against —
+	// including the case of naming one at all for a package that offers none.
+	ErrBackdropUnknown = errors.New("booking: that background is not offered with that package")
 	// ErrBadCalendarID means the value is not the shape of a Google Calendar id.
 	ErrBadCalendarID = errors.New("booking: not a calendar id")
 )
@@ -116,6 +124,19 @@ type Service struct {
 
 	// BookingMode is ModeWeb or ModeChat. See ErrChatOnly.
 	BookingMode string
+
+	// Backdrops is the walls this package may be shot against, in the order the
+	// package presents them. Empty means the question does not arise — a photobox
+	// booth's backdrop is built into the booth — and a customer is then asked
+	// nothing rather than being shown a picker with one entry.
+	Backdrops []Backdrop
+}
+
+// Backdrop is a wall a session can be shot against: a paper roll the operator
+// hangs, or one of the patterned walls the motif room is dressed in.
+type Backdrop struct {
+	ID   string
+	Name string
 }
 
 // How a package is sold. A photographer session is quoted rather than booked, so
@@ -160,6 +181,17 @@ type Booking struct {
 	Email string
 	Notes string
 
+	// BackdropID is the wall to hang before this session, and Backdrop is its
+	// name. Both empty where the package offers no choice, which is most of the
+	// catalogue and every booking taken before backdrops existed.
+	//
+	// The name is read through the join rather than copied onto the row, unlike
+	// Name and Phone above: those record who turned up and must not change when a
+	// customer corrects their spelling, whereas this records which roll to hang
+	// and the roll is the same roll whatever it is called this month.
+	BackdropID string
+	Backdrop   string
+
 	Status string
 	// GCalEventID is empty until the booking has been mirrored into the owner's
 	// Google Calendar. Empty is not a failed booking — see internal/gcal.
@@ -180,6 +212,9 @@ type Request struct {
 	Email     string
 	Notes     string
 	UserID    string
+	// BackdropID is required when the package offers a choice and refused when it
+	// does not. See ErrBackdropRequired and ErrBackdropUnknown.
+	BackdropID string
 }
 
 // Desk is the booking desk: what is free, and who has what.
@@ -207,6 +242,30 @@ func New(db *sql.DB, window time.Duration) *Desk {
 
 // Services lists what is on sale, grouped by resource and in display order.
 func (d *Desk) Services(ctx context.Context) ([]Service, error) {
+	out, err := d.serviceRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// After serviceRows has returned, and deliberately not inside its loop. The
+	// pool is capped at one connection — see store.Open — so a query issued while
+	// another statement's rows are still open waits for a connection that only
+	// closing those rows can free.
+	//
+	// One query for the whole catalogue rather than one per package: the list is
+	// a dozen rows and the join is a dozen more, the page reads it on every visit,
+	// and a query per service is the shape that gets slow quietly.
+	walls, err := d.backdrops(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Backdrops = walls[out[i].ID]
+	}
+	return out, nil
+}
+
+func (d *Desk) serviceRows(ctx context.Context) ([]Service, error) {
 	rows, err := d.db.QueryContext(ctx,
 		`SELECT s.id, s.resource_id, s.name, s.service_line, s.description,
 		        s.price_idr, s.price_per_person,
@@ -232,6 +291,36 @@ func (d *Desk) Services(ctx context.Context) ([]Service, error) {
 	return out, rows.Err()
 }
 
+// backdrops reads what each package may be shot against. An empty serviceID asks
+// about the whole catalogue.
+//
+// Withdrawn walls are filtered here rather than deleted, so a package stops
+// offering one the moment it is deactivated while the bookings that already
+// chose it still read back a name.
+func (d *Desk) backdrops(ctx context.Context, serviceID string) (map[string][]Backdrop, error) {
+	rows, err := d.db.QueryContext(ctx,
+		`SELECT sb.service_id, k.id, k.name
+		 FROM booking_service_backdrops sb
+		 JOIN booking_backdrops k ON k.id = sb.backdrop_id
+		 WHERE k.active = 1 AND (? = '' OR sb.service_id = ?)
+		 ORDER BY sb.service_id, sb.order_index, k.id`, serviceID, serviceID)
+	if err != nil {
+		return nil, fmt.Errorf("booking: backdrops: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string][]Backdrop, 16)
+	for rows.Next() {
+		var service string
+		var b Backdrop
+		if err := rows.Scan(&service, &b.ID, &b.Name); err != nil {
+			return nil, fmt.Errorf("booking: backdrops: %w", err)
+		}
+		out[service] = append(out[service], b)
+	}
+	return out, rows.Err()
+}
+
 // Service reads one, whether or not it is still on sale — a booking made
 // yesterday has to stay readable after the package is withdrawn.
 func (d *Desk) Service(ctx context.Context, id string) (Service, error) {
@@ -245,7 +334,16 @@ func (d *Desk) Service(ctx context.Context, id string) (Service, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Service{}, ErrNoService
 	}
-	return s, err
+	if err != nil {
+		return Service{}, err
+	}
+
+	walls, err := d.backdrops(ctx, id)
+	if err != nil {
+		return Service{}, err
+	}
+	s.Backdrops = walls[id]
+	return s, nil
 }
 
 // Book writes a confirmed booking, or explains why it could not.
@@ -283,6 +381,15 @@ func (d *Desk) Book(ctx context.Context, req Request) (Booking, error) {
 		return Booking{}, ErrTooFar
 	}
 
+	// Checked here rather than trusted from the client for the same reason the
+	// schedule is: the request names a wall, and a stale page still offering a
+	// backdrop the studio has withdrawn would otherwise book a session against
+	// paper that is no longer in the building.
+	backdrop, err := chooseBackdrop(svc, req.BackdropID)
+	if err != nil {
+		return Booking{}, err
+	}
+
 	span := svc.span()
 	points := gridPoints(start, span)
 
@@ -311,14 +418,16 @@ func (d *Desk) Book(ctx context.Context, req Request) (Booking, error) {
 		StartsAt:   start,
 		// The session, not the slot. What the customer is told they have, which
 		// for a photobox is ten minutes of a thirty-minute reservation.
-		EndsAt:    start.Add(time.Duration(svc.DurationMinutes) * time.Minute),
-		Headcount: req.Headcount,
-		Name:      req.Name,
-		Phone:     req.Phone,
-		Email:     req.Email,
-		Notes:     req.Notes,
-		Status:    "confirmed",
-		CreatedAt: now.Truncate(time.Second),
+		EndsAt:     start.Add(time.Duration(svc.DurationMinutes) * time.Minute),
+		Headcount:  req.Headcount,
+		Name:       req.Name,
+		Phone:      req.Phone,
+		Email:      req.Email,
+		Notes:      req.Notes,
+		BackdropID: backdrop.ID,
+		Backdrop:   backdrop.Name,
+		Status:     "confirmed",
+		CreatedAt:  now.Truncate(time.Second),
 	}
 
 	tx, err := d.db.BeginTx(ctx, nil)
@@ -330,11 +439,12 @@ func (d *Desk) Book(ctx context.Context, req Request) (Booking, error) {
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO bookings
 		   (id, resource_id, service_id, user_id, starts_at, ends_at, headcount,
-		    name, phone, email, notes, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
+		    name, phone, email, notes, backdrop_id, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
 		b.ID, b.ResourceID, b.ServiceID, nullIfEmpty(b.UserID),
 		b.StartsAt.Unix(), b.EndsAt.Unix(), b.Headcount,
-		b.Name, b.Phone, b.Email, b.Notes, b.CreatedAt.Unix()); err != nil {
+		b.Name, b.Phone, b.Email, b.Notes, nullIfEmpty(b.BackdropID),
+		b.CreatedAt.Unix()); err != nil {
 		return Booking{}, fmt.Errorf("booking: insert: %w", err)
 	}
 
@@ -366,7 +476,7 @@ func (d *Desk) Book(ctx context.Context, req Request) (Booking, error) {
 
 // Get reads a booking by id.
 func (d *Desk) Get(ctx context.Context, id string) (Booking, error) {
-	row := d.db.QueryRowContext(ctx, selectBooking+` WHERE id = ?`, id)
+	row := d.db.QueryRowContext(ctx, selectBooking+` WHERE b.id = ?`, id)
 	b, err := scanBooking(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Booking{}, ErrNoBooking
@@ -386,7 +496,7 @@ func (d *Desk) Cancel(ctx context.Context, id, phone string) (Booking, error) {
 	}
 	defer tx.Rollback()
 
-	row := tx.QueryRowContext(ctx, selectBooking+` WHERE id = ?`, id)
+	row := tx.QueryRowContext(ctx, selectBooking+` WHERE b.id = ?`, id)
 	b, err := scanBooking(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Booking{}, ErrNoBooking
@@ -433,7 +543,7 @@ func (d *Desk) Day(ctx context.Context, day time.Time) ([]Booking, error) {
 	to := from.AddDate(0, 0, 1)
 
 	rows, err := d.db.QueryContext(ctx,
-		selectBooking+` WHERE starts_at >= ? AND starts_at < ? ORDER BY starts_at, id`,
+		selectBooking+` WHERE b.starts_at >= ? AND b.starts_at < ? ORDER BY b.starts_at, b.id`,
 		from.Unix(), to.Unix())
 	if err != nil {
 		return nil, fmt.Errorf("booking: day: %w", err)
@@ -454,7 +564,7 @@ func (d *Desk) Day(ctx context.Context, day time.Time) ([]Booking, error) {
 // ByPhone lists a customer's own bookings, newest first.
 func (d *Desk) ByPhone(ctx context.Context, phone string, limit int) ([]Booking, error) {
 	rows, err := d.db.QueryContext(ctx,
-		selectBooking+` WHERE phone = ? ORDER BY starts_at DESC LIMIT ?`, phone, limit)
+		selectBooking+` WHERE b.phone = ? ORDER BY b.starts_at DESC LIMIT ?`, phone, limit)
 	if err != nil {
 		return nil, fmt.Errorf("booking: by phone: %w", err)
 	}
@@ -471,12 +581,44 @@ func (d *Desk) ByPhone(ctx context.Context, phone string, limit int) ([]Booking,
 	return out, rows.Err()
 }
 
+// chooseBackdrop matches a requested wall against what the package offers.
+//
+// Three outcomes rather than two, because "you have to pick one" and "that is
+// not one of them" are different mistakes and the customer can only fix the
+// first. A package with nothing to offer refuses a request that names a wall
+// anyway: it means the client is working from a catalogue this server does not
+// recognise, and silently dropping the value would put a backdrop on the
+// customer's screen that never reached the operator's.
+func chooseBackdrop(svc Service, id string) (Backdrop, error) {
+	if len(svc.Backdrops) == 0 {
+		if id != "" {
+			return Backdrop{}, fmt.Errorf("%w: %s", ErrBackdropUnknown, svc.Name)
+		}
+		return Backdrop{}, nil
+	}
+	if id == "" {
+		return Backdrop{}, fmt.Errorf("%w: %s", ErrBackdropRequired, svc.Name)
+	}
+	for _, b := range svc.Backdrops {
+		if b.ID == id {
+			return b, nil
+		}
+	}
+	return Backdrop{}, fmt.Errorf("%w: %s", ErrBackdropUnknown, svc.Name)
+}
+
+// The alias and the left join are what let a booking carry the name of its wall
+// without a second round trip. Every column is qualified because `id`, `name`
+// and `status` all exist on both sides of that join.
 const selectBooking = `
-	SELECT id, resource_id, service_id, COALESCE(user_id, ''),
-	       starts_at, ends_at, headcount,
-	       name, phone, email, notes, status, COALESCE(gcal_event_id, ''),
-	       created_at, cancelled_at
-	FROM bookings`
+	SELECT b.id, b.resource_id, b.service_id, COALESCE(b.user_id, ''),
+	       b.starts_at, b.ends_at, b.headcount,
+	       b.name, b.phone, b.email, b.notes,
+	       COALESCE(b.backdrop_id, ''), COALESCE(k.name, ''),
+	       b.status, COALESCE(b.gcal_event_id, ''),
+	       b.created_at, b.cancelled_at
+	FROM bookings b
+	LEFT JOIN booking_backdrops k ON k.id = b.backdrop_id`
 
 // scanner is what Query rows and QueryRow both satisfy, so one scan helper
 // serves the list and the single read.
@@ -488,7 +630,9 @@ func scanBooking(s scanner) (Booking, error) {
 	var cancelled sql.NullInt64
 	if err := s.Scan(&b.ID, &b.ResourceID, &b.ServiceID, &b.UserID,
 		&starts, &ends, &b.Headcount,
-		&b.Name, &b.Phone, &b.Email, &b.Notes, &b.Status, &b.GCalEventID,
+		&b.Name, &b.Phone, &b.Email, &b.Notes,
+		&b.BackdropID, &b.Backdrop,
+		&b.Status, &b.GCalEventID,
 		&created, &cancelled); err != nil {
 		return Booking{}, err
 	}

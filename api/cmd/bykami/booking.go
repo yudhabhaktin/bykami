@@ -203,6 +203,64 @@ func bookingSeed(ctx context.Context, db *sql.DB) error {
 			duration: 180, buffer: 0, min: 1, max: 30, chatOnly: true},
 	}
 
+	// The walls the studio can dress a room in, named as the studio names them.
+	//
+	// One row per wall and not one per package that uses it: white is sold to
+	// self photo and to pas foto, and two rows would be two walls to withdraw the
+	// day the roll runs out. Which package offers which is the pairing below.
+	//
+	// Not mirrored into packages/content, unlike the packages above. Its backdrop
+	// record requires a photograph per entry and only the two motif walls have
+	// one — the plain rolls have never been shot on their own, and an entry with
+	// an invented image path is worse than no entry.
+	backdrops := []struct{ id, name string }{
+		{"white", "White"},
+		{"black", "Black"},
+		{"duck-egg", "Duck Egg"},
+		{"pink", "Pink"},
+		{"ivory", "Ivory"},
+		{"grey", "Grey"},
+		{"red", "Red"},
+		{"blue", "Blue"},
+		{"yellow", "Yellow"},
+		// The two patterned walls, which are what the MOTIF packages charge extra
+		// for. Their ids carry no "motif-" prefix: that word describes the packages
+		// sold against them, not the walls themselves.
+		{"mediteranian", "Mediteranian"},
+		{"black-molding", "Black Molding"},
+	}
+
+	// Which package is shot against which wall, in the order the package offers
+	// them. Grouped by the set rather than listed per package, because the four
+	// plain self-photo lengths differ in how many people fit and in nothing else —
+	// writing the six rolls out four times is four chances for one to drift.
+	//
+	// The photobox packages are absent on purpose. A booth's backdrop is part of
+	// the booth, and Y2K, Vintage and Maroon are already three packages naming it;
+	// an empty set is what makes the page ask nothing rather than show a picker
+	// with one entry in it.
+	backdropSets := []struct {
+		services  []string
+		backdrops []string
+	}{
+		{
+			[]string{"self-mini", "self-midi", "self-maxi", "self-big-maxi"},
+			[]string{"white", "black", "duck-egg", "pink", "ivory", "grey"},
+		},
+		{
+			[]string{"motif-midi", "motif-family", "motif-squad"},
+			[]string{"mediteranian", "black-molding"},
+		},
+		// Red and blue lead because those are the two an Indonesian identity photo
+		// is normally taken against; white and yellow are the rest of what the
+		// studio holds. This is the ordering that could not be expressed if
+		// order_index sat on the wall instead of on the pairing.
+		{
+			[]string{"pas-formal", "pas-marry-me", "pas-kedinasan"},
+			[]string{"red", "blue", "white", "yellow"},
+		},
+	}
+
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -238,6 +296,28 @@ func bookingSeed(ctx context.Context, db *sql.DB) error {
 			s.id, s.resource, s.name, s.line, s.description, s.price, perPerson,
 			s.duration, s.buffer, s.min, s.max, i, mode, now); err != nil {
 			return fmt.Errorf("seed service %s: %w", s.id, err)
+		}
+	}
+
+	for _, b := range backdrops {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO booking_backdrops (id, name, created_at) VALUES (?, ?, ?)
+			 ON CONFLICT (id) DO NOTHING`, b.id, b.name, now); err != nil {
+			return fmt.Errorf("seed backdrop %s: %w", b.id, err)
+		}
+	}
+
+	for _, set := range backdropSets {
+		for _, service := range set.services {
+			for i, backdrop := range set.backdrops {
+				if _, err := tx.ExecContext(ctx,
+					`INSERT INTO booking_service_backdrops (service_id, backdrop_id, order_index)
+					 VALUES (?, ?, ?)
+					 ON CONFLICT (service_id, backdrop_id) DO NOTHING`,
+					service, backdrop, i); err != nil {
+					return fmt.Errorf("seed backdrop %s for %s: %w", backdrop, service, err)
+				}
+			}
 		}
 	}
 
@@ -290,7 +370,8 @@ func bookingSeed(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 
-	fmt.Printf("seeded %d resources, %d services, hours and breaks\n", len(resources), len(services))
+	fmt.Printf("seeded %d resources, %d services, %d backdrops, hours and breaks\n",
+		len(resources), len(services), len(backdrops))
 	fmt.Println(`connect a calendar with: bykami -db … booking calendar <resource> <google-calendar-id>`)
 	return nil
 }
