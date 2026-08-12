@@ -46,8 +46,13 @@
   <div class="scroll-x">
     <table>
       <thead>
+        {{/*
+          Background sits next to Paket rather than at the end, because those two
+          are the whole preparation: which room, and which roll to hang in it.
+          Everything after them is who is coming and whether the booking landed.
+        */}}
         <tr>
-          <th>Jam</th><th>Paket</th><th>Nama</th><th>Orang</th>
+          <th>Jam</th><th>Paket</th><th>Background</th><th>Nama</th><th>Orang</th>
           <th>WhatsApp</th><th>Kalender</th><th>Status</th><th></th>
         </tr>
       </thead>
@@ -56,6 +61,12 @@
           <tr>
             <td class="tabular">{{clock .StartsAt}}–{{clock .EndsAt}}</td>
             <td>{{.ServiceID}}</td>
+            {{/*
+              An em dash rather than an empty cell for a package that offers no
+              choice — a blank reads as "nobody filled this in", which is the one
+              thing an operator must not conclude here.
+            */}}
+            <td>{{if .Backdrop}}{{.Backdrop}}{{else}}<span class="muted">—</span>{{end}}</td>
             <td>{{.Name}}</td>
             <td class="tabular">{{.Headcount}}</td>
             <td class="tabular"><a href="https://wa.me/{{wa .Phone}}">{{.Phone}}</a></td>

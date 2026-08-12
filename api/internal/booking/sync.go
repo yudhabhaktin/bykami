@@ -259,6 +259,13 @@ func describe(b Booking, svc Service, location string) Event {
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Paket: %s\n", svc.Name)
+	// Second line, above the customer's own details, because it is the only line
+	// here that is an instruction: the roll has to be hung before the session
+	// starts, and the owner reads this event on a phone between sessions. Absent
+	// entirely for a package with no choice rather than printed empty.
+	if b.Backdrop != "" {
+		fmt.Fprintf(&sb, "Background: %s\n", b.Backdrop)
+	}
 	fmt.Fprintf(&sb, "Nama: %s\n", b.Name)
 	fmt.Fprintf(&sb, "WhatsApp: %s\n", b.Phone)
 	if b.Email != "" {

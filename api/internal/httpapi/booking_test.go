@@ -32,6 +32,24 @@ func seedBooking(t *testing.T, db *sql.DB) {
 		 VALUES (0,540,1260),(1,540,1260),(2,540,1260),(3,540,1260),(4,540,1260),(5,540,1260),(6,540,1260)`,
 		`INSERT INTO booking_breaks (id, weekday, starts_at, ends_at, reason)
 		 VALUES ('maghrib', NULL, 1050, 1080, 'Maghrib')`,
+
+		// A second package, on its own resource so it never races the photobox
+		// above, and the only one here that asks which wall to hang. The photobox
+		// keeps offering nothing, which is what makes "backdrops": [] on that row
+		// an assertion rather than a coincidence.
+		`INSERT INTO booking_resources (id, name, created_at)
+		 VALUES ('self-photo', 'Self photo', unixepoch())`,
+		`INSERT INTO booking_services
+		   (id, resource_id, name, service_line, description, price_idr, price_per_person,
+		    duration_minutes, buffer_minutes, headcount_min, headcount_max, order_index, created_at)
+		 VALUES ('self-midi', 'self-photo', 'MIDI', 'self-photo', '2 print 4R',
+		         70000, 0, 20, 10, 1, 4, 1, unixepoch())`,
+		`INSERT INTO booking_backdrops (id, name, created_at)
+		 VALUES ('white', 'White', unixepoch()), ('ivory', 'Ivory', unixepoch())`,
+		// White first, against the alphabet, so the response proves it carries the
+		// package's own order and not the database's.
+		`INSERT INTO booking_service_backdrops (service_id, backdrop_id, order_index)
+		 VALUES ('self-midi', 'white', 0), ('self-midi', 'ivory', 1)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -80,14 +98,32 @@ func TestBookingCatalogueIsPublicAndCacheable(t *testing.T) {
 			Name           string `json:"name"`
 			PriceIDR       int64  `json:"price_idr"`
 			PricePerPerson bool   `json:"price_per_person"`
+			Backdrops      []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"backdrops"`
 		} `json:"services"`
 	}](t, w)
-	if len(out.Services) != 1 || out.Services[0].ID != "photobox-y2k" {
+	if len(out.Services) != 2 || out.Services[0].ID != "photobox-y2k" {
 		t.Fatalf("catalogue = %+v", out.Services)
 	}
 	if out.Services[0].PriceIDR != 30000 || !out.Services[0].PricePerPerson {
 		t.Errorf("price = %d per-person %v, want 30000 per person",
 			out.Services[0].PriceIDR, out.Services[0].PricePerPerson)
+	}
+
+	// The walls the page renders, in the package's own order. A booth has none,
+	// and the page has to be able to tell that from a response that predates
+	// backdrops — which is why the field is never omitted.
+	if n := len(out.Services[0].Backdrops); n != 0 {
+		t.Errorf("the photobox offers %d backdrops, want none", n)
+	}
+	walls := out.Services[1].Backdrops
+	if len(walls) != 2 || walls[0].ID != "white" || walls[1].Name != "Ivory" {
+		t.Errorf("self-midi backdrops = %+v, want white then Ivory", walls)
+	}
+	if !strings.Contains(w.Body.String(), `"backdrops":[]`) {
+		t.Error("a package with no backdrops sent null or nothing, not an empty list")
 	}
 
 	// A price list is not personal data, and this is read by every visitor to the
@@ -205,6 +241,79 @@ func TestBookingWithoutALoginCreatesTheAccount(t *testing.T) {
 	// Personal data. no-store even though availability beside it is cached.
 	if got := back.Header().Get("Cache-Control"); got != "no-store" {
 		t.Errorf("Cache-Control on a booking = %q, want no-store", got)
+	}
+}
+
+// The wall travels the whole way: chosen on the page, checked here, and echoed
+// back by name so the confirmation screen can print what the studio will hang.
+func TestBookingCarriesTheChosenBackdrop(t *testing.T) {
+	h, _, db, _ := newTestAPI(t, false)
+	seedBooking(t, db)
+
+	at := nextSlot().Format(time.RFC3339)
+	body := `{"service":"self-midi","starts_at":"` + at +
+		`","headcount":3,"name":"Rina","phone":"081234567890","backdrop":"ivory","terms":true}`
+	w := bookingRequest(t, h, http.MethodPost, "/v1/booking", studioOrigin, body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("booking = %d, want 201: %s", w.Code, w.Body)
+	}
+
+	out := decodeBody[struct {
+		ID       string `json:"id"`
+		Backdrop string `json:"backdrop"`
+	}](t, w)
+	// The name, not the id: this is what a customer reads on the receipt.
+	if out.Backdrop != "Ivory" {
+		t.Errorf("backdrop = %q, want Ivory", out.Backdrop)
+	}
+
+	// And it survives the read the confirmation page makes, which goes through the
+	// join rather than through anything the request carried.
+	back := bookingRequest(t, h, http.MethodGet, "/v1/booking/"+out.ID, studioOrigin, "")
+	if got := decodeBody[struct {
+		Backdrop string `json:"backdrop"`
+	}](t, back).Backdrop; got != "Ivory" {
+		t.Errorf("read back %q, want Ivory", got)
+	}
+}
+
+// 400 and not 409 on both: unlike a taken slot, neither of these became wrong
+// while the customer was filling the form in.
+func TestBookingRefusesAWallThePackageDoesNotOffer(t *testing.T) {
+	h, _, db, _ := newTestAPI(t, false)
+	seedBooking(t, db)
+
+	at := nextSlot().Format(time.RFC3339)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			"no background chosen",
+			`{"service":"self-midi","starts_at":"` + at + `","headcount":3,"name":"Rina","phone":"081234567890","terms":true}`,
+		},
+		{
+			"a colour the studio does not stock",
+			`{"service":"self-midi","starts_at":"` + at + `","headcount":3,"name":"Rina","phone":"081234567890","backdrop":"chartreuse","terms":true}`,
+		},
+		{
+			"a background named for a booth that has one built in",
+			`{"service":"photobox-y2k","starts_at":"` + at + `","headcount":2,"name":"Rina","phone":"081234567890","backdrop":"ivory","terms":true}`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := bookingRequest(t, h, http.MethodPost, "/v1/booking", studioOrigin, tc.body)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("got %d, want 400: %s", w.Code, w.Body)
+			}
+		})
+	}
+
+	var booked int
+	db.QueryRow(`SELECT COUNT(*) FROM bookings`).Scan(&booked)
+	if booked != 0 {
+		t.Errorf("%d bookings written by requests that were refused", booked)
 	}
 }
 

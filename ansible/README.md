@@ -272,9 +272,15 @@ bykami -db /var/lib/bykami/bykami.db booking calendar photobox <id>
 Clearing a calendar id detaches it and drops the ranges it had cached, so a room
 whose calendar is removed does not stay blocked against a calendar nobody reads.
 
-**What is still shell-only:** opening hours, the Dzuhur and Maghrib breaks, and
-the packages and prices, via `bykami booking seed`. They change when the studio
-buys a room, which is rarer than connecting a calendar.
+**What is still shell-only:** opening hours, the Dzuhur and Maghrib breaks, the
+packages and prices, and the backdrops each package offers, via
+`bykami booking seed`. They change when the studio buys a room or a roll of
+paper, which is rarer than connecting a calendar.
+
+The seed is idempotent and has to be re-run after deploying a release that adds
+to the catalogue — the backdrops arrived that way, and until it runs the
+migration has left the tables empty, so the booking page asks nobody which
+background they want and the console prints an em dash for every session.
 
 ### Backups are half-finished, deliberately visibly
 

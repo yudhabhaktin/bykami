@@ -154,6 +154,28 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
             <select id="orang" name="orang" data-headcount required></select>
           </p>
 
+          {/*
+            Which wall the room is dressed in, filled from the package's own list
+            and hidden entirely for the packages that offer no choice — a photobox
+            backdrop is part of the booth, and a picker with nothing in it is a
+            question a customer stops to read before finding there is no answer to
+            give.
+
+            A fieldset with a legend rather than a label, because this is a group
+            of radios and a label may only name one control. The chrome is reset in
+            the styles below so it reads as another field, not as a boxed section.
+
+            It sits with the other things about the session rather than as a fourth
+            step: the walls do not change what is free, so putting it before the
+            calendar would add a page between "which package" and "when" for a
+            choice that constrains neither.
+          */}
+          <fieldset class="field backdrop-field" data-backdrop hidden>
+            <legend>Background</legend>
+            <span class="hint muted">Yang kamu pilih akan disiapkan sebelum sesi mulai.</span>
+            <div class="swatches" data-backdrop-options></div>
+          </fieldset>
+
           <div class="terms">
             <p class="ui">Syarat dan ketentuan</p>
             <ul>
@@ -246,30 +268,68 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   if (!flow) return;
 
   var idr = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
-  var LINES = {
-    "self-photo": "Self photo",
+
+  // The heading above each block of packages, keyed by the block rather than by
+  // the service_line the API sends — the two stopped being the same thing when
+  // the patterned-backdrop packages got a heading of their own.
+  //
+  // The last two are unreachable today: everything on those lines is sold by
+  // chat and rendered by renderChatPackages below. They stay so that a package
+  // moved to "web" mode lands under a name rather than under its raw line.
+  var GROUPS = {
+    "self-basic": "Self Photo Basic",
+    "self-motif": "Self Photo Motif",
     "photobox": "Photobox",
     "pas-foto": "Pas foto",
     "outdoor-photographer": "Fotografer luar studio",
     "videographer": "Videografer",
   };
-  var DAYS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+
+  // Which block a package belongs under. Every line but self photo is already one
+  // block; self photo is two, and the split is made here rather than in the API
+  // because service_line is a CHECK constraint in SQLite — growing one means
+  // rebuilding a table that every booking holds a foreign key into, which
+  // 0004_booking.sql and the seed's own comment both spell out.
+  //
+  // The id prefix is the only signal the response carries, and it is a dependable
+  // one: all three patterned packages are seeded as motif-… and nothing else is.
+  function groupOf(s) {
+    if (s.service_line !== "self-photo") return s.service_line;
+    return s.id.indexOf("motif-") === 0 ? "self-motif" : "self-basic";
+  }
+
+  // The quoted packages that happen inside the studio, by id, because the line
+  // they carry cannot say so: the seed files fotografer-studio under
+  // outdoor-photographer for the same CHECK-constraint reason as above, and
+  // says outright that nothing renders that value. Something does now.
+  //
+  // The API serves none of these today, which is why the indoor heading below
+  // announces rather than lists. The moment the seed's studio session is live it
+  // lands under that heading as a real card and the placeholder stops rendering,
+  // rather than sitting under "outdoor" beside a "segera hadir" that contradicts it.
+  var INDOOR_CHAT = { "fotografer-studio": true };
+
+  var DAYS =["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
-  // The photograph on each package card, so somebody choosing between MIDI and
-  // MOTIF MIDI can see that the difference is the wall behind them. The prices
-  // and headcounts never said that; only the word "motif" in a description did.
+  // The photograph on each package card, so somebody choosing between two
+  // packages can see the room behind the price. The prices and headcounts never
+  // said that; only a word in a description did.
   //
   // Keyed by service id but named after the room, because a room is what the
   // picture is of and two packages can share one: BIG MAXI is sold in the same
-  // plain-backdrop room as MAXI, and MOTIF SQUAD in the same patterned one as
-  // MOTIF FAMILY, so those cards borrow the photograph of their smaller sibling
-  // rather than go without.
+  // plain-backdrop room as MAXI, so its card borrows the photograph of its
+  // smaller sibling rather than go without.
   //
-  // The photographer and videographer packages have no entry. Nothing has been
-  // shot of work away from the studio, and the nearest photograph in any other
-  // line would be a picture of a room those packages do not happen in. Their
-  // cards render exactly as they did before.
+  // The three motif packages have no entry, and that is the one deliberate gap.
+  // Their block prints both patterned walls at full size under its heading, so a
+  // thumbnail on each card is those same two photographs a second time at 88px —
+  // where a pattern is not legible anyway, and where MOTIF FAMILY and MOTIF
+  // SQUAD would have had to show the same crop as each other. See BACKDROPS.
+  //
+  // The photographer and videographer packages have no entry either. Nothing has
+  // been shot of work away from the studio, and the nearest photograph in any
+  // other line would be a picture of a room those packages do not happen in.
   var SHOTS = {
     "self-basic-mini": "Contoh hasil di ruang self photo latar polos",
     "self-basic-midi": "Contoh hasil di ruang self photo latar polos",
@@ -288,9 +348,6 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     "self-midi": "self-basic-midi",
     "self-maxi": "self-basic-maxi",
     "self-big-maxi": "self-basic-maxi",
-    "motif-midi": "motif-black-molding",
-    "motif-family": "motif-mediteranian",
-    "motif-squad": "motif-mediteranian",
     "photobox-y2k": "photobox-y2k",
     "photobox-vintage": "photobox-vintage",
     "photobox-maroon": "photobox-maroon",
@@ -298,6 +355,19 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     "pas-marry-me": "pas-marry-me",
     "pas-kedinasan": "pas-kedinasan",
   };
+
+  // The two walls the motif room is dressed in, shown once under the heading
+  // rather than described in words. "Background motif" is what the packages said
+  // and it is not a picture of anything — a visitor weighing MIDI at 70K against
+  // MOTIF MIDI at 80K is paying for a wall, so the wall is the thing to show.
+  //
+  // Once, and here: this is the only place the two appear, which is why the
+  // three cards below carry no thumbnail. The alt text comes out of SHOTS, so
+  // each photograph still keeps one description.
+  var BACKDROPS = [
+    { shot: "motif-black-molding", name: "Black Molding" },
+    { shot: "motif-mediteranian", name: "Mediteranian" },
+  ];
 
   // Returns markup because the cards around it are built that way, but the
   // element is assembled rather than concatenated: esc() below escapes for text
@@ -321,6 +391,35 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     return img.outerHTML;
   }
 
+  // Assembled rather than concatenated, for the same reason thumb() is: esc()
+  // escapes for text content and leaves a double quote alone, which is the wrong
+  // tool for an alt attribute.
+  //
+  // A list rather than two loose figures, so the pair reads as "the room comes in
+  // these two" — the same shape as the .picks list under it, at the size of a
+  // thing you look at rather than a thing you scan past.
+  function renderBackdrops(host) {
+    var ul = document.createElement("ul");
+    ul.className = "backdrops";
+    BACKDROPS.forEach(function (b) {
+      var li = document.createElement("li");
+      var img = document.createElement("img");
+      img.setAttribute("src", "/img/paket/" + b.shot + ".jpg");
+      img.alt = SHOTS[b.shot];
+      img.width = 264;
+      img.height = 264;
+      img.loading = "lazy";
+      img.decoding = "async";
+      var name = document.createElement("span");
+      name.className = "backdrop-name ui";
+      name.textContent = b.name;
+      li.appendChild(img);
+      li.appendChild(name);
+      ul.appendChild(li);
+    });
+    host.appendChild(ul);
+  }
+
   var el = function (sel) { return flow.querySelector(sel); };
   var steps = {
     service: el('[data-step="service"]'),
@@ -331,7 +430,7 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   var crumbs = flow.querySelectorAll("[data-crumbs] li");
   var order = ["service", "time", "details"];
 
-  var state = { service: null, slots: {}, day: null, slot: null };
+  var state = { service: null, slots: {}, day: null, slot: null, backdrop: null };
 
   function show(name) {
     for (var k in steps) steps[k].hidden = k !== name;
@@ -388,18 +487,25 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     var groups = [];
     var seen = {};
     services.forEach(function (s) {
-      if (!seen[s.service_line]) { seen[s.service_line] = []; groups.push(s.service_line); }
-      seen[s.service_line].push(s);
+      var g = groupOf(s);
+      if (!seen[g]) { seen[g] = []; groups.push(g); }
+      seen[g].push(s);
     });
 
-    groups.forEach(function (line) {
+    groups.forEach(function (group) {
       var h = document.createElement("h4");
-      h.textContent = LINES[line] || line;
+      h.textContent = GROUPS[group] || group;
       host.appendChild(h);
+
+      // Under the heading rather than on the cards, and instead of them: at 88px
+      // a thumbnail shows that a wall is patterned and not what the pattern is,
+      // which is the one thing this block is selling. What separates the three
+      // packages under it is how many people fit, not which wall.
+      if (group === "self-motif") renderBackdrops(host);
 
       var ul = document.createElement("ul");
       ul.className = "picks";
-      seen[line].forEach(function (s) {
+      seen[group].forEach(function (s) {
         var li = document.createElement("li");
         var b = document.createElement("button");
         b.type = "button";
@@ -437,22 +543,55 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   // No duration or headcount line here, unlike a bookable package. Those numbers
   // are what a session promises once it is agreed, and printing "60 menit"
   // beside a package with no price reads as a quote.
+  //
+  // Two headings rather than one. Every package the studio quotes today happens
+  // at the customer's location, and a bare "Fotografer & videografer" over a
+  // column of prices left a visitor to work out on their own whether 350K bought
+  // an hour in the studio. It does not, and the in-studio pair is not on sale
+  // yet — so the heading says outdoor and the indoor pair is announced below it.
   function renderChatPackages(host, chat) {
-    if (!chat.length || !waNumber) return;
+    var indoor = [];
+    var outdoor = [];
+    chat.forEach(function (s) { (INDOOR_CHAT[s.id] ? indoor : outdoor).push(s); });
 
-    var h = document.createElement("h4");
-    h.textContent = "Fotografer & videografer";
-    host.appendChild(h);
+    function heading(text) {
+      var h = document.createElement("h4");
+      h.textContent = text;
+      host.appendChild(h);
+    }
 
-    var note = document.createElement("p");
-    note.className = "muted chat-note";
-    note.textContent =
-      "Paket ini diatur lewat chat — jadwal dan harga menyesuaikan lokasi, durasi dan jumlah orang.";
-    host.appendChild(note);
+    function note(text) {
+      var p = document.createElement("p");
+      p.className = "muted chat-note";
+      p.textContent = text;
+      host.appendChild(p);
+    }
 
+    if (outdoor.length && waNumber) {
+      heading("Fotografer & videografer outdoor");
+      note("Paket ini diatur lewat chat — jadwal dan harga menyesuaikan lokasi, durasi dan jumlah orang.");
+      host.appendChild(chatList(outdoor));
+    }
+
+    if (indoor.length) {
+      // Nothing to announce: the studio is selling it. Same treatment as the
+      // outdoor block, and silently absent when there is no number to chat to,
+      // because a dead WhatsApp link is worse than an absent one.
+      if (!waNumber) return;
+      heading("Fotografer & videografer indoor");
+      note("Paket ini diatur lewat chat — jadwal dan harga menyesuaikan durasi dan jumlah orang.");
+      host.appendChild(chatList(indoor));
+      return;
+    }
+
+    heading("Fotografer & videografer indoor");
+    host.appendChild(soonList(["Fotografer indoor", "Videografer indoor"]));
+  }
+
+  function chatList(services) {
     var ul = document.createElement("ul");
     ul.className = "picks";
-    chat.forEach(function (s) {
+    services.forEach(function (s) {
       var li = document.createElement("li");
       var a = document.createElement("a");
       a.className = "card pick pick-chat";
@@ -476,7 +615,28 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
       li.appendChild(a);
       ul.appendChild(li);
     });
-    host.appendChild(ul);
+    return ul;
+  }
+
+  // Announced, not sold. The card is a plain <li> with no price, no link and no
+  // description: there is nothing here to press, and a WhatsApp link would start
+  // a conversation the studio cannot yet finish. No duration or headcount either,
+  // for the reason the chat cards carry none — a number beside a package with no
+  // price reads as a quote, and these have not been priced at all.
+  function soonList(names) {
+    var ul = document.createElement("ul");
+    ul.className = "picks";
+    names.forEach(function (name) {
+      var li = document.createElement("li");
+      li.className = "card pick pick-soon";
+      li.innerHTML =
+        '<span class="pick-body">' +
+        '<span class="pick-name">' + esc(name) + "</span>" +
+        '<span class="pick-spec muted ui">Segera hadir</span>' +
+        "</span>";
+      ul.appendChild(li);
+    });
+    return ul;
   }
 
   function esc(s) {
@@ -494,6 +654,7 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     el("[data-chosen-service]").textContent =
       service.name + " · " + idr.format(service.price_idr) + (service.price_per_person ? " / orang" : "");
     fillHeadcount(service);
+    fillBackdrops(service);
     show("time");
     loadAvailability(service);
   }
@@ -507,6 +668,57 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
       o.textContent = n + " orang";
       sel.appendChild(o);
     }
+  }
+
+  // The walls this package can be shot against, exactly as the API ordered them —
+  // pas foto leads with the two an Indonesian identity photo actually calls for,
+  // and that ordering is a fact the server holds, not one to re-sort here.
+  //
+  // Names and not colour chips. Guessing a hex for "Duck Egg" would show a
+  // customer a colour that is not the paper in the building, and the sites are
+  // monochrome by design — six swatches would be the only hue on four properties.
+  // The two motif walls are not pictured here either: they are printed full size
+  // under their own heading in step one, and a 40px repeat of the same photograph
+  // shows that a wall is patterned without showing which pattern.
+  //
+  // Nothing is preselected. A default is a wall the operator hangs and the
+  // customer never chose, which is the failure this whole field exists to stop —
+  // so an unanswered choice is caught on submit instead.
+  function fillBackdrops(service) {
+    var field = el("[data-backdrop]");
+    var host = el("[data-backdrop-options]");
+    host.innerHTML = "";
+    state.backdrop = null;
+
+    var options = service.backdrops || [];
+    field.hidden = options.length === 0;
+    if (!options.length) return;
+
+    options.forEach(function (b) {
+      var label = document.createElement("label");
+      label.className = "swatch";
+
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = "background";
+      input.value = b.id;
+      input.addEventListener("change", function () {
+        state.backdrop = b;
+        clearError();
+      });
+
+      var text = document.createElement("span");
+      text.className = "ui";
+      text.textContent = b.name;
+
+      label.appendChild(input);
+      label.appendChild(text);
+      host.appendChild(label);
+    });
+  }
+
+  function needsBackdrop() {
+    return !!(state.service && (state.service.backdrops || []).length);
   }
 
   function loadAvailability(service) {
@@ -639,6 +851,9 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     // Loose on purpose: internal/phone owns what a valid Indonesian mobile number
     // is, and a stricter guess here would refuse numbers the server accepts.
     if (wa.replace(/[^0-9]/g, "").length < 9) return fail("Nomor WhatsApp belum lengkap.");
+    // Caught here rather than defaulted, and the server refuses it too — the page
+    // is not the only thing that can post a booking.
+    if (needsBackdrop() && !state.backdrop) return fail("Pilih background dulu.");
     if (!form.setuju.checked) return fail("Syarat dan ketentuan harus disetujui.");
 
     var button = el("[data-submit]");
@@ -655,6 +870,9 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
         name: nama,
         phone: wa,
         email: form.email.value.trim(),
+        // Empty for a package with no choice, which is what the server expects —
+        // it refuses a wall named for a booth that has one built in.
+        backdrop: state.backdrop ? state.backdrop.id : "",
         terms: true,
       }),
     })
@@ -690,10 +908,18 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     var when = DAYS[d.getDay()] + ", " + d.getDate() + " " + MONTHS[d.getMonth()] + " " +
       d.getFullYear() + " · " + booking.starts_at.slice(11, 16);
 
+    // The server's word for it, not the chip that was clicked: this line is the
+    // customer's record of what the studio agreed to hang, and the only authority
+    // on that is the row that was written. Absent for a package with no choice.
+    var background = booking.backdrop
+      ? "<dt class=\\"muted\\">Background</dt><dd>" + esc(booking.backdrop) + "</dd>"
+      : "";
+
     el("[data-receipt]").innerHTML =
       '<p class="receipt-when">' + esc(when) + "</p>" +
       '<dl class="spec ui tabular">' +
       "<dt class=\\"muted\\">Paket</dt><dd>" + esc(state.service.name) + "</dd>" +
+      background +
       "<dt class=\\"muted\\">Nama</dt><dd>" + esc(booking.name) + "</dd>" +
       "<dt class=\\"muted\\">Jumlah</dt><dd>" + booking.headcount + " orang</dd>" +
       "<dt class=\\"muted\\">WhatsApp</dt><dd>" + esc(booking.phone) + "</dd>" +
@@ -703,6 +929,13 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     var link = el("[data-gcal]");
     if (link) link.href = gcalUrl(booking, state.service);
     show("done");
+  }
+
+  // Also in the customer's own calendar entry, because the studio's copy carries
+  // it and the two should say the same thing — somebody who booked three weeks
+  // ago will not remember which wall they picked.
+  function backgroundLine(booking) {
+    return booking.backdrop ? "\\nBackground: " + booking.backdrop : "";
   }
 
   // The customer's own copy. The studio's calendar is written by the server; this
@@ -720,7 +953,7 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
       text: service.name + " — studio by KAMI",
       dates: stamp(start) + "/" + stamp(end),
       details: "Kode booking: " + booking.id.slice(0, 8) + "\\nAtas nama " + booking.name +
-        " (" + booking.headcount + " orang)",
+        " (" + booking.headcount + " orang)" + backgroundLine(booking),
       location: "studio by KAMI, Jalan Yos Sudarso, Jajag Barat, Banyuwangi",
     });
     return "https://calendar.google.com/calendar/render?" + q.toString();
@@ -865,7 +1098,9 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     background: var(--line);
   }
 
-  :global([data-flow] .pick:hover) {
+  /* .pick-soon excluded: it is an <li>, not a button or an anchor, and a card
+     that lights up under the cursor without going anywhere reads as broken. */
+  :global([data-flow] .pick:not(.pick-soon):hover) {
     border-color: var(--text);
   }
 
@@ -887,8 +1122,50 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     margin-top: var(--space-1);
   }
 
+  /* Announced, not sold: no pointer, and no hover border, because neither
+     promises anything a click would deliver. */
+  :global([data-flow] .pick-soon) {
+    cursor: default;
+  }
+
+  :global([data-flow] .pick-soon .pick-name) {
+    color: var(--muted);
+  }
+
   :global([data-flow] .chat-note) {
     margin: 0 0 var(--space-3);
+  }
+
+  /* The two motif backdrops, side by side at every width — the pair is the
+     point, and one above the other is two photographs rather than a choice.
+
+     The max-width is the two files at their own size with the gap between them.
+     Without it each one stretches to half the section, which on a laptop is
+     440px of a 264px JPEG: blurred, and taller than every card under it, so the
+     block reads as a gallery with a price list attached. Narrower than that and
+     they scale down, which costs nothing. */
+  :global([data-flow] .backdrops) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    max-width: calc(2 * 264px + var(--space-3));
+    list-style: none;
+    margin: 0 0 var(--space-4);
+    padding: 0;
+  }
+
+  :global([data-flow] .backdrops img) {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: var(--radius);
+    background: var(--line);
+  }
+
+  :global([data-flow] .backdrop-name) {
+    display: block;
+    margin-top: var(--space-2);
   }
 
   /* The day strip scrolls rather than wrapping: a month wrapped is a block of
@@ -1006,6 +1283,85 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
 
   .hint {
     font-size: 14px;
+  }
+
+  /* A fieldset only for the radio grouping a legend gives it — every bit of its
+     own chrome comes off, so it reads as another field in the column rather than
+     as a boxed aside. `.field` is a grid, and a legend is not a grid item in the
+     way the other labels are, so the layout is stated here instead. */
+  .backdrop-field {
+    display: block;
+    border: 0;
+    margin: 0 0 var(--space-4);
+    padding: 0;
+    max-width: 28rem;
+  }
+
+  .backdrop-field legend {
+    padding: 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .backdrop-field .hint {
+    display: block;
+    margin-top: var(--space-2);
+  }
+
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+
+  /* The chips are written by the script, so they are namespaced the way the day
+     and time chips are — see the note above. */
+  :global([data-flow] .swatch) {
+    position: relative;
+    display: inline-flex;
+  }
+
+  /* Moved out of sight rather than removed: display:none and visibility:hidden
+     both take a radio out of the tab order, which would leave a keyboard user
+     with no way to answer a required question. Everything visible is the span. */
+  :global([data-flow] .swatch input) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  :global([data-flow] .swatch span) {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap);
+    padding-inline: var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    cursor: pointer;
+  }
+
+  :global([data-flow] .swatch:hover span) {
+    border-color: var(--text);
+  }
+
+  /* Inverted rather than merely outlined, the same as the chosen day, because
+     one of these is always the answer and a heavier border is not enough to say
+     which — see .day[aria-pressed="true"]. */
+  :global([data-flow] .swatch input:checked + span) {
+    border-color: var(--text);
+    background: var(--text);
+    color: var(--surface);
+  }
+
+  /* The focus ring has to move to the span, since the input it would land on is
+     the one that was taken out of sight above. */
+  :global([data-flow] .swatch input:focus-visible + span) {
+    outline: 2px solid var(--text);
+    outline-offset: 1px;
   }
 
   .check {
