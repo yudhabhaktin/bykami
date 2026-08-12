@@ -26,9 +26,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/agent/internal/camera"
 	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
 	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/compose"
@@ -52,6 +54,7 @@ type config struct {
 	outlet     string
 	source     string
 	camera     string
+	cameraTool string
 	shutter    string
 	payments   string
 	printerKit string
@@ -92,10 +95,25 @@ func main() {
 	flag.StringVar(&c.camera, "camera", "", `preview this video device, matched as a case-insensitive substring of its label, e.g. "EOS"; empty takes the browser's default camera`)
 
 	// How the countdown reaches the camera without the relay hardware in
-	// design/kiosk.md. A URL rather than a vendor integration, for the same
-	// reason the hot folder is a directory: whatever already owns the camera
-	// can be asked to fire it, and the booth learns no driver.
+	// design/kiosk.md. Two ways in, and they are exclusive — both fill the same
+	// slot, and a booth that thinks it is firing and is not is exactly the
+	// failure this flag exists to prevent.
+	//
+	// The default: a URL, for the same reason the hot folder is a directory —
+	// whatever already owns the camera can be asked to fire it, and the booth
+	// learns no driver.
 	flag.StringVar(&c.shutter, "shutter", "", `URL that fires the camera when the countdown ends, e.g. http://127.0.0.1:5513/?slc=capturenoaf (digiCamControl); empty means the shutter is pressed by hand`)
+
+	// The gphoto2 alternative: the agent finds the camera and photographs it
+	// itself, through the gphoto2 command-line tool. See internal/camera for
+	// why a subprocess rather than libgphoto2 linked in — it is the difference
+	// between a binary that still cross-compiles with GOOS=windows and one that
+	// needs a Windows build host.
+	//
+	// The reason the two are a flag rather than a preference: a Windows booth
+	// needs the gphoto2.exe installed and its Canon on the libusb driver, and
+	// live hardware is not something a default should guess at.
+	flag.StringVar(&c.cameraTool, "camera-tool", "", `path to the gphoto2 binary the agent runs to find and photograph the USB camera (e.g. "gphoto2"); empty means the shutter is pressed by hand`)
 
 	// Empty by default, and that default is a safety property. With no provider
 	// the booth cannot take money, so it says "pay at the counter" instead of
@@ -196,9 +214,28 @@ func run(c config, log *slog.Logger) error {
 	// The browser owns the camera on the webcam source, so there is nothing
 	// here for a remote trigger to fire. Refused rather than ignored: a booth
 	// started with a shutter it will never use is a booth somebody believes is
-	// firing a camera.
+	// firing a camera. The two ways in are refused together too, for the same
+	// reason — a booth configured to fire two cameras is a booth that fires
+	// one twice, which is not a photograph anyone can use.
 	var fireShutter func(context.Context) error
-	if c.shutter != "" {
+	var cam *camera.Camera
+	switch {
+	case c.cameraTool != "" && c.shutter != "":
+		return errors.New("-shutter and -camera-tool both fire the camera; pick one")
+	case c.cameraTool != "":
+		if !source.Tethered() {
+			return fmt.Errorf("-camera-tool has nothing to fire on -source=%s: the browser owns the camera there", source)
+		}
+		// hotFolder is non-empty here — Tethered() already required it above.
+		cam = camera.New(camera.WithTool(c.cameraTool))
+		fireShutter = func(ctx context.Context) error {
+			// The frame lands in the hot folder the ingest watcher already
+			// sweeps, so a photograph gphoto2 took is treated like any other:
+			// hashed, attributed, filed, deduplicated.
+			_, err := cam.Capture(ctx, c.hotFolder)
+			return err
+		}
+	case c.shutter != "":
 		if !source.Tethered() {
 			return fmt.Errorf("-shutter has nothing to fire on -source=%s: the browser owns the camera there", source)
 		}
@@ -279,11 +316,22 @@ func run(c config, log *slog.Logger) error {
 		// what a customer is being shown at that moment.
 		func() []framesync.Design { return reportable(live.All(), log) }, log)
 
+	// What the camera probe most recently saw, read by /api/state. A holder
+	// rather than a plain string so the answer stays current instead of freezing
+	// at whatever was plugged in at boot. Initialised empty so the reader never
+	// loads an unset slot; only the detector goroutine writes it.
+	var presence atomic.Value
+	presence.Store("")
+
 	srv, err := httpd.New(httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
 		Clips:  clips,
 		Ingest: watcher, Templates: live, Packages: packages,
 		Root: root, Source: source, Camera: c.camera, Shutter: fireShutter, OutletID: c.outlet,
+		// What the USB camera the booth photographs is, as opposed to Camera,
+		// which is what the kiosk should preview. nil cam (no -camera-tool)
+		// leaves it permanently empty — there is no probe to answer it.
+		Detected:  func() string { return presence.Load().(string) },
 		Simulated: simulated, PublicHost: c.publicHost, AccessTokens: tokens,
 		Retention: c.retention,
 		Log:       log,
@@ -333,6 +381,12 @@ func run(c config, log *slog.Logger) error {
 		background("framesync", frameSync.Run)
 	} else {
 		log.Info("frame sync is off; this booth offers only the designs already installed")
+	}
+
+	if cam != nil {
+		background("camera", func(ctx context.Context) error {
+			return probeCamera(ctx, log, cam, &presence)
+		})
 	}
 
 	// The review screen is the one the customer taps through, and without this
@@ -394,6 +448,58 @@ func run(c config, log *slog.Logger) error {
 	err = httpSrv.Shutdown(shutdownCtx)
 	wg.Wait()
 	return err
+}
+
+// cameraProbeEvery is how often the agent asks gphoto2 whether the camera is
+// still there. Coarse on purpose: --auto-detect is a subprocess, and the
+// answer only changes on a replug, which is a human-timescale event.
+const cameraProbeEvery = 30 * time.Second
+
+// probeCamera keeps the operator's answer to "is the booth seeing the camera?"
+// honest and current, writing the model to presence, and logs when it changes.
+//
+// A loop rather than a one-shot at startup because a camera is unplugged
+// between bookings all the time, and a screen that lights up "Canon EOS 200D"
+// while the camera sits in a bag on the counter is a screen that has lied.
+// Detection is never fatal — see camera.Detect — so a booth with no camera (or
+// no tool installed) sells exactly as it would with none wired up.
+func probeCamera(ctx context.Context, log *slog.Logger, cam *camera.Camera, presence *atomic.Value) error {
+	ticker := time.NewTicker(cameraProbeEvery)
+	defer ticker.Stop()
+
+	var lastModel string
+	var lastErr bool
+	for {
+		dev, err := cam.Detect(ctx)
+		switch {
+		case err != nil:
+			// Logged on the transition, not every probe: a tool sitting on a
+			// missing binary would otherwise fill the log four times a minute.
+			if !lastErr {
+				log.Warn("camera: probe failed", "err", err)
+			}
+			lastErr, lastModel = true, ""
+			presence.Store("")
+		case dev.Model == "":
+			if lastModel != "" || lastErr {
+				log.Warn("camera: none detected")
+			}
+			lastErr, lastModel = false, ""
+			presence.Store("")
+		default:
+			if lastModel != dev.Model || lastErr {
+				log.Info("camera: detected", "model", dev.Model, "port", dev.Port)
+			}
+			lastErr, lastModel = false, dev.Model
+			presence.Store(dev.Model)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
 }
 
 func parseSource(s string) (httpd.Source, error) {

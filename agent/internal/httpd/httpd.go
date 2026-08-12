@@ -164,6 +164,13 @@ type Deps struct {
 	// with a built-in webcam is reliably the wrong camera.
 	Camera string
 
+	// Detected names the USB camera the gphoto2 tool currently sees, or empty
+	// when that tool is off (no -camera-tool) or nothing is plugged in. A func
+	// because the answer changes as cameras come and go; it is the operator's
+	// "is the booth seeing the camera?" answered live, distinct from Camera,
+	// which is what the kiosk should preview.
+	Detected func() string
+
 	// OutletID is stamped on every session. One booth today; the ledger is
 	// pooled across outlets by design, so this is not a placeholder.
 	OutletID string
@@ -448,6 +455,12 @@ type stateResponse struct {
 	// previews is a property of that booth's hardware, not of the software.
 	Camera string `json:"camera"`
 
+	// Detected is the model of the USB camera the agent photographs, as last
+	// seen by its gphoto2 probe. Empty when that probe is off or nothing is
+	// plugged in. Answers "is the booth seeing the camera?" without a replug
+	// being told to anybody.
+	Detected string `json:"detected"`
+
 	// Shutter is whether the agent can fire the camera itself. The kiosk runs
 	// the automatic countdown only where something will actually fire at the
 	// end of it — a 3-2-1 that finishes with nobody photographed is worse than
@@ -565,6 +578,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	resp := stateResponse{
 		Source:     s.Source,
 		Camera:     s.Camera,
+		Detected:   s.detected(),
 		Shutter:    s.Shutter != nil,
 		Packages:   packages,
 		Templates:  views,
@@ -1424,6 +1438,15 @@ func (s *Server) delivery(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) template(id string) (compose.Template, bool) {
 	return s.Templates.ByID(id)
+}
+
+// detected reports the last camera the probe saw, tolerating a Deps without a
+// Detected func — the tests build one, and the zero value is nil.
+func (s *Server) detected() string {
+	if s.Detected == nil {
+		return ""
+	}
+	return s.Detected()
 }
 
 func (s *Server) decode(w http.ResponseWriter, r *http.Request, dst any) bool {

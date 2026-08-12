@@ -51,12 +51,13 @@ goal. Booth #1 sits at a fixed address on broadband with the owner on site.
 ```
         studio PC (Jajag)                        cloud
  ┌────────────────────────────┐
- │  camera → vendor tether    │
+ │  camera → gphoto2 CLI      │
  │            ↓               │
  │      hot folder            │
  │            ↓               │        ┌──────────────────────┐
  │   agent (Go, one binary)   │───────▶│ ECS (trial: SG)      │
- │   • watches folder         │  /v1   │ api/ — Go monolith   │
+ │   • detects + captures     │  /v1   │ api/ — Go monolith   │
+ │   • watches folder         │        │ SQLite (metadata)    │
  │   • local SQLite           │        │ SQLite (metadata)    │
  │   • print queue + status   │        └──────────┬───────────┘
  │   • embeds the kiosk UI    │                   │ signed URLs
@@ -112,12 +113,15 @@ The version floor is the lever for the day something genuinely must break.
 
 ## Capture — hot folder, not SDK
 
-**Decided: the camera's vendor software tethers; the agent watches a folder.**
+**Decided: the agent detects the camera and captures through the gphoto2 CLI.**
 
-Canon EOS Utility writes full-resolution JPEGs into a watched directory; the
-agent ingests them. The agent never talks to the camera to *receive* a photo —
-only, separately, to fire it. Those two concerns stay decoupled, which is what
-keeps a vendor SDK out of the build.
+The agent shells out to the `gphoto2` tool to detect the USB EOS camera and, on
+the countdown, capture the frame straight into a watched directory — no vendor
+GUI, no SDK in the build. It still *ingests* out of a hot folder: the shot
+lands there and the same watcher that once trusted EOS Utility's download takes
+it up, so every ingest safeguard (hash dedup, End-Of-Image, attribution,
+recovery) is reused unchanged. The camera is reached as a subprocess, not a
+linked library, which keeps a vendor SDK out of the build.
 
 ### The hardware
 
@@ -125,12 +129,13 @@ keeps a vendor SDK out of the build.
 target of 2.16 MP that is an order of magnitude of headroom — resolution stops
 being a design consideration entirely.
 
-EOS Utility does this natively, with no glue:
+gphoto2 does this natively, with no glue:
 
-- It has a **destination folder** preference. That folder *is* the hot folder.
-- It transfers on the **physical shutter release**, not only on its own remote
-  button — the camera body's shutter works "as you would do normally" and the
-  image lands on the PC. The customer's existing habit is unchanged.
+- It writes to the **`--filename` the agent computes** — `<hot-folder>/bykami-<nano>.jpg`.
+  That folder *is* the hot folder, and the write is atomic once the shot is taken.
+- It captures and downloads in **one command**, `--capture-image-and-download`, so
+  there is no tethering app to keep alive and nothing to poll for a finished
+  transfer.
 
 ### The trigger is the touchscreen
 
@@ -152,27 +157,39 @@ It also reverses two concessions made when the shutter was customer-held:
 The tap must be reachable from the posing position, or the countdown has to be
 long enough to walk back into frame. Five seconds is the usual answer.
 
-### How the tap reaches the shutter — open
+### How the tap reaches the shutter — the gphoto2 subprocess
 
 The hot-folder design deliberately avoided shutter control. Getting it back
-without also getting cgo and a vendor SDK is the question:
+without also getting a vendor SDK is the question:
 
 | Path | Cost |
 |---|---|
 | **USB relay into the RS-60E3 jack** | A few dollars of hardware. The 2.5 mm terminal is tip = shutter, ring = focus, sleeve = ground; the agent opens a serial port and pulses it. ~50 lines of Go, no cgo, works with any future body that has a remote port, and you can hear it click when debugging |
-| **digiCamControl** | Free Windows app with an HTTP API that can both trigger and tether, potentially replacing EOS Utility entirely — one moving part instead of two. But it wraps the same EDSDK underneath, and unattended long-run reliability is unproven here |
-| **Canon EDSDK via cgo** | Full control, live view, settings. Weeks of work, per-vendor, behind a developer registration. Rejected once already |
+| **digiCamControl** | Free Windows app with an HTTP API that can both trigger and tether, potentially replacing EOS Utility entirely. But it wraps the same EDSDK underneath, is a second GUI to keep alive, and unattended long-run reliability is unproven here |
+| **gphoto2 CLI subprocess** | The agent shells out to the `gphoto2` tool — chosen. It detects the USB EOS, captures, and downloads the frame into the hot folder, replacing EOS Utility and digiCamControl both. Kept at arm's length in `internal/camera`, so the Go binary stays a pure `GOOS=windows` cross-compile with no cgo |
+| **Canon EDSDK via cgo** | Full control, live view, settings. Weeks of work, per-vendor, behind a developer registration. Rejected twice now |
 
-Recommended: the relay. It keeps the capture path exactly as designed — EOS
-Utility still owns tethering, the agent still just watches a folder — and adds
-one serial write. The failure mode is a physical part coming unplugged, which is
-visible and cheap to fix, rather than a driver integration that breaks on a
-vendor update.
+**Decided: the gphoto2 subprocess.** On the countdown the agent runs
+`gphoto2 --capture-image-and-download --filename <hot-folder>/bykami-<nano>.jpg
+--force-overwrite`; at startup (and every 30 s) `--auto-detect` answers "is the
+booth seeing the camera?" for the operator. It wins over cgo because libgphoto2
+has no official Windows support and linking it would break the load-bearing
+`GOOS=windows, no cgo` cross-compile from a Mac; it wins over digiCamControl
+because it is one subprocess that also downloads, and it speaks to the camera
+over the same libusb driver on every platform. The failure mode to plan for is a
+driver swap, done once at setup, not a vendor update quietly changing an API.
 
-This removes the single largest engineering risk from the build. The
-alternative — cgo-wrapping Canon EDSDK or the Sony Camera Remote SDK, per
+**The booth prerequisite is that driver swap.** Canon ships a PTP driver that
+will not enumerate to libusb, so the booth needs **Zadig** to replace it with
+**WinUSB**, and the camera must be in **"PC Connection"** USB mode (not
+charge-only). This is the specific reason "detect the USB EOS camera" failed
+before the gphoto2 path existed. An absent camera is never fatal: the probe
+logs and the operator is told, but the booth keeps selling — a failed poll must
+never stop the booth selling.
+
+The alternative — cgo-wrapping Canon EDSDK or the Sony Camera Remote SDK, per
 vendor, on Windows, behind a developer registration — is weeks of work for
-shutter control the customer already has in their hand.
+shutter control the camera already offers over USB.
 
 **It also protects print quality, which is not negotiable.** Today's prints come
 off a real camera at full resolution. Studio output is 4R:

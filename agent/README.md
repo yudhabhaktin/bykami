@@ -1,8 +1,9 @@
 # agent — the booth binary
 
-One Go process on the studio PC. It watches the camera's hot folder, owns the
-print queue, serves the kiosk UI at `http://localhost`, and deletes the
-originals seven days later. Chrome in kiosk mode is the only other moving part.
+One Go process on the studio PC. It watches the camera's hot folder — and, with
+`-camera-tool`, detects the USB DSLR and captures into it — owns the print
+queue, serves the kiosk UI at `http://localhost`, and deletes the originals
+seven days later. Chrome in kiosk mode is the only other moving part.
 
 A **separate module** from `api/`, not a package inside it — see
 `design/kiosk.md` → Repo layout for why, and for why the two duplicate phone
@@ -15,6 +16,7 @@ normalisation rather than sharing it.
 | `internal/payment` | The QRIS charge that unlocks the shutter |
 | `internal/photo` | Every frame the booth has taken. Rows outlive files |
 | `internal/ingest` | Hot-folder watcher, debounce, crash recovery |
+| `internal/camera` | Detects and photographs the USB DSLR through the gphoto2 CLI, where `-camera-tool` is set |
 | `internal/compose` | Frames → a printable sheet at 300 dpi |
 | `internal/printer` | The print queue and the media ledger |
 | `internal/derive` | The delivered file: long edge 2048, EXIF stripped. A background worker builds one per frame |
@@ -219,6 +221,47 @@ nothing is wrong sends people home without their photographs.
 
 A refused shutter is a `502` and the customer is told to call staff. It is never
 a take: nothing is billed for a frame the camera did not expose.
+
+### Firing and capturing with gphoto2
+
+`-camera-tool` is the path to the `gphoto2` binary, for a booth that would
+rather the agent own the whole capture — detect, fire, download — than run a
+second vendor app:
+
+```bash
+-camera-tool gphoto2
+```
+
+It and `-shutter` are mutually exclusive: both fill the same job, and
+`-camera-tool` needs a tethered `-source`. Where `-shutter` handed a URL to an
+app that happened to own the camera, `-camera-tool` talks to the camera
+directly. On startup the agent runs `gphoto2 --auto-detect` to answer "is the
+booth seeing the camera?" for the operator and surface the model in `/api/state`;
+when the countdown ends it runs
+
+```bash
+gphoto2 --capture-image-and-download --filename <hot-folder>/bykami-<nano>.jpg --force-overwrite
+```
+
+The frame lands in the same hot folder the watcher already reads, so every
+ingest safeguard and the httpd `awaiting_file` flow are reused unchanged. It is
+a subprocess, not a linked SDK, for the same reason the download page ships GIF
+rather than MP4: `internal/camera` shells out to libgphoto2 so the release still
+cross-compiles with `GOOS=windows` and no cgo. No `--port` is sent — a booth has
+one camera, and gphoto2 targets the current bus device rather than a cached
+`usb:bus,dev` that a replug has made stale.
+
+The one-time booth prerequisite is a **driver swap**: Canon's PTP driver will not
+enumerate to libusb, so Windows needs **Zadig** to replace it with **WinUSB**,
+and the camera must be in **"PC Connection"** USB mode (not charge-only). This
+is the exact reason the agent could not detect the USB EOS before. An absent
+camera is never fatal — the probe logs and the operator is told, but the booth
+keeps selling, matching "a failed poll must never stop the booth selling".
+
+Presence here is checked, not assumed: a refused capture, or one that exits 0
+without writing the file, both arrive as a refusal and the customer is told to
+call staff, exactly as a refused `-shutter` is. Nothing is billed for a frame
+the camera did not expose.
 
 ## Which camera the booth previews
 
@@ -617,10 +660,11 @@ when there is a second outlet, that becomes worth having.
   QR is what actually delivers today, which is why the number stopped being a
   precondition for leaving the screen.
 - **No shutter relay.** `-shutter` fires the camera through whatever software
-  already owns it, which is what makes the tethered path automatic today.
-  Without it `-source=hotfolder` and `-source=hybrid` announce the countdown and
-  the frame is fired by hand. The relay into the RS-60E3 jack is still the
-  sturdier answer and is still unbuilt.
+  already owns it, which is what made the tethered path automatic; `-camera-tool`
+  now owns detect + capture through gphoto2 instead, with no second app. Without
+  either, `-source=hotfolder` and `-source=hybrid` announce the countdown and the
+  frame is fired by hand. The relay into the RS-60E3 jack is still the sturdier
+  answer and is still unbuilt.
 - **No motion on the hybrid path.** A clip has to be filed against the photo it
   belongs to, and a tethered capture hands back no photo id — the frame has not
   been taken yet, let alone ingested. So `-source=hybrid` shows a live preview
