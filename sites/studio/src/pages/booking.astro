@@ -161,20 +161,19 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
             question a customer stops to read before finding there is no answer to
             give.
 
-            A fieldset with a legend rather than a label, because this is a group
-            of radios and a label may only name one control. The chrome is reset in
-            the styles below so it reads as another field, not as a boxed section.
-
-            It sits with the other things about the session rather than as a fourth
-            step: the walls do not change what is free, so putting it before the
-            calendar would add a page between "which package" and "when" for a
-            choice that constrains neither.
+            A select rather than radio swatches. The walls do not change what is
+            free, so putting it before the calendar would add a page between "which
+            package" and "when" for a choice that constrains neither. What the walls
+            actually look like — the two motif walls — are shown as full photographs
+            on the package cards in step one.
           */}
-          <fieldset class="field backdrop-field" data-backdrop hidden>
-            <legend>Background</legend>
+          <p class="field" data-backdrop hidden>
+            <label for="background">Background</label>
             <span class="hint muted">Yang kamu pilih akan disiapkan sebelum sesi mulai.</span>
-            <div class="swatches" data-backdrop-options></div>
-          </fieldset>
+            <select id="background" name="background" data-backdrop-options required>
+              <option value="">Pilih background</option>
+            </select>
+          </p>
 
           <div class="terms">
             <p class="ui">Syarat dan ketentuan</p>
@@ -677,17 +676,12 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   // Names and not colour chips. Guessing a hex for "Duck Egg" would show a
   // customer a colour that is not the paper in the building, and the sites are
   // monochrome by design — six swatches would be the only hue on four properties.
-  // The two motif walls are not pictured here either: they are printed full size
-  // under their own heading in step one, and a 40px repeat of the same photograph
-  // shows that a wall is patterned without showing which pattern.
-  //
-  // Nothing is preselected. A default is a wall the operator hangs and the
-  // customer never chose, which is the failure this whole field exists to stop —
-  // so an unanswered choice is caught on submit instead.
+  // The two motif walls are not pictured in the select either: they are printed
+  // full size under their own heading in step one.
   function fillBackdrops(service) {
     var field = el("[data-backdrop]");
-    var host = el("[data-backdrop-options]");
-    host.innerHTML = "";
+    var sel = el("[data-backdrop-options]");
+    sel.innerHTML = '<option value="">Pilih background</option>';
     state.backdrop = null;
 
     var options = service.backdrops || [];
@@ -695,26 +689,18 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     if (!options.length) return;
 
     options.forEach(function (b) {
-      var label = document.createElement("label");
-      label.className = "swatch";
-
-      var input = document.createElement("input");
-      input.type = "radio";
-      input.name = "background";
-      input.value = b.id;
-      input.addEventListener("change", function () {
-        state.backdrop = b;
-        clearError();
-      });
-
-      var text = document.createElement("span");
-      text.className = "ui";
-      text.textContent = b.name;
-
-      label.appendChild(input);
-      label.appendChild(text);
-      host.appendChild(label);
+      var o = document.createElement("option");
+      o.value = b.id;
+      o.textContent = b.name;
+      sel.appendChild(o);
     });
+
+    sel.addEventListener("change", function onChange() {
+      var id = sel.value;
+      state.backdrop = id ? options.find(function (b) { return b.id === id; }) : null;
+      clearError();
+      sel.removeEventListener("change", onChange);
+    }, { once: true });
   }
 
   function needsBackdrop() {
@@ -1285,83 +1271,12 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     font-size: 14px;
   }
 
-  /* A fieldset only for the radio grouping a legend gives it — every bit of its
-     own chrome comes off, so it reads as another field in the column rather than
-     as a boxed aside. `.field` is a grid, and a legend is not a grid item in the
-     way the other labels are, so the layout is stated here instead. */
-  .backdrop-field {
-    display: block;
-    border: 0;
-    margin: 0 0 var(--space-4);
-    padding: 0;
+  /* A dropdown for background selection, matching the other form selects. Filled
+     from the package's own list and hidden entirely for packages that offer no
+     choice — a photobox backdrop is part of the booth. */
+  :global([data-flow] [data-backdrop] select) {
+    width: 100%;
     max-width: 28rem;
-  }
-
-  .backdrop-field legend {
-    padding: 0;
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .backdrop-field .hint {
-    display: block;
-    margin-top: var(--space-2);
-  }
-
-  .swatches {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin-top: var(--space-3);
-  }
-
-  /* The chips are written by the script, so they are namespaced the way the day
-     and time chips are — see the note above. */
-  :global([data-flow] .swatch) {
-    position: relative;
-    display: inline-flex;
-  }
-
-  /* Moved out of sight rather than removed: display:none and visibility:hidden
-     both take a radio out of the tab order, which would leave a keyboard user
-     with no way to answer a required question. Everything visible is the span. */
-  :global([data-flow] .swatch input) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  :global([data-flow] .swatch span) {
-    display: inline-flex;
-    align-items: center;
-    min-height: var(--tap);
-    padding-inline: var(--space-4);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--surface);
-    cursor: pointer;
-  }
-
-  :global([data-flow] .swatch:hover span) {
-    border-color: var(--text);
-  }
-
-  /* Inverted rather than merely outlined, the same as the chosen day, because
-     one of these is always the answer and a heavier border is not enough to say
-     which — see .day[aria-pressed="true"]. */
-  :global([data-flow] .swatch input:checked + span) {
-    border-color: var(--text);
-    background: var(--text);
-    color: var(--surface);
-  }
-
-  /* The focus ring has to move to the span, since the input it would land on is
-     the one that was taken out of sight above. */
-  :global([data-flow] .swatch input:focus-visible + span) {
-    outline: 2px solid var(--text);
-    outline-offset: 1px;
   }
 
   .check {
