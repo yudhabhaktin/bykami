@@ -139,12 +139,12 @@ Nothing reaches into the box, which is the point — the VPS has one inbound rul
 and GitHub's runner ranges are far too broad to allowlist without undoing the
 reason the tunnel exists.
 
-**Off by default.** `app_update_enabled: false`, because a box that installs
-whatever `main` published, unattended, is a path from a merged commit straight
-to production. Turning it on is a deliberate act:
+**On by default** (`app_update_enabled: true`) as of 2026-08-13 — a merge to
+`main` reaches production on the box's own schedule, no redeploy step to
+remember. Set it off per host to go back to pushing a binary by hand:
 
 ```bash
-ansible-playbook site.yml --tags app -e app_update_enabled=true
+ansible-playbook site.yml --tags app -e app_update_enabled=false
 ```
 
 The updater verifies a SHA-256 before anything touches the running system,

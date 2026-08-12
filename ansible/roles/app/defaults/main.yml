@@ -151,7 +151,8 @@ app_release_repo: yudhabhaktin/bykami
 # for a manual `systemctl start bykami-update` without tripping it.
 app_update_oncalendar: "*:03/10"
 
-# Off by default. A box that installs whatever main published, unattended, is a
-# supply-chain path from a merged commit straight to production — so turning it
-# on is a deliberate act, per host, not a side effect of running the role.
-app_update_enabled: false
+# On by default as of 2026-08-13: the owner decided a merge to main reaching
+# production unattended is the accepted trade for not having to remember a
+# manual deploy after every PR. Set false per host to go back to pushing a
+# binary by hand — see the "Pull-based deploy" section in ansible/README.md.
+app_update_enabled: true
