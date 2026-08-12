@@ -30,8 +30,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
 	"github.com/bhaktiyudha/bykami/agent/internal/camera"
+	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
 	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/compose"
 	"github.com/bhaktiyudha/bykami/agent/internal/derive"
@@ -331,7 +331,7 @@ func run(c config, log *slog.Logger) error {
 		// What the USB camera the booth photographs is, as opposed to Camera,
 		// which is what the kiosk should preview. nil cam (no -camera-tool)
 		// leaves it permanently empty — there is no probe to answer it.
-		Detected: func() string { return presence.Load().(string) },
+		Detected:  func() string { return presence.Load().(string) },
 		Simulated: simulated, PublicHost: c.publicHost, AccessTokens: tokens,
 		Retention: c.retention,
 		Log:       log,
