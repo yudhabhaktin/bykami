@@ -55,8 +55,13 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 base="https://github.com/$REPO/releases/download/$tag"
-curl -fsSL --max-time 120 -o "$tmp/bykami"        "$base/bykami"
-curl -fsSL --max-time 30  -o "$tmp/bykami.sha256" "$base/bykami.sha256"
+# --retry-all-errors: this box has seen HTTP/2 REFUSED_STREAM and bare
+# connection drops against github.com's release-asset path — transient, gone
+# on the next attempt. Plain --retry does not cover them; curl only retries
+# its own transient list (timeouts and HTTP 408/429/500/502/503/504), and a
+# dropped connection is neither, so a bare --retry silently never engaged.
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --max-time 120 -o "$tmp/bykami"        "$base/bykami"
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --max-time 30  -o "$tmp/bykami.sha256" "$base/bykami.sha256"
 
 # Verify before anything touches the running system. The checksum proves the
 # download is intact, not that it is trustworthy — anyone who can push to main
