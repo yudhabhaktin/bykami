@@ -53,15 +53,20 @@ export const llmsTxt = (v: Vertical): string => {
 
   if (contact.length > 0) out.push("## Kontak & lokasi", "", ...contact, "");
 
-  const offerings = v.offerings
-    .slice()
-    .sort((a, b) => a.orderIndex - b.orderIndex)
-    .filter((o) => valueOf(o.priceIDR) !== undefined);
+  const offerings = v.offerings.slice().sort((a, b) => a.orderIndex - b.orderIndex);
 
   if (offerings.length > 0) {
     out.push("## Paket & harga", "");
     for (const o of offerings) {
-      const parts: string[] = [idr.format(valueOf(o.priceIDR)!)];
+      // A package with no price is still a package the studio sells, so it is
+      // listed and says so. This used to filter them out, which was right while
+      // the only priceless offering was one nobody had costed — it stops being
+      // right the moment a price is withheld on purpose, because dropping the
+      // row tells a model the work is not offered at all.
+      const price = valueOf(o.priceIDR);
+      const parts: string[] = [
+        price === undefined ? "harga spesial (tanya admin)" : idr.format(price),
+      ];
 
       const duration = o.durationMinutes ? valueOf(o.durationMinutes) : undefined;
       if (duration !== undefined) parts.push(`${duration} menit`);
