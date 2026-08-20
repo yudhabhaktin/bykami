@@ -397,11 +397,16 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   // A list rather than two loose figures, so the pair reads as "the room comes in
   // these two" — the same shape as the .picks list under it, at the size of a
   // thing you look at rather than a thing you scan past.
+  //
+  // .card is the same border the package cards wear, and is deliberately not
+  // .pick: these are photographs of a wall, not a fourth thing to click, so they
+  // take the frame and none of the hover, cursor or press affordances.
   function renderBackdrops(host) {
     var ul = document.createElement("ul");
     ul.className = "backdrops";
     BACKDROPS.forEach(function (b) {
       var li = document.createElement("li");
+      li.className = "card backdrop";
       var img = document.createElement("img");
       img.setAttribute("src", "/img/paket/" + b.shot + ".jpg");
       img.alt = SHOTS[b.shot];
@@ -1125,6 +1130,10 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   /* The two motif backdrops, side by side at every width — the pair is the
      point, and one above the other is two photographs rather than a choice.
 
+     Each one is a .card, the same border the packages under it wear. Bare, they
+     were the only unframed thing in a column of framed ones, and the eye read
+     them as decoration that had drifted in rather than as part of the picker.
+
      The max-width is the two files at their own size with the gap between them.
      Without it each one stretches to half the section, which on a laptop is
      440px of a 264px JPEG: blurred, and taller than every card under it, so the
@@ -1140,18 +1149,64 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     padding: 0;
   }
 
+  :global([data-flow] .backdrop) {
+    padding: var(--space-3);
+  }
+
+  /* Inside a rounded card now, so the photograph takes the thumbnail's radius
+     rather than the card's — two identical curves nested a padding apart read
+     as a mistake. */
   :global([data-flow] .backdrops img) {
     display: block;
     width: 100%;
     aspect-ratio: 1;
     object-fit: cover;
-    border-radius: var(--radius);
+    border-radius: calc(var(--radius) - var(--space-2));
     background: var(--line);
   }
 
   :global([data-flow] .backdrop-name) {
     display: block;
     margin-top: var(--space-2);
+  }
+
+  /* From the width the picks split into two columns, the backdrops take the same
+     two columns — the same grid, gap and card padding — so the pair lines up with
+     the packages it belongs to instead of stopping halfway across the section.
+
+     A row rather than a photograph with a caption under it, because the column is
+     530px wide there and the file is 264px: filling that width is a 2× upscale of
+     a JPEG that has no larger original, and the block that was too small became a
+     blurred one that was too big. Laid out like a .pick instead — picture on the
+     left, name beside it — the photograph stays under its own resolution and the
+     card carries the width. 176px is the size at which the moulding on the wall
+     is still a pattern; the 88px thumbnails on the cards below are the size at
+     which it is a texture, which is why those three cards carry none. */
+  @media (min-width: 640px) {
+    :global([data-flow] .backdrops) {
+      max-width: none;
+    }
+
+    :global([data-flow] .backdrop) {
+      display: flex;
+      gap: var(--space-4);
+      align-items: center;
+      padding: var(--space-4);
+    }
+
+    /* 176px is what the picture wants; 45% is what the card can spare. Just
+       past the breakpoint the column is 294px wide, and a fixed 176 left 80px
+       for the name — "Mediteranian" is one 82px word that cannot wrap, so it
+       pushed out through the padding and sat on the border. */
+    :global([data-flow] .backdrops img) {
+      flex: 0 0 auto;
+      width: min(176px, 45%);
+      aspect-ratio: 1;
+    }
+
+    :global([data-flow] .backdrop-name) {
+      margin-top: 0;
+    }
   }
 
   /* The day strip scrolls rather than wrapping: a month wrapped is a block of
