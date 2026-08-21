@@ -13,7 +13,13 @@ import { z } from "zod";
  *
  *   verified   — owner-confirmed. Renders, and emits structured data.
  *   unverified — read off a PDF or inferred. Renders, never emits structured data.
- *   blocked    — no source at all. Does not render.
+ *   blocked    — nothing to publish. Does not render.
+ *
+ * "Nothing to publish" is usually no source at all, and occasionally a fact the
+ * owner has a source for and has decided not to put on a page — see
+ * QUOTED_PER_JOB in verticals/studio.ts. The `note` is what tells the two apart,
+ * so it is worth writing properly: `gaps()` prints it, and a reader deciding
+ * whether a blocked fact is still waiting on somebody has nothing else to go on.
  */
 export type Sourced<T> =
   | { status: "verified"; value: T; source: string }

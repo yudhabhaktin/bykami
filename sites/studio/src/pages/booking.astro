@@ -368,6 +368,45 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     { shot: "motif-mediteranian", name: "Mediteranian" },
   ];
 
+  // What a pas foto counts instead of minutes.
+  //
+  // Every other package sells a room for a length of time, and "20 menit" is the
+  // thing being bought. A pas foto is one face against one background: what the
+  // studio promises is how many tries you get, and the minutes are however long
+  // those tries take. So these two cards drop the duration and print the takes.
+  //
+  // Here rather than in the booking API, and not because this is the tidy place
+  // for it: seedBooking inserts ON CONFLICT (id) DO NOTHING, so a column added
+  // there would stay empty on every database that has already been seeded —
+  // which is all of them, production included. The same is true of every
+  // override below.
+  //
+  // Pas Foto Kedinasan is deliberately absent. Nobody has said how many takes it
+  // gets, and it keeps the duration the API sends until somebody does.
+  var TAKES = { "pas-formal": 10, "pas-marry-me": 20 };
+
+  // Pas Foto Formal is sold to one person at a time. The API says one to two,
+  // from a price list that read "50K / orang" — a per-head price is not a
+  // headcount, and the cap belongs on both the card and the select so the page
+  // cannot offer a session the studio does not sell.
+  var HEADS_MAX = { "pas-formal": 1 };
+
+  function headcountMax(s) {
+    var capped = HEADS_MAX[s.id];
+    return capped === undefined ? s.headcount_max : Math.min(capped, s.headcount_max);
+  }
+
+  // "20 menit · 5–6 orang", or on a pas foto "1 orang · Maks. 10x take".
+  function spec(s) {
+    var max = headcountMax(s);
+    var heads = s.headcount_min === max
+      ? max + " orang"
+      : s.headcount_min + "–" + max + " orang";
+    var takes = TAKES[s.id];
+    if (takes === undefined) return s.duration_minutes + " menit · " + heads;
+    return heads + " · Maks. " + takes + "x take";
+  }
+
   // Returns markup because the cards around it are built that way, but the
   // element is assembled rather than concatenated: esc() below escapes for text
   // content and leaves a double quote alone, which is the wrong tool for an alt
@@ -397,11 +436,16 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   // A list rather than two loose figures, so the pair reads as "the room comes in
   // these two" — the same shape as the .picks list under it, at the size of a
   // thing you look at rather than a thing you scan past.
+  //
+  // .card is the same border the package cards wear, and is deliberately not
+  // .pick: these are photographs of a wall, not a fourth thing to click, so they
+  // take the frame and none of the hover, cursor or press affordances.
   function renderBackdrops(host) {
     var ul = document.createElement("ul");
     ul.className = "backdrops";
     BACKDROPS.forEach(function (b) {
       var li = document.createElement("li");
+      li.className = "card backdrop";
       var img = document.createElement("img");
       img.setAttribute("src", "/img/paket/" + b.shot + ".jpg");
       img.alt = SHOTS[b.shot];
@@ -515,10 +559,7 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
           '<span class="pick-name">' + esc(s.name) + "</span>" +
           '<span class="pick-price tabular">' + idr.format(s.price_idr) +
           (s.price_per_person ? '<span class="muted"> / orang</span>' : "") + "</span>" +
-          '<span class="pick-spec muted ui tabular">' + s.duration_minutes + " menit · " +
-          (s.headcount_min === s.headcount_max
-            ? s.headcount_max + " orang"
-            : s.headcount_min + "–" + s.headcount_max + " orang") + "</span>" +
+          '<span class="pick-spec muted ui tabular">' + spec(s) + "</span>" +
           (s.description ? '<span class="pick-desc muted">' + esc(s.description) + "</span>" : "") +
           "</span>";
         b.addEventListener("click", function () { chooseService(s); });
@@ -542,6 +583,13 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   // No duration or headcount line here, unlike a bookable package. Those numbers
   // are what a session promises once it is agreed, and printing "60 menit"
   // beside a package with no price reads as a quote.
+  //
+  // No price either, as of August 2026, and by the same argument one step
+  // further: the API still holds 350K against Fotografer 1 jam, but a rate the
+  // studio adjusts per job is not a rate to print beside a WhatsApp link. Every
+  // card in both blocks says the same sentence instead, so there is one line to
+  // keep true rather than one per package — and the branch that formatted a
+  // rupiah figure is gone rather than left unreachable.
   //
   // Two headings rather than one. Every package the studio quotes today happens
   // at the customer's location, and a bare "Fotografer & videografer" over a
@@ -604,10 +652,8 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
       a.innerHTML =
         '<span class="pick-body">' +
         '<span class="pick-name">' + esc(s.name) + "</span>" +
-        '<span class="pick-price tabular">' +
-        (s.price_idr > 0
-          ? idr.format(s.price_idr) + (s.price_per_person ? '<span class="muted"> / orang</span>' : "")
-          : '<span class="muted">Harga via chat</span>') + "</span>" +
+        '<span class="pick-price">' +
+        '<span class="muted">Harga spesial — tanya admin</span></span>' +
         (s.description ? '<span class="pick-desc muted">' + esc(s.description) + "</span>" : "") +
         '<span class="pick-spec muted ui">Chat admin di WhatsApp →</span>' +
         "</span>";
@@ -661,7 +707,8 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   function fillHeadcount(service) {
     var sel = el("[data-headcount]");
     sel.innerHTML = "";
-    for (var n = service.headcount_min; n <= service.headcount_max; n++) {
+    var max = headcountMax(service);
+    for (var n = service.headcount_min; n <= max; n++) {
       var o = document.createElement("option");
       o.value = String(n);
       o.textContent = n + " orang";
@@ -1125,6 +1172,10 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
   /* The two motif backdrops, side by side at every width — the pair is the
      point, and one above the other is two photographs rather than a choice.
 
+     Each one is a .card, the same border the packages under it wear. Bare, they
+     were the only unframed thing in a column of framed ones, and the eye read
+     them as decoration that had drifted in rather than as part of the picker.
+
      The max-width is the two files at their own size with the gap between them.
      Without it each one stretches to half the section, which on a laptop is
      440px of a 264px JPEG: blurred, and taller than every card under it, so the
@@ -1140,18 +1191,64 @@ const mapsUrl = vertical.nap ? valueOf(vertical.nap.mapsUrl) : undefined;
     padding: 0;
   }
 
+  :global([data-flow] .backdrop) {
+    padding: var(--space-3);
+  }
+
+  /* Inside a rounded card now, so the photograph takes the thumbnail's radius
+     rather than the card's — two identical curves nested a padding apart read
+     as a mistake. */
   :global([data-flow] .backdrops img) {
     display: block;
     width: 100%;
     aspect-ratio: 1;
     object-fit: cover;
-    border-radius: var(--radius);
+    border-radius: calc(var(--radius) - var(--space-2));
     background: var(--line);
   }
 
   :global([data-flow] .backdrop-name) {
     display: block;
     margin-top: var(--space-2);
+  }
+
+  /* From the width the picks split into two columns, the backdrops take the same
+     two columns — the same grid, gap and card padding — so the pair lines up with
+     the packages it belongs to instead of stopping halfway across the section.
+
+     A row rather than a photograph with a caption under it, because the column is
+     530px wide there and the file is 264px: filling that width is a 2× upscale of
+     a JPEG that has no larger original, and the block that was too small became a
+     blurred one that was too big. Laid out like a .pick instead — picture on the
+     left, name beside it — the photograph stays under its own resolution and the
+     card carries the width. 176px is the size at which the moulding on the wall
+     is still a pattern; the 88px thumbnails on the cards below are the size at
+     which it is a texture, which is why those three cards carry none. */
+  @media (min-width: 640px) {
+    :global([data-flow] .backdrops) {
+      max-width: none;
+    }
+
+    :global([data-flow] .backdrop) {
+      display: flex;
+      gap: var(--space-4);
+      align-items: center;
+      padding: var(--space-4);
+    }
+
+    /* 176px is what the picture wants; 45% is what the card can spare. Just
+       past the breakpoint the column is 294px wide, and a fixed 176 left 80px
+       for the name — "Mediteranian" is one 82px word that cannot wrap, so it
+       pushed out through the padding and sat on the border. */
+    :global([data-flow] .backdrops img) {
+      flex: 0 0 auto;
+      width: min(176px, 45%);
+      aspect-ratio: 1;
+    }
+
+    :global([data-flow] .backdrop-name) {
+      margin-top: 0;
+    }
   }
 
   /* The day strip scrolls rather than wrapping: a month wrapped is a block of

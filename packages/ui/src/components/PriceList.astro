@@ -115,7 +115,11 @@ const rows = vertical.offerings
 
             {r.blurb && <p class="blurb muted">{r.blurb}</p>}
 
-            {r.price && <p class="price tabular">{r.price}</p>}
+            {r.price ? (
+              <p class="price tabular">{r.price}</p>
+            ) : (
+              <p class="price-ask muted">Harga spesial — tanya admin</p>
+            )}
 
             {r.specs.length > 0 && (
               <dl class="spec ui tabular">
@@ -176,6 +180,23 @@ const rows = vertical.offerings
     line-height: 1.1;
     letter-spacing: -0.03em;
     white-space: nowrap;
+  }
+
+  /*
+   * What stands where the price would on a package the studio quotes rather
+   * than lists. The slot cannot simply be empty: these sit in a row of three,
+   * and a card missing the one line every other card has reads as a card that
+   * failed to load rather than as a package with a price worth asking about.
+   *
+   * Smaller than .price and free to wrap, because it is a sentence — 28px of it
+   * would set the width of the column and shout down the numbers beside it.
+   */
+  .price-ask {
+    margin: var(--space-2) 0 0;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
   }
 
   /*

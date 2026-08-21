@@ -41,6 +41,24 @@ const BOOKING = "studiobykami-{self,photobox}.youcanbook.me, read 2026-08-10";
 const OUTDOOR_PDF = "refs/PRICE LIST DILUAR STUDIO.pdf (owner PDF, not owner-confirmed)";
 
 /**
+ * Why the four packages below carry no price.
+ *
+ * Not a missing number: the PDF's figures are still in `OUTDOOR_PDF` and the
+ * booking API still holds them. The owner withdrew them from the pages on
+ * 2026-08-20 because this work is quoted per job — location, duration and
+ * headcount all move it — and a headline rate a customer arrives holding is a
+ * rate the studio then has to argue out of.
+ *
+ * `blocked` because that is the status that does not render and does not
+ * publish, which is what withheld needs. It does mean these show up in
+ * `gaps()` as if they were unconfirmed facts; they are the one kind of blocked
+ * fact that no amount of asking the owner will close.
+ */
+const QUOTED_PER_JOB =
+  "Withheld on purpose (owner, 2026-08-20) — quoted per job. The figure is still in " +
+  "refs/PRICE LIST DILUAR STUDIO.pdf and in the booking API's seed.";
+
+/**
  * studio by KAMI — self-photo studio, pas foto, in Jajag, Banyuwangi.
  *
  * Every price below is read off the owner's price-list PDF, which is gitignored
@@ -238,11 +256,26 @@ export const studio: Vertical = {
       printsIncluded: unverified(3, PDF),
       headcount: unverified({ min: 7, max: 10 }, `${BOOKING} — "7-10 ORANG"; the PDF read 1-10 cumulatively`),
     },
+    /*
+     * The two take counts here are the owner's, given on 2026-08-20, and they
+     * are the only numbers in this file that beat the PDF on their own subject.
+     *
+     * A pas foto is not sold by the minute. Every other package rents a room for
+     * a length of time; this one is a face against a background, and what the
+     * studio actually promises is how many tries you get — which is why the
+     * booking page prints takes where it prints minutes everywhere else. The
+     * PDF's "maksimal 15x take" was simply out of date.
+     *
+     * They sit in `description` because that is where the PDF put them and there
+     * is no takes field to move them to. Adding one would mean a schema change
+     * here and a matching override on the booking page, which reads its packages
+     * from the API rather than from this file.
+     */
     {
       id: "pas-foto",
       name: "Pas Foto (close up)",
       serviceLine: "pas-foto",
-      description: "Maksimal 15x take, 1 print 4R (bisa custom ukuran), 1 file edit.",
+      description: "Maksimal 10x take, 1 print 4R (bisa custom ukuran), 1 file edit.",
       orderIndex: 4,
       priceIDR: unverified(50_000, `${PDF} — per orang`),
       printsIncluded: unverified(1, PDF),
@@ -252,7 +285,7 @@ export const studio: Vertical = {
       id: "marry-me",
       name: "Marry Me (pas foto)",
       serviceLine: "pas-foto",
-      description: "1 background, 2 print 4R, 6 file edit.",
+      description: "Maksimal 20x take, 1 background, 2 print 4R, 6 file edit.",
       orderIndex: 5,
       priceIDR: unverified(90_000, `${PDF} — per 2 orang`),
       durationMinutes: unverified(20, PDF),
@@ -374,7 +407,7 @@ export const studio: Vertical = {
       serviceLine: "outdoor-photographer",
       description: "Maksimal 1 jam, semua file diedit, gratis 2 print 4R.",
       orderIndex: 13,
-      priceIDR: unverified(350_000, OUTDOOR_PDF),
+      priceIDR: blocked(QUOTED_PER_JOB),
       durationMinutes: unverified(60, OUTDOOR_PDF),
       printsIncluded: unverified(2, OUTDOOR_PDF),
     },
@@ -384,7 +417,7 @@ export const studio: Vertical = {
       serviceLine: "outdoor-photographer",
       description: "Maksimal 1,5 jam, semua file diedit, gratis 4 print 4R.",
       orderIndex: 14,
-      priceIDR: unverified(500_000, OUTDOOR_PDF),
+      priceIDR: blocked(QUOTED_PER_JOB),
       durationMinutes: unverified(90, OUTDOOR_PDF),
       printsIncluded: unverified(4, OUTDOOR_PDF),
     },
@@ -394,7 +427,7 @@ export const studio: Vertical = {
       serviceLine: "outdoor-photographer",
       description: "Maksimal 3 jam, semua file diedit, gratis 1 print 10R berpigura.",
       orderIndex: 15,
-      priceIDR: unverified(850_000, OUTDOOR_PDF),
+      priceIDR: blocked(QUOTED_PER_JOB),
       durationMinutes: unverified(180, OUTDOOR_PDF),
       printsIncluded: unverified(1, OUTDOOR_PDF),
     },
@@ -404,7 +437,7 @@ export const studio: Vertical = {
       serviceLine: "videographer",
       description: "Maksimal 3 jam, hasil edit 2–4 menit.",
       orderIndex: 16,
-      priceIDR: unverified(650_000, OUTDOOR_PDF),
+      priceIDR: blocked(QUOTED_PER_JOB),
       durationMinutes: unverified(180, OUTDOOR_PDF),
     },
   ],
