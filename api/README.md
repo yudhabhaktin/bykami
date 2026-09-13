@@ -362,10 +362,13 @@ bykami -db … admin password unmanage kasir-1
 ```
 
 `add` prints the password once, with a line saying it will never be shown again
-and that anyone who reads it has full access. `rm` disables the credential;
-sessions belonging to it stop working on the next request because `SessionForToken`
-joins against `admin_credentials` and checks `disabled_at`. `manage` and
-`unmanage` grant and revoke the `can_manage` flag.
+and that anyone who reads it has full access. The first credential created on a
+fresh database is automatically a manager, because the console has no way to
+promote anybody and a console born with no manager is a console nobody can
+administer. Every later credential is not a manager until one promotes it.
+`rm` disables the credential; sessions belonging to it stop working on the next
+request because `SessionForToken` joins against `admin_credentials` and checks
+`disabled_at`. `manage` and `unmanage` grant and revoke the `can_manage` flag.
 
 **Managers may create and disable operators from the console.** `/operators`
 lists every credential, lets a manager add one, and lets a manager disable or
@@ -376,8 +379,8 @@ CSRF token is no substitute there, because it is derived from the session cookie
 and anybody holding the cookie can compute it. What that re-entry hands back is a
 single-use token, which lands on a confirmation page saying what is about to
 happen; only that page's POST performs the action, so no link, refresh or
-prefetch can disable anybody. The console refuses to remove the last manager,
-because somebody has to be able to get back in.
+prefetch can disable anybody. The console and the API both refuse to remove or
+disable the last manager, because somebody has to be able to get back in.
 
 **A new credential is born unrotated.** `must_change` is set on every credential,
 including the first one added from the shell, and until the operator sets a
