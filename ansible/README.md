@@ -170,50 +170,56 @@ match installs a stale binary or appears to sit on the current version forever.
 
 ### Opening the operator console
 
-Two steps, in either order, and neither needs a WhatsApp provider. The console
-signs in with an authenticator app rather than a code sent anywhere — see
-`api/README.md` for why it differs from the customer flow.
+The console signs in with a username and a generated password — not a phone
+number, not a code from an app. See `api/README.md` for why it differs from the
+customer flow.
 
-**One: say who is an operator.** A gitignored vars file, because a phone number
-in a committed file is a phone number in the repository:
-
-```yaml
-# app.vars.yml, mode 0600, gitignored
-app_admin_phones: "08xxxxxxxxxx"   # comma-separated for more than one
-```
+**Enrolment is a shell job on the box**, because the console cannot enrol its
+own first operator — that would need the login it does not have yet. A shell on
+this box comes through the VNC console; it has no inbound SSH. The first
+credential created on a fresh database is automatically a manager; one added to
+a box that already has credentials is not, until a manager promotes it.
 
 ```bash
-ansible-playbook site.yml --tags app -e @app.vars.yml
+sudo -u bykami /usr/local/bin/bykami -db /var/lib/bykami/bykami.db admin password add kasir-1
 ```
 
-**Two: enrol their authenticator**, on the box, over ssh:
-
-```bash
-ssh <host>
-sudo -u bykami /usr/local/bin/bykami -db /var/lib/bykami/bykami.db admin enroll 08xxxxxxxxxx
-```
-
-That prints a QR code in the terminal. Scan it with whatever authenticator the
-operator already has, and sign in at `https://admin.bykami.id/` with the number and
-the six digits it shows. If the terminal will not draw the square — a narrow
-window, or a font without block characters — the same command prints the secret
-in base32 to type in by hand, and takes an optional path to write a PNG instead.
+That prints the password once, with a line saying it will never be shown again
+and that anyone who reads it has full access. Sign in at `https://admin.bykami.id/`
+with the label and the password. The password is the identity: the server looks
+it up, finds whose it is, and attributes every write to that person.
 
 `app_otp_delivery` has nothing to do with this and should stay empty. It gates
 the *customer* auth routes, and the only sender that exists writes one-time codes
 to the journal, where anything that can read the journal can read them. The
 console used to be the reason people were tempted to set it; it is not any more.
 
-To take an operator's access away, either remove them from `app_admin_phones` and
-re-run the play — which ends their access on the next request, since the
-allow-list is checked per request — or revoke the authenticator on the box:
+**To take an operator's access away**, a manager disables them from the console's
+`/operators` page, or from the shell:
 
 ```bash
-sudo -u bykami /usr/local/bin/bykami -db /var/lib/bykami/bykami.db admin revoke 08xxxxxxxxxx
+sudo -u bykami /usr/local/bin/bykami -db /var/lib/bykami/bykami.db admin password rm kasir-1
 ```
 
-Removing them from the allow-list is the stronger of the two: it works even if
-somebody still holds a live session cookie.
+That disables the credential; sessions belonging to it stop working on the next
+request. The console and the API both refuse to remove or disable the last
+manager, because somebody has to be able to get back in.
+
+**If a manager forgets their password**, another manager resets it from the
+console's `/operators` page. If every manager is locked out, the only way back
+in is a shell on the box. This box has no inbound SSH — the tunnel is the only
+path — so the recovery is the VNC console, which is why the deploy user exists
+and why the binary is on disk. From there:
+
+```bash
+sudo -u bykami /usr/local/bin/bykami -db /var/lib/bykami/bykami.db admin password add emergency-1
+sudo -u bykami /usr/local/bin/bykami -db /var/lib/bykami/bykami.db admin password manage emergency-1
+```
+
+Sign in as `emergency-1`, reset the forgotten manager from `/operators`, then
+disable `emergency-1` and forget the password. The `manage` line is what makes it
+a manager: `add` only does that on a database with no credentials at all, and
+this box has some.
 
 ### Connecting the studio's Google Calendars
 

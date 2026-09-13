@@ -321,14 +321,34 @@ func TestConsoleRequiresASession(t *testing.T) {
 
 func TestRemovingACredentialEndsAccessImmediately(t *testing.T) {
 	f := newFixture(t)
-	token := f.signIn(t)
+	// Add a second credential so we can remove it without hitting the last-manager guard.
+	pw2, err := f.auth.Add(context.Background(), "kasir-2")
+	if err != nil {
+		t.Fatalf("add second: %v", err)
+	}
+	if _, err := f.db.Exec("UPDATE admin_credentials SET must_change = 0 WHERE label = ?", "kasir-2"); err != nil {
+		t.Fatalf("clear must_change: %v", err)
+	}
+	w := f.post(t, "/login", url.Values{"username": {"kasir-2"}, "password": {pw2}}, "")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("login as kasir-2 = %d, want 303", w.Code)
+	}
+	var token string
+	for _, ck := range w.Result().Cookies() {
+		if ck.Name == cookieName {
+			token = ck.Value
+		}
+	}
+	if token == "" {
+		t.Fatal("no session cookie set for kasir-2")
+	}
 	if w := f.get(t, "/customers", token); w.Code != http.StatusOK {
 		t.Fatalf("precondition: customers = %d", w.Code)
 	}
-	if err := f.auth.Remove(context.Background(), operatorLabel); err != nil {
+	if err := f.auth.Remove(context.Background(), "kasir-2"); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	w := f.get(t, "/customers", token)
+	w = f.get(t, "/customers", token)
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want 303", w.Code)
 	}
@@ -517,8 +537,26 @@ func TestMembershipWriteRecordsTheLabel(t *testing.T) {
 
 func TestOperatorsPageRefusesNonManager(t *testing.T) {
 	f := newFixture(t)
-	token := f.signIn(t)
-	w := f.get(t, "/operators", token)
+	// The fixture's operatorLabel is the first credential, so it is a manager.
+	// Add a non-manager and sign in as them.
+	pw2, err := f.auth.Add(context.Background(), "kasir-2")
+	if err != nil {
+		t.Fatalf("add second: %v", err)
+	}
+	if _, err := f.db.Exec("UPDATE admin_credentials SET must_change = 0 WHERE label = ?", "kasir-2"); err != nil {
+		t.Fatalf("clear must_change: %v", err)
+	}
+	w := f.post(t, "/login", url.Values{"username": {"kasir-2"}, "password": {pw2}}, "")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("login = %d, want 303", w.Code)
+	}
+	var token string
+	for _, ck := range w.Result().Cookies() {
+		if ck.Name == cookieName {
+			token = ck.Value
+		}
+	}
+	w = f.get(t, "/operators", token)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("operators = %d, want 403", w.Code)
 	}

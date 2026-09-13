@@ -244,3 +244,105 @@ func TestPhotoboxSplitCarriesEverythingWithIt(t *testing.T) {
 		t.Error("the split left a dangling reference")
 	}
 }
+
+// Migration 0012 added can_manage with DEFAULT 0, so a credential enrolled
+// from the shell was not a manager. 0013 repairs that by promoting the
+// earliest-created non-disabled credential when no manager exists.
+func TestAdminManagerRepairPromotesEarliestCredential(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Seed one credential in the post-0012 shape with can_manage = 0.
+	if _, err := db.Exec(
+		`INSERT INTO admin_credentials (id, label, lookup, hash, salt, created_at, can_manage)
+		 VALUES ('cred-1', 'yudha', X'00', X'00', X'00', 1, 0)`); err != nil {
+		t.Fatalf("seed credential: %v", err)
+	}
+
+	body, err := migrations.ReadFile("migrations/0013_admin_manager.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(body)); err != nil {
+		t.Fatalf("apply 0013: %v", err)
+	}
+
+	var canManage int
+	if err := db.QueryRow(`SELECT can_manage FROM admin_credentials WHERE label = 'yudha'`).Scan(&canManage); err != nil {
+		t.Fatal(err)
+	}
+	if canManage != 1 {
+		t.Errorf("can_manage = %d, want 1", canManage)
+	}
+
+	// Running it again must be a no-op.
+	if _, err := db.Exec(string(body)); err != nil {
+		t.Fatalf("re-apply 0013: %v", err)
+	}
+	if err := db.QueryRow(`SELECT can_manage FROM admin_credentials WHERE label = 'yudha'`).Scan(&canManage); err != nil {
+		t.Fatal(err)
+	}
+	if canManage != 1 {
+		t.Errorf("can_manage after re-run = %d, want 1", canManage)
+	}
+}
+
+// 0013 must be a no-op when the table already has a manager.
+func TestAdminManagerRepairIsNoOpWhenManagerExists(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(
+		`INSERT INTO admin_credentials (id, label, lookup, hash, salt, created_at, can_manage)
+		 VALUES ('mgr-1', 'boss',  X'01', X'00', X'00', 1, 1),
+		        ('k-1',   'kasir', X'02', X'00', X'00', 2, 0)`); err != nil {
+		t.Fatalf("seed credentials: %v", err)
+	}
+
+	body, err := migrations.ReadFile("migrations/0013_admin_manager.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(body)); err != nil {
+		t.Fatalf("apply 0013: %v", err)
+	}
+
+	var kasirManage int
+	if err := db.QueryRow(`SELECT can_manage FROM admin_credentials WHERE label = 'kasir'`).Scan(&kasirManage); err != nil {
+		t.Fatal(err)
+	}
+	if kasirManage != 0 {
+		t.Errorf("kasir can_manage = %d, want 0", kasirManage)
+	}
+}
+
+// 0013 must be a no-op on an empty table.
+func TestAdminManagerRepairIsNoOpOnEmptyTable(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	body, err := migrations.ReadFile("migrations/0013_admin_manager.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(body)); err != nil {
+		t.Fatalf("apply 0013 on empty table: %v", err)
+	}
+
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM admin_credentials`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("count = %d, want 0", n)
+	}
+}

@@ -45,8 +45,8 @@ func TestAddAndVerifyRoundTrip(t *testing.T) {
 	if cred.LastUsedAt == nil {
 		t.Error("last_used_at was not set")
 	}
-	if cred.CanManage {
-		t.Error("new credential should not be a manager by default")
+	if !cred.CanManage {
+		t.Error("first credential should be a manager")
 	}
 }
 
@@ -95,11 +95,14 @@ func TestVerifyRefusesDisabledCredential(t *testing.T) {
 	r := newTestRegistry(db, nil)
 	ctx := context.Background()
 
-	pw, err := r.Add(ctx, "kasir-1")
-	if err != nil {
+	if _, err := r.Add(ctx, "kasir-1"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if err := r.Remove(ctx, "kasir-1"); err != nil {
+	pw, err := r.Add(ctx, "kasir-2")
+	if err != nil {
+		t.Fatalf("add second: %v", err)
+	}
+	if err := r.Remove(ctx, "kasir-2"); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -204,9 +207,12 @@ func TestDisabledCredentialEndsSession(t *testing.T) {
 	r := newTestRegistry(db, nil)
 	ctx := context.Background()
 
-	pw, err := r.Add(ctx, "kasir-1")
-	if err != nil {
+	if _, err := r.Add(ctx, "kasir-1"); err != nil {
 		t.Fatalf("add: %v", err)
+	}
+	pw, err := r.Add(ctx, "kasir-2")
+	if err != nil {
+		t.Fatalf("add second: %v", err)
 	}
 	cred, err := r.Verify(ctx, pw)
 	if err != nil {
@@ -222,7 +228,7 @@ func TestDisabledCredentialEndsSession(t *testing.T) {
 		t.Fatalf("precondition: session should work: %v", err)
 	}
 
-	if err := r.Remove(ctx, "kasir-1"); err != nil {
+	if err := r.Remove(ctx, "kasir-2"); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -416,15 +422,18 @@ func TestVerifyByLabelDisabledCredential(t *testing.T) {
 	r := newTestRegistry(db, nil)
 	ctx := context.Background()
 
-	pw, err := r.Add(ctx, "kasir-1")
-	if err != nil {
+	if _, err := r.Add(ctx, "kasir-1"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if err := r.Remove(ctx, "kasir-1"); err != nil {
+	pw, err := r.Add(ctx, "kasir-2")
+	if err != nil {
+		t.Fatalf("add second: %v", err)
+	}
+	if err := r.Remove(ctx, "kasir-2"); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
-	_, err = r.VerifyByLabel(ctx, "kasir-1", pw)
+	_, err = r.VerifyByLabel(ctx, "kasir-2", pw)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("verify disabled = %v, want ErrNotFound", err)
 	}
@@ -502,11 +511,14 @@ func TestRemoveWithActorRecordsIt(t *testing.T) {
 	if _, err := r.Add(ctx, "kasir-1"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if err := r.RemoveWithActor(ctx, "kasir-1", "manager-1"); err != nil {
+	if _, err := r.Add(ctx, "kasir-2"); err != nil {
+		t.Fatalf("add second: %v", err)
+	}
+	if err := r.RemoveWithActor(ctx, "kasir-2", "manager-1"); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
-	c, err := r.CredentialByLabel(ctx, "kasir-1")
+	c, err := r.CredentialByLabel(ctx, "kasir-2")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -711,13 +723,15 @@ func TestListIncludesCanManage(t *testing.T) {
 	r := newTestRegistry(db, nil)
 	ctx := context.Background()
 
-	if _, err := r.Add(ctx, "kasir-1"); err != nil {
-		t.Fatalf("add: %v", err)
-	}
 	if _, err := r.Add(ctx, "manager-1"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if err := r.SetManage(ctx, "manager-1"); err != nil {
+	if _, err := r.Add(ctx, "kasir-1"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	// manager-1 is already a manager because it was first; promote kasir-1 manually
+	// so the test still checks that SetManage works and List reflects it.
+	if err := r.SetManage(ctx, "kasir-1"); err != nil {
 		t.Fatalf("set manage: %v", err)
 	}
 
@@ -727,13 +741,13 @@ func TestListIncludesCanManage(t *testing.T) {
 	}
 	for _, c := range all {
 		switch c.Label {
-		case "kasir-1":
-			if c.CanManage {
-				t.Error("kasir-1 should not have CanManage")
-			}
 		case "manager-1":
 			if !c.CanManage {
 				t.Error("manager-1 should have CanManage")
+			}
+		case "kasir-1":
+			if !c.CanManage {
+				t.Error("kasir-1 should have CanManage after promotion")
 			}
 		}
 	}
@@ -847,6 +861,137 @@ func TestResetPasswordSetsMustChangeAndRecordsActor(t *testing.T) {
 	_, err = r.VerifyByLabel(ctx, "kasir-1", "first-password-123")
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("old password after reset = %v, want ErrNotFound", err)
+	}
+}
+
+func TestFirstCredentialIsManagerAndSecondIsNot(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	r := newTestRegistry(db, nil)
+	ctx := context.Background()
+
+	if _, err := r.Add(ctx, "first"); err != nil {
+		t.Fatalf("add first: %v", err)
+	}
+	c1, err := r.CredentialByLabel(ctx, "first")
+	if err != nil {
+		t.Fatalf("load first: %v", err)
+	}
+	if !c1.CanManage {
+		t.Error("first credential should be a manager")
+	}
+
+	if _, err := r.Add(ctx, "second"); err != nil {
+		t.Fatalf("add second: %v", err)
+	}
+	c2, err := r.CredentialByLabel(ctx, "second")
+	if err != nil {
+		t.Fatalf("load second: %v", err)
+	}
+	if c2.CanManage {
+		t.Error("second credential should not be a manager")
+	}
+}
+
+func TestDisableLastManagerIsRefused(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	r := newTestRegistry(db, nil)
+	ctx := context.Background()
+
+	if _, err := r.Add(ctx, "sole-manager"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	// Add a non-manager too — disabling the manager should still be refused
+	// because the non-manager cannot administer.
+	if _, err := r.Add(ctx, "kasir-1"); err != nil {
+		t.Fatalf("add kasir: %v", err)
+	}
+
+	err = r.RemoveWithActor(ctx, "sole-manager", "someone")
+	if !errors.Is(err, ErrLastManager) {
+		t.Errorf("disable last manager = %v, want ErrLastManager", err)
+	}
+
+	// The credential should still be able to sign in.
+	c, err := r.CredentialByLabel(ctx, "sole-manager")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Disabled {
+		t.Error("sole-manager was disabled despite the refusal")
+	}
+}
+
+func TestDisableNonManagerStillWorks(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	r := newTestRegistry(db, nil)
+	ctx := context.Background()
+
+	if _, err := r.Add(ctx, "manager-1"); err != nil {
+		t.Fatalf("add manager: %v", err)
+	}
+	if _, err := r.Add(ctx, "kasir-1"); err != nil {
+		t.Fatalf("add kasir: %v", err)
+	}
+
+	if err := r.RemoveWithActor(ctx, "kasir-1", "manager-1"); err != nil {
+		t.Errorf("disable non-manager = %v, want nil", err)
+	}
+
+	c, err := r.CredentialByLabel(ctx, "kasir-1")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !c.Disabled {
+		t.Error("kasir-1 should be disabled")
+	}
+}
+
+func TestDisableManagerWithSpareAllowed(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	r := newTestRegistry(db, nil)
+	ctx := context.Background()
+
+	if _, err := r.Add(ctx, "manager-1"); err != nil {
+		t.Fatalf("add manager-1: %v", err)
+	}
+	if _, err := r.Add(ctx, "manager-2"); err != nil {
+		t.Fatalf("add manager-2: %v", err)
+	}
+	// Promote the second one manually — Add only makes the first a manager.
+	if err := r.SetManage(ctx, "manager-2"); err != nil {
+		t.Fatalf("set manage: %v", err)
+	}
+
+	if err := r.RemoveWithActor(ctx, "manager-2", "manager-1"); err != nil {
+		t.Errorf("disable spare manager = %v, want nil", err)
+	}
+
+	c, err := r.CredentialByLabel(ctx, "manager-2")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !c.Disabled {
+		t.Error("manager-2 should be disabled")
 	}
 }
 

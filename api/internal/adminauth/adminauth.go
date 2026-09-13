@@ -109,6 +109,11 @@ func (r *Registry) Add(ctx context.Context, label string) (string, error) {
 }
 
 // AddWithCreator is Add with the acting manager recorded as created_by.
+// The first credential ever created is automatically a manager, because the
+// console has no way to promote anybody and a console born with no manager is
+// a console nobody can administer. Two adds racing cannot both claim first:
+// the can_manage value comes from a subquery that counts the table at the
+// moment the INSERT runs.
 func (r *Registry) AddWithCreator(ctx context.Context, label, createdBy string) (string, error) {
 	label = cleanLabel(label)
 	if label == "" {
@@ -132,8 +137,8 @@ func (r *Registry) AddWithCreator(ctx context.Context, label, createdBy string) 
 	}
 
 	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO admin_credentials (id, label, lookup, hash, salt, created_at, created_by)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO admin_credentials (id, label, lookup, hash, salt, created_at, created_by, can_manage)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN (SELECT COUNT(*) FROM admin_credentials) = 0 THEN 1 ELSE 0 END)`,
 		newID(), label, lookup[:], hash, salt, r.now().Unix(), nullIfEmpty(createdBy),
 	)
 	if err != nil {
@@ -376,8 +381,33 @@ func (r *Registry) Remove(ctx context.Context, label string) error {
 }
 
 // RemoveWithActor disables a credential and records who did it.
+// Refuses to disable the last non-disabled manager, because somebody has to
+// be able to get back in.
 func (r *Registry) RemoveWithActor(ctx context.Context, label, actor string) error {
 	label = cleanLabel(label)
+
+	// Load the credential first to know whether it is a manager.
+	cred, err := r.CredentialByLabel(ctx, label)
+	if err != nil {
+		return err
+	}
+	if cred.Disabled {
+		return ErrNotFound
+	}
+
+	// If it is a manager, count how many non-disabled managers remain.
+	if cred.CanManage {
+		var managerCount int
+		if err := r.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM admin_credentials WHERE can_manage = 1 AND disabled_at IS NULL`,
+		).Scan(&managerCount); err != nil {
+			return fmt.Errorf("adminauth: count managers: %w", err)
+		}
+		if managerCount <= 1 {
+			return ErrLastManager
+		}
+	}
+
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE admin_credentials SET disabled_at = ?, disabled_by = ? WHERE label = ? AND disabled_at IS NULL`,
 		r.now().Unix(), nullIfEmpty(actor), label,

@@ -740,6 +740,10 @@ func (c *Console) operatorsDisable(w http.ResponseWriter, r *http.Request, op st
 	label := strings.TrimSpace(r.FormValue("label"))
 	if err := c.auth.RemoveWithActor(r.Context(), label, op); err != nil {
 		c.log.Error("admin: disable operator", "err", err, "label", label)
+		if errors.Is(err, adminauth.ErrLastManager) {
+			c.redirect(w, r, "/operators?err="+url.QueryEscape("Tidak bisa menonaktifkan manajer terakhir."))
+			return
+		}
 		c.redirect(w, r, "/operators?err="+url.QueryEscape("Gagal menonaktifkan operator."))
 		return
 	}

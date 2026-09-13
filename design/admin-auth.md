@@ -53,10 +53,23 @@ difference is `can_manage`, a boolean on `admin_credentials` added by migration
 applied to the production database, so `0012` builds on it with `ALTER TABLE`
 rather than rewriting what already exists.
 
-The guard is simple: `UnsetManage` refuses to remove the last manager, because
-somebody has to be able to get back in. A shell command can still force the
-issue by adding a new manager first, but the console and the API both refuse to
-leave the system headless.
+The guard is enforced at both ends:
+
+- **`UnsetManage` refuses to remove the last manager.** Somebody has to be able
+to get back in.
+- **`RemoveWithActor` refuses to disable the last manager.** A console with no
+manager is a console nobody can administer, and the only fix would be a shell on
+the box — which this box does not have.
+- **The first credential is automatically a manager.** `AddWithCreator` computes
+`can_manage` from a subquery: `CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END`. The
+console has no way to promote anybody, so shell enrolment is the only place a
+first manager can come from. Two adds racing cannot both claim first because the
+count and the insert are one statement.
+
+Migration `0013_admin_manager.sql` repairs installs that `0012` left managerless:
+when no non-disabled credential has `can_manage = 1`, it promotes the
+earliest-created one. It is a no-op on an empty table and on a table that
+already has a manager.
 
 **Privileged actions — add, disable, promote, demote, reset — require the acting
 manager to re-enter their own password** before the action happens. This is not a
