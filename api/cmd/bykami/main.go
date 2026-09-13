@@ -32,6 +32,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/instagram"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
+	"github.com/bhaktiyudha/bykami/api/internal/membership"
 	"github.com/bhaktiyudha/bykami/api/internal/mfa"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
 )
@@ -77,6 +78,8 @@ func main() {
 			err = bookingCmd(*dsn, args[1:])
 		case "admin":
 			err = adminCmd(*dsn, *adminPhones, args[1:])
+		case "membership":
+			err = membershipCmd(*dsn, firstPhone(*adminPhones), args[1:])
 		default:
 			log.Error("unknown command", "command", args[0])
 			usage()
@@ -137,6 +140,13 @@ func usage() {
 	fmt.Fprintln(out, "  bykami -db … booking seed")
 	fmt.Fprintln(out, "  bykami -db … booking resources")
 	fmt.Fprintln(out, "  bykami -db … booking calendar photobox-y2k studio@group.calendar.google.com")
+	fmt.Fprintln(out, "\nBring the paper stamp cards in. A CSV of name,whatsapp,stamps,barcode;")
+	fmt.Fprintln(out, "safe to re-run, because a barcode already in the ledger is skipped and")
+	fmt.Fprintln(out, "nothing is credited or issued twice. The run is attributed to the first")
+	fmt.Fprintln(out, "number in -admin-phones, and the gifts already ticked on paper are marked")
+	fmt.Fprintln(out, "as collected rather than handed out again:")
+	fmt.Fprintln(out, "  bykami -db … -admin-phones 0812… membership import -file cards.csv")
+	fmt.Fprintln(out, "  bykami -db … -admin-phones 0812… membership import -file cards.csv -outlet jajag")
 	fmt.Fprintln(out, "\nFlags:")
 	flag.PrintDefaults()
 }
@@ -157,6 +167,10 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 	// parameters, which is what keeps the boundaries real rather than aspirational.
 	ident := identity.New(db, sender)
 	ledger := loyalty.New(db)
+	// The studio's stamp card, over the ledger above. One service for both
+	// sides: the console writes through it and the customer's lookup reads
+	// through it, so the card's arithmetic and its rate limit have one home.
+	members := membership.New(db, ledger, ident, time.Now)
 	catalogue := frames.New(db)
 	// What the booths say they are offering, which is the catalogue plus the
 	// designs compiled into the agent binary plus whatever is in each machine's
@@ -213,7 +227,8 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 
 	api := httpapi.New(httpapi.Config{
 		Identity: ident, Loyalty: ledger, Frames: catalogue, Booths: booths, Booking: desk,
-		Instagram: mirror, InstagramAccount: igAccount,
+		Membership: members,
+		Instagram:  mirror, InstagramAccount: igAccount,
 		Health: db.PingContext, Log: log,
 		AuthEnabled: authEnabled, BoothToken: boothToken,
 		BookingOrigins: splitOrigins(bookingOrigins),
@@ -242,7 +257,7 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 		log.Info("google connect configured")
 	}
 
-	console, err := admin.New(ident, ledger, catalogue, booths, desk, calWorker, auth, connect, log, splitPhones(adminPhones))
+	console, err := admin.New(ident, ledger, members, catalogue, booths, desk, calWorker, auth, connect, log, splitPhones(adminPhones))
 	if err != nil {
 		return fmt.Errorf("admin console: %w", err)
 	}
@@ -340,6 +355,16 @@ func splitPhones(s string) []string {
 		}
 	}
 	return out
+}
+
+// firstPhone is the operator a shell command is attributed to: the subcommands
+// that write carry a number, and the configured staff list is where one comes
+// from. Empty means the command refuses rather than writing something anonymous.
+func firstPhone(s string) string {
+	if phones := splitPhones(s); len(phones) > 0 {
+		return phones[0]
+	}
+	return ""
 }
 
 // newSender picks the delivery channel and reports whether auth routes may

@@ -51,6 +51,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/gcal"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
+	"github.com/bhaktiyudha/bykami/api/internal/membership"
 	"github.com/bhaktiyudha/bykami/api/internal/mfa"
 	"github.com/bhaktiyudha/bykami/api/internal/phone"
 )
@@ -92,6 +93,9 @@ var verticals = []string{"studio", "booth", "dimsamcong"}
 type Console struct {
 	identity *identity.Service
 	loyalty  *loyalty.Ledger
+	// members is the studio's stamp card: the paper card as a view over the
+	// ledger above it. See internal/membership.
+	members  *membership.Service
 	frameCat *frames.Catalogue
 	// booths is what each booth reports it is offering. Read here and written
 	// only by the booths themselves — see internal/frames/booth.go.
@@ -133,9 +137,10 @@ type Console struct {
 // New returns the console. staffPhones are raw numbers in any Indonesian form;
 // they are normalised here and an unparseable one is an error rather than a
 // silently ignored entry.
-func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue, booths *frames.Booths, desk *booking.Desk, calendar *booking.Worker, auth *mfa.Registry, connect *gcal.Connect, log *slog.Logger, staffPhones []string) (*Console, error) {
+func New(ident *identity.Service, ledger *loyalty.Ledger, members *membership.Service, cat *frames.Catalogue, booths *frames.Booths, desk *booking.Desk, calendar *booking.Worker, auth *mfa.Registry, connect *gcal.Connect, log *slog.Logger, staffPhones []string) (*Console, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"points": formatPoints,
+		"rupiah": formatRupiah,
 		"time":   func(t time.Time) string { return t.Format("2006-01-02 15:04") },
 		"season": seasonText,
 		"day":    dayValue,
@@ -184,6 +189,7 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, cat *frames.Catalogue,
 	return &Console{
 		identity: ident,
 		loyalty:  ledger,
+		members:  members,
 		frameCat: cat,
 		booths:   booths,
 		booking:  desk,
@@ -207,6 +213,14 @@ func (c *Console) Handler() http.Handler {
 	mux.HandleFunc("POST /logout", c.logout)
 	mux.HandleFunc("GET /customers", c.staffOnly(c.customers))
 	mux.HandleFunc("POST /customers/{id}/adjust", c.staffOnly(c.adjust))
+
+	// The stamp card. The read is a phone-number search like the one above;
+	// everything that takes a gift or writes a stamp is a POST, because a gift
+	// is a fulfilment somebody has to hand over.
+	mux.HandleFunc("GET /stamps", c.staffOnly(c.stamps))
+	mux.HandleFunc("POST /stamps/purchase", c.staffOnly(c.stampsPurchase))
+	mux.HandleFunc("POST /stamps/redeem", c.staffOnly(c.stampsRedeem))
+	mux.HandleFunc("POST /stamps/void", c.staffOnly(c.stampsVoid))
 	mux.HandleFunc("GET /bookings", c.staffOnly(c.bookingDay))
 	mux.HandleFunc("POST /bookings/{id}/cancel", c.staffOnly(c.bookingCancel))
 	mux.HandleFunc("POST /bookings/block", c.staffOnly(c.bookingBlock))
@@ -294,6 +308,15 @@ type page struct {
 	Balance  int64
 	Entries  []loyalty.Entry
 	Searched bool
+
+	// The stamp card. StampSearched separates "no number typed" from "this
+	// number is not a member", which decides whether the page offers to create
+	// the account as part of the next purchase.
+	StampQuery    string
+	StampSearched bool
+	StampCard     *membership.CardView
+	StampRewards  []membership.Reward
+	StampToday    []membership.Purchase
 
 	// Frame catalogue
 	Frames []frames.Frame

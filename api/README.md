@@ -47,6 +47,7 @@ these are auth results and personal data, and Cloudflare sits in front.
 | `DELETE` | `/v1/auth/session` | Ends this session. Idempotent |
 | `GET` | `/v1/me` | The authenticated user |
 | `GET` | `/v1/me/loyalty` | `{"balance","entries"}` — balance is `SUM(points)` |
+| `POST` | `/v1/membership/lookup` | `{"phone"}` → the member's card. No session, no code, no provider |
 | `GET` | `/v1/booth/frames` | Booth sync: manifest of published, in-season frames |
 | `GET` | `/v1/booth/frames/{id}` | The frame's PNG. `ETag`, so an unchanged poll is a 304 |
 | `POST` | `/v1/booth/templates` | The booth reporting what it actually offers → `{"want":[sha256]}` |
@@ -65,12 +66,24 @@ still becomes an account through `identity.EnsureUser`, so loyalty has something
 to attach to later — what is skipped is proving possession of it, which the studio
 already lives with because it phones people who do not turn up.
 
-Because `studio.bykami.id` is a different origin from this one, those five routes
+Because `studio.bykami.id` is a different origin from this one, those six routes
 carry an `Access-Control-Allow-Origin` allowlist and an `OPTIONS` preflight. Never
 a wildcard: two of them write. The `Content-Type: application/json` that `decode`
 insists on is doing double duty — it is what makes the preflight happen, and it is
 what keeps a cross-origin HTML form out of an endpoint that has no session to
 check instead.
+
+**Membership is reached by phone number, because that is the card's own key.**
+`POST /v1/membership/lookup` takes the WhatsApp number written on the front of the
+paper card and returns that member's card — nine slots, which gifts are waiting,
+and when each may be handed over. It is public and it has to be: the point of the
+change is that somebody can see their own stamps with no app, no login and no OTP
+sender. What that costs is that a list of numbers can be walked through, so the
+name comes back masked (`Isyara H.`), the number is echoed only because the caller
+typed it, and the route is rate-limited per number *and* per address through rows
+in `membership_lookups`. Nothing in that response can take a gift: redemption is
+an operator action in the console, because a gift is a fulfilment somebody has to
+hand over. `design/membership.md` records the trade and the design it rejected.
 
 **A booth is not a user.** It has no phone and cannot receive a one-time code,
 so `/v1/booth/*` authenticates with a shared secret from `BYKAMI_BOOTH_TOKEN`
@@ -193,6 +206,42 @@ is a person looking at the slots drawn over the frame; publishing on upload
 would put that check after the customer. The preview is checkered, so a hole
 filled with white — the usual export mistake — reads as artwork rather than as a
 hole.
+
+### Stamps — the counter, replacing the pen
+
+`/stamps` is where the paper card actually dies. An operator types a WhatsApp
+number, sees that member's card and its slots, types the amount off the receipt
+and confirms. An unknown number becomes a member on the same screen with a name
+and nothing else — no OTP, no form, no app, because the phone in the customer's
+hand is the account and the staff member is looking at it.
+
+The rules are the card's, and they are the database's rather than a handler's:
+
+- **One stamp per Rp 45.000, floored per transaction.** Rp 44.000 twice is zero
+  stamps, not one. A below-threshold amount is refused with the shortfall and
+  writes nothing, rather than recording a zero-point row.
+- **Nine stamps fill a card.** A partial unique index allows one open card per
+  member per program, which is what makes "which card does this stamp belong to"
+  a question with one answer.
+- **Gifts at 2, 4, 6, 8 and 9 are `membership_rewards` rows**, handed over by a
+  conditional `UPDATE` whose row count is the result. Two staff members looking
+  at the same phone cannot each spend the same gift, because the second write
+  finds the row already taken instead of a balance to compare against.
+- **A gift earned today is redeemed on a later visit.** `redeem_after` is the WIB
+  date of issue plus a day, stored in the row, because that is the card's printed
+  fine print rather than a screen's opinion.
+
+A mistyped amount is voided, not edited: the void deletes the stamps and the
+gifts they minted, writes a compensating entry to the ledger naming the operator,
+and leaves the purchase row marked. It is the same split `0004_booking.sql`
+documents for a cancelled booking — the slot rows are current state, the booking
+row is the history — and it is refused if the gift was already handed over, since
+that is the one thing a compensating entry cannot undo.
+
+`bykami membership import -file cards.csv` brings the existing paper cards across
+by name, number, stamps and barcode, idempotent on the barcode and safe to
+re-run. It mints the gifts a card had already collected and marks them redeemed
+immediately, because the customer already has them in their hand.
 
 ### The catalogue is also a subcommand
 
@@ -363,9 +412,15 @@ actor column and an anonymous adjustment cannot be defended later.
 
 ## Not here yet
 
-- **Earn and burn have no HTTP route.** Earning is a machine action from the
-  kiosk and needs a credential that is neither a customer's session token nor an
-  operator's — that is the open staff/device auth question in `design/kiosk.md`.
+- **The booth cannot earn.** Stamps are minted by an operator at the counter,
+  which needs no credential that does not exist — the console is the earning
+  surface today. A booth crediting its own sessions still needs one that is
+  neither a customer session nor an operator's, and its captured number is
+  exactly the unverified case `platform-architecture.md` refuses to credit.
+  `design/kiosk.md` has the open question.
+- **Nothing burns.** No route spends loyalty, because nothing spendable exists
+  yet: the card's gifts are rows rather than points, and Dimsamcong sells nothing
+  that redeems. The first real redemption is what will need a route and a rule.
 - **A real OTP sender.** WhatsApp is intended and needs a provider account. It
   blocks *customer* logins and everything downstream of them. It no longer
   blocks the console, which is the one thing it used to block that had no

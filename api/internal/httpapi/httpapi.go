@@ -30,6 +30,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/instagram"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
+	"github.com/bhaktiyudha/bykami/api/internal/membership"
 	"github.com/bhaktiyudha/bykami/api/internal/phone"
 )
 
@@ -50,6 +51,9 @@ type API struct {
 	identity *identity.Service
 	loyalty  *loyalty.Ledger
 	frames   *frames.Catalogue
+	// membership is the studio's stamp card: the paper card as a view over the
+	// ledger. Its Lookup is the one public read here that is about a person.
+	membership *membership.Service
 	// booths is what booths report they are offering — the catalogue's mirror
 	// image, and hearsay rather than authority. See booth.go.
 	booths  *frames.Booths
@@ -98,6 +102,10 @@ type Config struct {
 	Identity *identity.Service
 	Loyalty  *loyalty.Ledger
 	Frames   *frames.Catalogue
+	// Membership is the stamp card. Its lookup is a public read with no session
+	// behind it, which is the whole point of the card being keyed on a phone
+	// number — see internal/membership.
+	Membership *membership.Service
 	// Booths receives what each booth reports it is offering, which is the only
 	// way this side learns about the designs built into the agent binary.
 	Booths  *frames.Booths
@@ -128,9 +136,10 @@ type Config struct {
 func New(cfg Config) http.Handler {
 	a := &API{
 		identity: cfg.Identity, loyalty: cfg.Loyalty, frames: cfg.Frames,
-		booths:    cfg.Booths,
-		booking:   cfg.Booking,
-		instagram: cfg.Instagram, instagramAccount: cfg.InstagramAccount,
+		membership: cfg.Membership,
+		booths:     cfg.Booths,
+		booking:    cfg.Booking,
+		instagram:  cfg.Instagram, instagramAccount: cfg.InstagramAccount,
 		health: cfg.Health, log: cfg.Log, authEnabled: cfg.AuthEnabled,
 		bookingOrigins: cfg.BookingOrigins,
 	}
@@ -191,6 +200,15 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("OPTIONS /v1/booking", a.preflight)
 	mux.HandleFunc("OPTIONS /v1/booking/{id}", a.preflight)
 	mux.HandleFunc("OPTIONS /v1/booking/{id}/cancel", a.preflight)
+
+	// The member's own card, by phone number. Public like the booking surface
+	// and for a related reason — it needs no login — but it is the one public
+	// read that is about a person, so it is rate-limited inside the service.
+	// Not gated by authEnabled: there is no code to send and no session to
+	// mint, and holding the card behind a provider that does not exist would
+	// leave the paper card as the real system.
+	mux.HandleFunc("POST /v1/membership/lookup", a.cors(a.membershipLookup))
+	mux.HandleFunc("OPTIONS /v1/membership/lookup", a.preflight)
 
 	return mux
 }

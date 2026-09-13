@@ -20,6 +20,7 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/gcal"
 	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
+	"github.com/bhaktiyudha/bykami/api/internal/membership"
 	"github.com/bhaktiyudha/bykami/api/internal/mfa"
 	"github.com/bhaktiyudha/bykami/api/internal/phone"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
@@ -56,6 +57,9 @@ type fixture struct {
 	sender *capturingSender
 	ident  *identity.Service
 	ledger *loyalty.Ledger
+	// stamps is the same membership service the console was built with, so a
+	// test can seed a card and then look at the page that renders it.
+	stamps *membership.Service
 	auth   *mfa.Registry
 	db     *sql.DB
 
@@ -103,14 +107,15 @@ func newFixtureConnect(t *testing.T, cal booking.Calendar, connect *gcal.Connect
 	// its "no credential" path rather than a typed nil that would panic.
 	worker := booking.NewWorker(desk, cal, log, time.Minute, "Jajag")
 
-	c, err := admin.New(ident, ledger, frames.New(db), frames.NewBooths(db), desk, worker, auth, connect, log, staff)
+	stamps := membership.New(db, ledger, ident, time.Now)
+	c, err := admin.New(ident, ledger, stamps, frames.New(db), frames.NewBooths(db), desk, worker, auth, connect, log, staff)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
 
 	f := fixture{
 		h: c.Handler(), sender: sender, ident: ident, ledger: ledger,
-		auth: auth, db: db, secrets: map[string][]byte{},
+		stamps: stamps, auth: auth, db: db, secrets: map[string][]byte{},
 	}
 	for _, s := range staff {
 		f.enrol(t, s)
@@ -447,7 +452,7 @@ func TestRevokingAnOperatorEndsAccessImmediately(t *testing.T) {
 	// Same identity service and the same live session, a console that no longer
 	// lists that number.
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	revoked, err := admin.New(f.ident, f.ledger, frames.New(f.db), frames.NewBooths(f.db), booking.New(f.db, 0), nil, f.auth, nil, log, nil)
+	revoked, err := admin.New(f.ident, f.ledger, f.stamps, frames.New(f.db), frames.NewBooths(f.db), booking.New(f.db, 0), nil, f.auth, nil, log, nil)
 	if err != nil {
 		t.Fatalf("new console: %v", err)
 	}
@@ -635,7 +640,7 @@ func TestUnparseableStaffNumberIsAStartupError(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	_, err = admin.New(identity.New(db, &capturingSender{}), loyalty.New(db), frames.New(db),
+	_, err = admin.New(identity.New(db, &capturingSender{}), loyalty.New(db), membership.New(db, loyalty.New(db), identity.New(db, &capturingSender{}), time.Now), frames.New(db),
 		frames.NewBooths(db), booking.New(db, 0), nil, mfa.New(db), nil, log, []string{"not-a-phone-number"})
 	if err == nil {
 		t.Fatal("an unparseable operator number was accepted")

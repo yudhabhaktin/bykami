@@ -1,0 +1,779 @@
+---
+import { byId, verticals } from "@bykami/content";
+import BaseLayout from "@bykami/ui/BaseLayout.astro";
+import SectionHeader from "@bykami/ui/SectionHeader.astro";
+
+/**
+ * The customer's own copy of the paper card.
+ *
+ * `design/membership.md` is the decision this page implements: the studio sells
+ * a physical loyalty card, a stamp is one multiple of Rp 45.000, nine stamps
+ * fill a card, and five of the slots carry a gift. The paper card is the thing
+ * being replaced, so this page is not a new product — it is the card in the
+ * customer's pocket, reachable from the QR printed on the physical one.
+ *
+ * It is on the brand root rather than on studio.bykami.id because the card is
+ * the company's, not one outlet's: the ledger is pooled, a member earns in Jajag
+ * and can redeem at Dimsamcong, and the URL on a printed card has to outlive
+ * whichever vertical printed it.
+ *
+ * No login, no one-time code, no WhatsApp provider. The number written on the
+ * front of the card is the key, and the page POSTs it. What that costs is stated
+ * in the design record and is not hidden here: anybody who types a number learns
+ * whether it is a member and how many stamps it holds. What the page does with
+ * that is the honest half — the name comes back masked by the server, and
+ * nothing here can take a gift, because a gift is a fulfilment somebody hands
+ * over at the counter.
+ *
+ * No nav link anywhere, deliberately: the QR on the physical card is the way in,
+ * and a header link for a page most visitors have no use for would be a fifth
+ * item in a nav that is trying to stay short.
+ */
+const vertical = byId("root");
+
+/**
+ * Where the membership API lives.
+ *
+ * A cross-origin call by construction — the sites are static on Cloudflare Pages
+ * and the API is a Go binary behind a tunnel — and `internal/httpapi` carries the
+ * allowlist that permits it: `*.bykami.id`, which includes this hostname.
+ * Overridable at build time so `astro dev` can point at a local binary, exactly
+ * as `sites/studio/src/pages/booking.astro` does.
+ */
+const apiBase = import.meta.env["BYKAMI_API_BASE"] ?? "https://app.bykami.id";
+
+/**
+ * The studio, for the one link out.
+ *
+ * An unregistered number is registered at the counter — `design/membership.md`
+ * makes that the joining flow, with no OTP and no account form — so the "not
+ * registered yet" state has to be able to say where that counter is. Read off
+ * the catalogue rather than typed here, so this cannot become a second copy of a
+ * hostname that already exists.
+ */
+const studio = verticals.find((v) => v.id === "studio");
+const studioHref = studio ? `https://${studio.hostname}` : undefined;
+---
+
+<BaseLayout
+  vertical={vertical}
+  path="/kartu"
+  title="Kartu Stempel Digital — by KAMI"
+  description="Kartu stempel by KAMI, sekarang bisa dilihat dari HP. Tulis nomor WhatsApp untuk melihat jumlah stempel dan hadiah yang sudah terkumpul."
+>
+  <section class="wrap hero">
+    <h1 class="enter" style="--enter-y: 32px">Kartu stempel</h1>
+    <p class="lede enter" style="--enter-delay: 0.1s">
+      Kartu stempel kertasmu, sekarang bisa dilihat dari HP. Tanpa aplikasi, tanpa
+      akun, tanpa kode — cukup nomor WhatsApp yang tertulis di kartu.
+    </p>
+  </section>
+
+  <section class="wrap section" data-kartu>
+    <SectionHeader heading="Cek kartumu" label="Kartu stempel" />
+
+    {/*
+      The card's own rules, said before anybody types anything rather than left
+      to be discovered at the counter. All three are on the paper card: the
+      amount per stamp, the same-day rule, and the fact that the card is keyed on
+      the WhatsApp number. The amount is a span because the lookup returns it —
+      if the studio ever changes the number, the page follows the server instead
+      of contradicting it, and until then this is the printed figure.
+    */}
+    <ul class="rules card">
+      <li>
+        Satu stempel didapat setiap kelipatan <span class="tabular" data-amount>Rp 45.000</span>
+        belanja di studio.
+      </li>
+      <li>
+        Hadiah dari stempel yang kamu kumpulkan hari ini bisa ditukar mulai besok —
+        bukan di hari yang sama.
+      </li>
+      <li>
+        Kartu ini dicek dari nomor WhatsApp yang kamu tuliskan di kartu, jadi
+        pastikan nomornya yang benar.
+      </li>
+    </ul>
+
+    {/*
+      The no-JavaScript path, and it has to be a real one: this page has no
+      server to render a card for anybody, so a visitor whose browser cannot run
+      the lookup is left with a number to ask. Removed the moment BaseLayout's
+      head script marks the document scripted — the same swap the booking page
+      makes, and the reason the form below is hidden until then instead of
+      posting itself into the URL as a GET.
+    */}
+    <p class="fallback muted">
+      Untuk melihat kartumu, aktifkan JavaScript di browser, lalu buka lagi halaman
+      ini. Atau tanyakan stempelmu ke admin lewat WhatsApp — nomor di kartu juga
+      bisa dibacakan.
+    </p>
+
+    <div class="lookup" data-lookup>
+      {/*
+        A real form element, so Enter submits and the browser's own validation
+        runs before any of ours does. The submit handler is what sends it: there
+        is no server to post a form body to, and the API's CORS allowlist is what
+        keeps the JSON endpoint from being reachable by a form on somebody
+        else's origin.
+      */}
+      <form data-form novalidate>
+        <p class="field">
+          <label for="wa">Nomor WhatsApp</label>
+          <input
+            id="wa"
+            name="wa"
+            type="tel"
+            inputmode="tel"
+            autocomplete="tel"
+            placeholder="08xxxxxxxxxx"
+            aria-describedby="wa-hint"
+            required
+          />
+          {/*
+            Jakarta-oriented: the numbers on these cards are Indonesian mobiles,
+            written locally, and somebody typing "+62" by hand should not have to
+            guess whether the page wants the leading zero dropped.
+          */}
+          <span class="hint muted" id="wa-hint">
+            Contoh: 0812 3456 7890 atau +62 812 3456 7890.
+          </span>
+        </p>
+
+        <button type="submit" class="btn primary ui" data-submit>Cek kartu</button>
+      </form>
+
+      {/*
+        One live region for everything the lookup can say — loading, the card, an
+        error, an unregistered number — so a screen reader hears the answer once,
+        in the order it arrives. The card is inserted into it rather than
+        swapped beside it, because the thing being announced is the result of a
+        question the visitor just asked.
+      */}
+      <div class="out" role="status" aria-live="polite">
+        <p class="loading muted" data-loading hidden>Mencari kartu…</p>
+
+        {/*
+          Ink, not red: the palette is monochrome by design, so weight and a rule
+          carry an error here, exactly as they do on the booking form.
+        */}
+        <p class="error" data-error hidden></p>
+
+        {/*
+          The unregistered state, as markup rather than as a string built in
+          JavaScript — it carries the one link out, and an anchor that exists in
+          the document is the only kind a browser can open in a new tab.
+        */}
+        <div class="card notfound" data-notfound hidden>
+          <p>
+            <strong>Nomor ini belum terdaftar.</strong> Kartu dibuat di studio:
+            sebutkan nomor WhatsApp ini di kasir dan stempelmu langsung tercatat.
+          </p>
+          {studioHref && (
+            <p class="muted ui">
+              <a href={studioHref}>{studio?.displayName ?? "Studio by KAMI"}</a> — alamat
+              dan jam bukanya ada di sana.
+            </p>
+          )}
+        </div>
+
+        <div data-result hidden></div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+{/*
+  is:inline with set:html, the same shape as the booking page's flow: a bundled
+  script is a deferred module, and this one has work to start as soon as the
+  section exists.
+
+  The API base is interpolated into the source rather than passed with
+  `define:vars`, because the two do not compose — `define:vars` emits its own
+  IIFE and discards the `set:html` body, which produced a script containing one
+  const and nothing else. JSON.stringify because this value ends up inside a
+  script and a build-time string has no business being pasted in raw.
+
+  Everything below builds nodes with createElement and textContent. The booking
+  page assembles cards with innerHTML and escapes what it interpolates; this page
+  holds a member's name and the gift labels off the server, so it takes the shape
+  where escaping is not a step somebody has to remember.
+
+  The number the visitor types lives in the input and in the body of one fetch.
+  It is not written to localStorage, sessionStorage, a cookie or the URL, and
+  nothing here keeps a copy after the request settles — a card look-up that left
+  a phone number behind on a shared phone would be a worse leak than the one the
+  design record already accepts.
+*/}
+<script
+  is:inline
+  set:html={`(() => {
+  var apiBase = ${JSON.stringify(apiBase)};
+
+  var root = document.querySelector("[data-kartu]");
+  if (!root) return;
+
+  var form = root.querySelector("[data-form]");
+  var input = root.querySelector("#wa");
+  var submit = root.querySelector("[data-submit]");
+  var amount = root.querySelector("[data-amount]");
+  var loading = root.querySelector("[data-loading]");
+  var errorBox = root.querySelector("[data-error]");
+  var notFound = root.querySelector("[data-notfound]");
+  var result = root.querySelector("[data-result]");
+
+  var idr = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+  var GENERIC = "Kartu sedang tidak bisa dimuat. Coba lagi sebentar lagi.";
+  var OFFLINE = "Tidak bisa menghubungi server. Periksa koneksi lalu coba lagi.";
+
+  // Keyed by status, and nothing off the server is printed. A lookup that fails
+  // has one of four causes, and each has one sentence that helps; the API's own
+  // error strings are written for the console's operator and are not needed here.
+  function messageFor(status) {
+    if (status === 400) return "Nomor itu belum bisa kami baca. Tulis nomor WhatsApp Indonesia, misalnya 0812 3456 7890.";
+    if (status === 429) return "Terlalu banyak percobaan dari nomor ini. Coba lagi sebentar lagi, atau tanya admin lewat WhatsApp.";
+    return GENERIC;
+  }
+
+  function showError(text) {
+    errorBox.textContent = text;
+    errorBox.hidden = false;
+  }
+
+  function clearOut() {
+    errorBox.hidden = true;
+    errorBox.textContent = "";
+    notFound.hidden = true;
+    result.hidden = true;
+    while (result.firstChild) result.removeChild(result.firstChild);
+  }
+
+  /*
+   * The WIB date out of a timestamp, taken from the string rather than from a
+   * Date. The studio's day is a local fact and the server sends the offset with
+   * it, so a visitor whose phone is set to Jakarta+2 must not have a redemption
+   * dated tomorrow — the same reasoning as the booking calendar's day groups.
+   */
+  function dateOf(iso) {
+    if (typeof iso !== "string" || iso.length < 10) return "";
+    var parts = iso.slice(0, 10).split("-");
+    var y = Number(parts[0]);
+    var m = Number(parts[1]);
+    var d = Number(parts[2]);
+    if (!y || !m || m > 12 || !d || d > 31) return "";
+    return d + " " + MONTHS[m - 1] + " " + y;
+  }
+
+  /*
+   * The name comes back already masked — "Isyara H." — because the full name is
+   * the one thing a caller walking a list of phone numbers could not already
+   * supply, and therefore the thing an enumeration would harvest. Masking it
+   * again here is idempotent on that shape ("Isyara H." stays "Isyara H."), and
+   * it means a server that ever starts sending the whole name still cannot put
+   * it on a public page. Split on spaces and filter, rather than on a whitespace
+   * regex, only because this source is a template literal carried in HTML.
+   */
+  function maskName(value) {
+    if (typeof value !== "string") return "";
+    var words = value.trim().split(" ").filter(function (w) { return w !== ""; });
+    if (!words.length) return "";
+    var out = [words[0]];
+    for (var i = 1; i < words.length; i++) {
+      out.push(words[i].charAt(0).toUpperCase() + ".");
+    }
+    return out.join(" ");
+  }
+
+  /*
+   * What can be done with one gift, and when.
+   *
+   * Three answers, and the middle one is the whole reason this line exists:
+   * available:false with no redeemed_at is not a failure, it is a gift
+   * earned today that the card's fine print opens tomorrow. A page that let that
+   * be discovered at the counter would be re-learning a rule the paper card
+   * already states.
+   */
+  function rewardStatus(reward) {
+    if (!reward || typeof reward !== "object") return null;
+    if (reward.available === true) return { text: "Bisa ditukar sekarang", kind: "now" };
+    if (reward.redeemed_at) {
+      var used = dateOf(reward.redeemed_at);
+      return { text: used ? "Sudah ditukar " + used : "Sudah ditukar", kind: "used" };
+    }
+    var after = dateOf(reward.redeem_after);
+    return { text: after ? "Bisa ditukar mulai " + after : "Bisa ditukar besok", kind: "later" };
+  }
+
+  function line(text, className, attrs) {
+    var p = document.createElement("p");
+    p.className = className;
+    p.textContent = text;
+    if (attrs) for (var k in attrs) p.setAttribute(k, attrs[k]);
+    return p;
+  }
+
+  function renderCard(data) {
+    var slots = data.slots;
+    var total = typeof data.stamps_per_card === "number" && data.stamps_per_card > 0
+      ? data.stamps_per_card
+      : slots.length;
+
+    var filled = 0;
+    for (var i = 0; i < slots.length; i++) if (slots[i] && slots[i].filled) filled++;
+    // The server's count is the authority — it floors per transaction, which
+    // nothing here can second-guess — but a card whose slots and count disagree
+    // should still render the slots it sent rather than a blank.
+    var shown = typeof data.filled === "number" ? data.filled : filled;
+
+    var card = document.createElement("div");
+    card.className = "card kartu";
+
+    var name = maskName(data.name);
+    if (name) card.appendChild(line(name, "kartu-name"));
+
+    // The number is echoed in full on purpose: the caller typed it, so masking
+    // it would hide it from the only person who already knows it.
+    var meta = [];
+    if (typeof data.card_no === "number") meta.push("Kartu #" + data.card_no);
+    if (typeof data.phone === "string" && data.phone) meta.push("WhatsApp " + data.phone);
+    if (meta.length) card.appendChild(line(meta.join(" · "), "kartu-meta muted ui tabular"));
+
+    card.appendChild(line(shown + " dari " + total + " stempel", "kartu-progress tabular"));
+
+    var meter = document.createElement("div");
+    meter.className = "meter";
+    meter.setAttribute("aria-hidden", "true");
+    var bar = document.createElement("span");
+    bar.style.width = (total > 0 ? Math.round((shown / total) * 100) : 0) + "%";
+    meter.appendChild(bar);
+    card.appendChild(meter);
+
+    /*
+     * The slots, in the order the response sent them — that order is the card's
+     * design, not something to sort here.
+     *
+     * Every slot prints its gift label whether or not it is filled, because the
+     * label is what makes the grid a card rather than a row of dots: "slot 6 is
+     * worth +5 menit" is a reason to keep going, and it is printed on the paper.
+     * The drawn pieces are aria-hidden and each row carries one sentence for a
+     * screen reader, so a nine-cell grid is not read out as nine bare numbers.
+     */
+    var grid = document.createElement("ul");
+    grid.className = "stamps";
+
+    for (var j = 0; j < slots.length; j++) {
+      var slot = slots[j] || {};
+      var no = typeof slot.no === "number" ? slot.no : j + 1;
+      var state = slot.filled ? "filled" : "empty";
+      var reward = slot.reward && typeof slot.reward === "object" ? slot.reward : null;
+      var gift = typeof slot.label === "string" ? slot.label.trim() : "";
+      if (!gift && reward && typeof reward.label === "string") gift = reward.label.trim();
+      var status = rewardStatus(reward);
+
+      var li = document.createElement("li");
+      li.className = "stamp";
+      li.setAttribute("data-state", state);
+      li.style.setProperty("--i", String(j));
+
+      var sentence = "Stempel " + no + ": " +
+        (state === "filled" ? "terisi" : "kosong");
+      if (gift) sentence += ", hadiah " + gift;
+      if (status) sentence += ", " + status.text.toLowerCase();
+      li.setAttribute("aria-label", sentence);
+
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      dot.setAttribute("aria-hidden", "true");
+      dot.textContent = String(no);
+
+      var label = document.createElement("span");
+      label.className = "stamp-label";
+      label.setAttribute("aria-hidden", "true");
+      label.textContent = gift;
+
+      var note = document.createElement("span");
+      note.className = "stamp-status ui";
+      note.setAttribute("aria-hidden", "true");
+      note.setAttribute("data-kind", status ? status.kind : "none");
+      note.textContent = status ? status.text : "";
+
+      li.appendChild(dot);
+      li.appendChild(label);
+      li.appendChild(note);
+      grid.appendChild(li);
+    }
+
+    card.appendChild(grid);
+
+    if (shown === 0) {
+      card.appendChild(
+        line("Belum ada stempel di kartu ini. Stempel berikutnya kamu dapat dari pembelian di studio.", "muted"),
+      );
+    } else if (shown >= total) {
+      card.appendChild(
+        line("Kartu ini penuh. Pembelian berikutnya mulai kartu baru, dan hadiah yang belum ditukar tetap bisa ditukar.", "muted"),
+      );
+    }
+
+    card.appendChild(
+      line("Tukar hadiah hanya di kasir studio — sebutkan nomor WhatsApp ini.", "kartu-foot muted ui"),
+    );
+
+    result.appendChild(card);
+    result.hidden = false;
+  }
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    clearOut();
+
+    var phone = input.value.trim();
+    // Loose on purpose: the API's own phone package owns what a valid Indonesian mobile
+    // number is, and a stricter guess here would refuse numbers the server takes.
+    // Anything shorter than this is a typo in progress, not a look-up.
+    if (phone.replace(/[^0-9]/g, "").length < 9) {
+      showError("Nomor WhatsApp belum lengkap. Contoh: 0812 3456 7890.");
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = "Mencari…";
+    loading.hidden = false;
+
+    fetch(apiBase + "/v1/membership/lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: phone }),
+    })
+      .then(function (r) {
+        // Not every failure is JSON — a gateway that never reached the API
+        // answers in HTML — so the body is parsed defensively and a status is
+        // still enough to say something true.
+        return r.json().then(
+          function (body) { return { ok: r.ok, status: r.status, body: body }; },
+          function () { return { ok: r.ok, status: r.status, body: null }; },
+        );
+      })
+      .then(function (res) {
+        loading.hidden = true;
+        submit.disabled = false;
+        submit.textContent = "Cek kartu";
+
+        var body = res.body;
+        if (res.ok && body && typeof body === "object" && Array.isArray(body.slots)) {
+          // The rule line above follows the server's own figure once it is known.
+          if (typeof body.amount_per_stamp_idr === "number" && body.amount_per_stamp_idr > 0) {
+            amount.textContent = idr.format(body.amount_per_stamp_idr);
+          }
+          renderCard(body);
+          return;
+        }
+
+        if (res.status === 404) {
+          notFound.hidden = false;
+          return;
+        }
+
+        showError(messageFor(res.status));
+      })
+      .catch(function () {
+        loading.hidden = true;
+        submit.disabled = false;
+        submit.textContent = "Cek kartu";
+        showError(OFFLINE);
+      });
+  });
+})();`}
+/>
+
+<style>
+  .hero {
+    margin-block: var(--space-12) var(--space-section);
+  }
+
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+  }
+
+  /* Swapped by the `js` class BaseLayout sets in <head>, before first paint. */
+  .lookup {
+    display: none;
+  }
+
+  :global(html.js) .lookup {
+    display: block;
+  }
+
+  :global(html.js) .fallback {
+    display: none;
+  }
+
+  /* The lookup's own containers are toggled by the script; everything else on
+     the page leaves `[hidden]` to the browser. */
+  :global([data-kartu] [hidden]) {
+    display: none !important;
+  }
+
+  .rules {
+    margin: 0 0 var(--space-8);
+    padding: var(--space-4) var(--space-6);
+    list-style: none;
+  }
+
+  .rules li {
+    position: relative;
+    margin-bottom: var(--space-2);
+    color: var(--muted);
+    font-size: 15px;
+  }
+
+  .rules li:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Drawn rather than typed, so the figure a price carries is never announced
+     ahead of the sentence it belongs to. */
+  .rules li::before {
+    content: "";
+    position: absolute;
+    left: calc(-1 * var(--space-4));
+    top: 0.6em;
+    width: 6px;
+    height: 6px;
+    background: var(--faint);
+  }
+
+  form {
+    max-width: 28rem;
+  }
+
+  .field {
+    display: grid;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+  }
+
+  label {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  input[type="tel"] {
+    min-height: var(--tap);
+    padding-inline: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    letter-spacing: inherit;
+  }
+
+  input:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 1px;
+  }
+
+  .hint {
+    font-size: 14px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--tap);
+    padding-inline: var(--space-6);
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: none;
+    cursor: pointer;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .btn.primary {
+    background: var(--text);
+    color: var(--surface);
+  }
+
+  .btn.primary[disabled] {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .out {
+    margin-top: var(--space-8);
+  }
+
+  .loading {
+    margin: 0;
+  }
+
+  .error {
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3);
+    border-left: 3px solid var(--text);
+    background: rgb(244, 244, 244);
+    font-weight: 600;
+  }
+
+  .notfound {
+    padding: var(--space-6);
+  }
+
+  .notfound p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* ---- the card, drawn ------------------------------------------------
+
+     Namespaced by `[data-kartu]` rather than written as scoped selectors,
+     because every node below is built by the script above and therefore never
+     receives Astro's `data-astro-cid` attribute — the same trap the booking
+     page records. `data-kartu` is on this page's section and nowhere else in
+     the repo, so the generic class names inside it cannot reach a neighbour. */
+
+  :global([data-kartu] .kartu) {
+    max-width: 34rem;
+    padding: var(--space-6);
+  }
+
+  :global([data-kartu] .kartu-name) {
+    margin: 0 0 var(--space-1);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+  }
+
+  :global([data-kartu] .kartu-meta) {
+    margin: 0 0 var(--space-6);
+  }
+
+  :global([data-kartu] .kartu-progress) {
+    margin: 0 0 var(--space-2);
+    font-size: 18px;
+  }
+
+  /* Decoration, and aria-hidden: "3 dari 9 stempel" is the fact, and the bar is
+     only the shape of it. */
+  :global([data-kartu] .meter) {
+    height: 4px;
+    margin-bottom: var(--space-8);
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+  }
+
+  :global([data-kartu] .meter > span) {
+    display: block;
+    height: 100%;
+    background: var(--text);
+    transition: width var(--dur-ui) var(--ease-reveal);
+  }
+
+  /* Three columns at every width, which is the shape of the paper card: nine
+     slots, and a label under each one has to stay readable at 390px. */
+  :global([data-kartu] .stamps) {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-3);
+    margin: 0 0 var(--space-6);
+    padding: 0;
+    list-style: none;
+  }
+
+  :global([data-kartu] .stamp) {
+    display: grid;
+    gap: var(--space-1);
+    justify-items: center;
+    text-align: center;
+  }
+
+  :global([data-kartu] .dot) {
+    display: grid;
+    place-items: center;
+    width: var(--tap);
+    height: var(--tap);
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    color: var(--faint);
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A filled slot is inked, which is what a ticked box on paper looks like. */
+  :global([data-kartu] .stamp[data-state="filled"] .dot) {
+    border-color: var(--text);
+    background: var(--text);
+    color: var(--surface);
+  }
+
+  :global([data-kartu] .stamp-label) {
+    font-size: 14px;
+    line-height: 1.3;
+  }
+
+  /* Keeps the nine cells on a common baseline: a slot with no label still owns
+     the row. */
+  :global([data-kartu] .stamp-label:empty)::after {
+    content: "\00a0";
+  }
+
+  /* Ink for what can be taken now, muted for what cannot yet — the difference
+     is what the customer came to find out. */
+  :global([data-kartu] .stamp-status:not(:empty)) {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+
+  :global([data-kartu] .stamp-status[data-kind="now"]) {
+    color: var(--text);
+  }
+
+  :global([data-kartu] .stamp-status[data-kind="used"]),
+  :global([data-kartu] .stamp-status[data-kind="void"]) {
+    color: var(--faint);
+    font-weight: 400;
+  }
+
+  :global([data-kartu] .kartu > p.muted) {
+    font-size: 14px;
+  }
+
+  :global([data-kartu] .kartu-foot) {
+    margin: var(--space-2) 0 0;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line);
+  }
+
+  /*
+   * The stamps arriving one after another, which is the one animation worth
+   * having here: the grid is the answer to the question that was just asked, and
+   * filling it in order is how a stamp card is read. Off the same curve and
+   * stagger step as the rest of the sites, and only under
+   * `prefers-reduced-motion: no-preference` — with reduced motion the slots are
+   * simply drawn, because a from-state that never gets an animation is an
+   * invisible card.
+   */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes stamp-in {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+    }
+
+    :global([data-kartu] .stamp) {
+      animation: stamp-in var(--dur-reveal) var(--ease-reveal) backwards;
+      animation-delay: calc(var(--i, 0) * var(--stagger-1));
+    }
+  }
+</style>
