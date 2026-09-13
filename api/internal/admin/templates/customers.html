@@ -81,7 +81,13 @@
     <p class="muted">Belum ada entri.</p>
   {{end}}
 {{else if .Searched}}
-  {{if not .Error}}<p class="muted">Tidak ditemukan.</p>{{end}}
+  {{if not .Error}}
+    <p class="muted">
+      Tidak ditemukan. Pelanggan baru didaftarkan di
+      <a href="/stamps">Stempel</a> — cari nomornya di sana, dan kalau belum
+      terdaftar formulir nama beserta stempel pertamanya muncul sendiri.
+    </p>
+  {{end}}
 {{end}}
 
 {{template "foot" .}}

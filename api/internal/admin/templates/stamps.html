@@ -42,6 +42,20 @@
   </form>
 </div>
 
+{{if not .StampSearched}}
+  <!--
+    The registration path is the search, and nothing on the page said so. An
+    operator arriving here with a new customer saw a lookup box and no way in,
+    which is how a screen that can register somebody reads as one that cannot.
+  -->
+  <p class="small muted">
+    Pelanggan baru belum punya kartu: cari nomornya dulu di atas. Kalau nomor
+    itu belum terdaftar, formulir nama dan stempel pertamanya muncul di bawah,
+    dan akunnya dibuat sekalian — tidak ada OTP dan tidak ada formulir
+    pendaftaran terpisah.
+  </p>
+{{end}}
+
 {{if .StampCard}}
   <h2>Kartu {{.StampCard.CardNo}}</h2>
   <div class="card">
@@ -104,7 +118,7 @@
       {{if not .StampCard}}
         <div class="field">
           <label for="name">Nama (wajib untuk nomor baru)</label>
-          <input id="name" name="name" placeholder="mis. Isyara Hadza">
+          <input id="name" name="name" placeholder="mis. Isyara Hadza" required>
         </div>
       {{end}}
       <button type="submit">Simpan stempel</button>
