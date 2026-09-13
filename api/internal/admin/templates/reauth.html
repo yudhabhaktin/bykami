@@ -1,0 +1,29 @@
+{{define "reauth.html"}}
+{{template "head" .}}
+
+<h1>Konfirmasi kata sandi</h1>
+
+<p class="muted">
+  Tindakan ini memerlukan konfirmasi. Masukkan kata sandi Anda sendiri untuk
+  melanjutkan.
+</p>
+
+<div class="card">
+  {{template "messages" .}}
+
+  <form method="post" action="/operators/reauth">
+    <div class="field">
+      <label for="password">Kata sandi Anda</label>
+      <input id="password" name="password" type="password"
+             autocomplete="current-password" required autofocus>
+    </div>
+    <input type="hidden" name="action" value="{{.ReauthAction}}">
+    <input type="hidden" name="target" value="{{.ReauthTarget}}">
+    <input type="hidden" name="label" value="{{.ReauthLabel}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit">Lanjutkan</button>
+  </form>
+</div>
+
+{{template "foot" .}}
+{{end}}

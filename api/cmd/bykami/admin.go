@@ -23,6 +23,8 @@ import (
 //	bykami admin password add kasir-1
 //	bykami admin password list
 //	bykami admin password rm kasir-1
+//	bykami admin password manage kasir-1
+//	bykami admin password unmanage kasir-1
 func adminCmd(dsn, adminPhones string, args []string) error {
 	if len(args) == 0 {
 		return errors.New(`admin: want "password"`)
@@ -32,7 +34,7 @@ func adminCmd(dsn, adminPhones string, args []string) error {
 	}
 	args = args[1:]
 	if len(args) == 0 {
-		return errors.New(`admin password: want "add", "list" or "rm"`)
+		return errors.New(`admin password: want "add", "list", "rm", "manage" or "unmanage"`)
 	}
 
 	db, err := store.Open(dsn)
@@ -77,6 +79,26 @@ func adminCmd(dsn, adminPhones string, args []string) error {
 		fmt.Printf("To let them back in, add a new credential — the old password is gone.\n")
 		return nil
 
+	case "manage":
+		if len(args) != 2 {
+			return errors.New("admin password manage: want <label>")
+		}
+		if err := registry.SetManage(ctx, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("%q can now manage operators.\n", args[1])
+		return nil
+
+	case "unmanage":
+		if len(args) != 2 {
+			return errors.New("admin password unmanage: want <label>")
+		}
+		if err := registry.UnsetManage(ctx, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("%q can no longer manage operators.\n", args[1])
+		return nil
+
 	default:
 		return fmt.Errorf("admin password: unknown command %q", args[0])
 	}
@@ -94,13 +116,17 @@ func adminList(ctx context.Context, registry *adminauth.Registry) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "LABEL\tCREATED\tLAST USED\tSTATE")
+	fmt.Fprintln(w, "LABEL\tCREATED\tLAST USED\tSTATE\tMANAGER")
 	for _, c := range all {
 		state := "ok"
 		if c.Disabled {
 			state = "disabled"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.Label, day(c.CreatedAt), dayPtr(c.LastUsedAt), state)
+		mgr := "no"
+		if c.CanManage {
+			mgr = "yes"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", c.Label, day(c.CreatedAt), dayPtr(c.LastUsedAt), state, mgr)
 	}
 	return w.Flush()
 }

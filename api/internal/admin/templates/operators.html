@@ -1,0 +1,104 @@
+{{define "operators.html"}}
+{{template "head" .}}
+
+<h1>Operator</h1>
+
+{{template "messages" .}}
+
+<h2>Tambah operator</h2>
+<div class="card">
+  <!--
+    A GET, deliberately. Submitting this starts the re-auth interstitial with
+    the typed name carried in the query, and nothing is created until the
+    manager has also re-entered their own password on the page after it. A GET
+    can begin the flow; it can never perform one.
+  -->
+  <form method="get" action="/operators/reauth">
+    <div class="field row">
+      <div>
+        <label for="label">Nama pengguna</label>
+        <input id="label" name="label" type="text" required placeholder="kasir-1">
+      </div>
+    </div>
+    <input type="hidden" name="action" value="add">
+    <input type="hidden" name="target" value="/operators/add">
+    <button type="submit">Tambah</button>
+  </form>
+  <p class="small muted" style="margin-top:1rem">
+    Kata sandi dibuat secara otomatis dan ditampilkan sekali. Berikan kepada
+    operator, lalu lupakan.
+  </p>
+</div>
+
+<h2>Daftar operator</h2>
+<div class="scroll-x">
+  <table>
+    <thead>
+      <tr>
+        <th>Nama</th>
+        <th>Dibuat</th>
+        <th>Terakhir aktif</th>
+        <th>Status</th>
+        <th>Manajer</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Operators}}
+      <tr>
+        <td>{{.Label}}</td>
+        <td>{{time .CreatedAt}}</td>
+        <td>{{if .LastUsedAt}}{{time .LastUsedAt}}{{else}}—{{end}}</td>
+        <td>{{if .Disabled}}nonaktif{{else}}aktif{{end}}</td>
+        <td>{{if .CanManage}}ya{{else}}tidak{{end}}</td>
+        <td>
+          {{if not .Disabled}}
+            <!--
+              Every one of these is a GET: it starts the re-auth interstitial and
+              performs nothing. The action runs only from the confirmation page's
+              POST, which carries a single-use token minted after the manager
+              typed their own password.
+            -->
+            {{if .CanManage}}
+              {{if gt $.ManagerCount 1}}
+                <form class="inline" method="get" action="/operators/reauth">
+                  <input type="hidden" name="action" value="unmanage">
+                  <input type="hidden" name="target" value="/operators/unmanage">
+                  <input type="hidden" name="label" value="{{.Label}}">
+                  <button class="secondary" type="submit">Cabut manajer</button>
+                </form>
+              {{else}}
+                <span class="small faint">manajer terakhir</span>
+              {{end}}
+            {{else}}
+              <form class="inline" method="get" action="/operators/reauth">
+                <input type="hidden" name="action" value="manage">
+                <input type="hidden" name="target" value="/operators/manage">
+                <input type="hidden" name="label" value="{{.Label}}">
+                <button class="secondary" type="submit">Jadikan manajer</button>
+              </form>
+            {{end}}
+            <form class="inline" method="get" action="/operators/reauth">
+              <input type="hidden" name="action" value="disable">
+              <input type="hidden" name="target" value="/operators/disable">
+              <input type="hidden" name="label" value="{{.Label}}">
+              <button class="secondary danger" type="submit">Nonaktifkan</button>
+            </form>
+            <form class="inline" method="get" action="/operators/reauth">
+              <input type="hidden" name="action" value="reset">
+              <input type="hidden" name="target" value="/operators/reset">
+              <input type="hidden" name="label" value="{{.Label}}">
+              <button class="secondary" type="submit">Atur ulang</button>
+            </form>
+          {{else}}
+            <span class="small faint">dinonaktifkan{{if .DisabledBy}} oleh {{.DisabledBy}}{{end}}</span>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+{{template "foot" .}}
+{{end}}

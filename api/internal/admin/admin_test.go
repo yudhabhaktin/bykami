@@ -3,6 +3,7 @@ package admin_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -86,6 +87,7 @@ func newFixtureConnect(t *testing.T, cal booking.Calendar, connect *gcal.Connect
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	desk := booking.New(db, 0)
 	auth := adminauth.New(db, nil)
+	auth.SetIterations(1000)
 
 	worker := booking.NewWorker(desk, cal, log, time.Minute, "Jajag")
 	stamps := membership.New(db, ledger, ident, time.Now)
@@ -97,6 +99,10 @@ func newFixtureConnect(t *testing.T, cal booking.Calendar, connect *gcal.Connect
 	pw, err := auth.Add(context.Background(), operatorLabel)
 	if err != nil {
 		t.Fatalf("add credential: %v", err)
+	}
+	// Tests exercise the console, not the forced-password-change flow.
+	if _, err := db.Exec("UPDATE admin_credentials SET must_change = 0 WHERE label = ?", operatorLabel); err != nil {
+		t.Fatalf("clear must_change: %v", err)
 	}
 
 	return fixture{
@@ -130,7 +136,7 @@ func (f fixture) post(t *testing.T, path string, form url.Values, cookie string)
 
 func (f fixture) signIn(t *testing.T) string {
 	t.Helper()
-	w := f.post(t, "/login", url.Values{"password": {f.password}}, "")
+	w := f.post(t, "/login", url.Values{"username": {operatorLabel}, "password": {f.password}}, "")
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("login = %d, want 303: %s", w.Code, w.Body.String())
 	}
@@ -177,9 +183,12 @@ func TestRootServesTheLoginPage(t *testing.T) {
 	}
 }
 
-func TestLoginPageHasExactlyOnePasswordField(t *testing.T) {
+func TestLoginPageHasUsernameAndPasswordFields(t *testing.T) {
 	f := newFixture(t)
 	body := f.get(t, "/", "").Body.String()
+	if !strings.Contains(body, `name="username"`) {
+		t.Error("page missing username input")
+	}
 	if !strings.Contains(body, `name="password"`) {
 		t.Error("page missing password input")
 	}
@@ -202,6 +211,7 @@ func TestLoginPageSaysWhenNobodyIsEnrolled(t *testing.T) {
 	ledger := loyalty.New(db)
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	auth := adminauth.New(db, nil)
+	auth.SetIterations(1000)
 	stamps := membership.New(db, ledger, ident, time.Now)
 	c, err := admin.New(ident, ledger, stamps, frames.New(db), frames.NewBooths(db), booking.New(db, 0), nil, auth, nil, log)
 	if err != nil {
@@ -223,8 +233,8 @@ func TestLoginPageSaysWhenNobodyIsEnrolled(t *testing.T) {
 
 func TestEveryRefusalLooksTheSame(t *testing.T) {
 	f := newFixture(t)
-	wrong := f.post(t, "/login", url.Values{"password": {"wrong-password"}}, "")
-	empty := f.post(t, "/login", url.Values{"password": {""}}, "")
+	wrong := f.post(t, "/login", url.Values{"username": {"yudha"}, "password": {"wrong-password"}}, "")
+	empty := f.post(t, "/login", url.Values{"username": {""}, "password": {""}}, "")
 	if wrong.Code != empty.Code {
 		t.Errorf("status differs: wrong %d, empty %d", wrong.Code, empty.Code)
 	}
@@ -235,13 +245,13 @@ func TestEveryRefusalLooksTheSame(t *testing.T) {
 
 func TestElevenFailuresLockTheAddress(t *testing.T) {
 	f := newFixture(t)
-	firstWrong := f.post(t, "/login", url.Values{"password": {"wrong"}}, "").Body.String()
+	firstWrong := f.post(t, "/login", url.Values{"username": {"yudha"}, "password": {"wrong"}}, "").Body.String()
 
 	for i := 0; i < 10; i++ {
-		f.post(t, "/login", url.Values{"password": {"wrong"}}, "")
+		f.post(t, "/login", url.Values{"username": {"yudha"}, "password": {"wrong"}}, "")
 	}
 
-	locked := f.post(t, "/login", url.Values{"password": {"wrong"}}, "")
+	locked := f.post(t, "/login", url.Values{"username": {"yudha"}, "password": {"wrong"}}, "")
 	if locked.Code != http.StatusUnauthorized {
 		t.Fatalf("locked status = %d, want 401", locked.Code)
 	}
@@ -264,7 +274,7 @@ func TestOperatorSignsInAndReachesTheConsole(t *testing.T) {
 
 func TestSessionCookieIsHostOnlyAndLocked(t *testing.T) {
 	f := newFixture(t)
-	w := f.post(t, "/login", url.Values{"password": {f.password}}, "")
+	w := f.post(t, "/login", url.Values{"username": {operatorLabel}, "password": {f.password}}, "")
 	var ck *http.Cookie
 	for _, got := range w.Result().Cookies() {
 		if got.Name == cookieName {
@@ -502,5 +512,384 @@ func TestMembershipWriteRecordsTheLabel(t *testing.T) {
 	}
 	if op != operatorLabel {
 		t.Errorf("operator = %q, want %q", op, operatorLabel)
+	}
+}
+
+func TestOperatorsPageRefusesNonManager(t *testing.T) {
+	f := newFixture(t)
+	token := f.signIn(t)
+	w := f.get(t, "/operators", token)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("operators = %d, want 403", w.Code)
+	}
+}
+
+// csrfForAction returns the CSRF token from the interstitial that starts a
+// privileged action.
+//
+// The /operators page no longer carries one: its action forms are GETs, because
+// a GET must not perform anything, so the first page in the flow with a token to
+// scrape is the one asking for the manager's password. The token is derived from
+// the session cookie, so it is the same value wherever it is read.
+func csrfForAction(t *testing.T, f fixture, token, action, label string) string {
+	t.Helper()
+	w := f.get(t, "/operators/reauth?action="+action+"&target=/operators/"+action+"&label="+label, token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("interstitial for %s = %d, want 200", action, w.Code)
+	}
+	return csrfFrom(t, w.Body.String())
+}
+
+func TestPrivilegedActionWithoutReauthDoesNotHappen(t *testing.T) {
+	f := newFixture(t)
+	if err := f.auth.SetManage(context.Background(), operatorLabel); err != nil {
+		t.Fatalf("set manage: %v", err)
+	}
+	token := f.signIn(t)
+
+	// POST directly to /operators/disable without going through reauth
+	w := f.post(t, "/operators/disable", url.Values{
+		"label": {operatorLabel},
+		"csrf":  {csrfForAction(t, f, token, "disable", operatorLabel)},
+	}, token)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("disable without reauth = %d, want 403", w.Code)
+	}
+}
+
+// Adding an operator mints a permanent credential, so it is the action the
+// re-auth gate matters most for. A CSRF token is not the barrier it looks like
+// there: it is derived from the session cookie, so whoever holds the cookie can
+// compute it.
+func TestAddingAnOperatorWithoutReauthIsRefused(t *testing.T) {
+	f := newFixture(t)
+	if err := f.auth.SetManage(context.Background(), operatorLabel); err != nil {
+		t.Fatalf("set manage: %v", err)
+	}
+	token := f.signIn(t)
+
+	w := f.post(t, "/operators/add", url.Values{
+		"label": {"kasir-1"},
+		"csrf":  {csrfForAction(t, f, token, "add", "kasir-1")},
+	}, token)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("add without reauth = %d, want 403", w.Code)
+	}
+	if n := countRows(t, f, `SELECT COUNT(*) FROM admin_credentials WHERE label = 'kasir-1'`); n != 0 {
+		t.Errorf("a credential was created without re-authentication: %d rows", n)
+	}
+}
+
+// The whole flow, walked the way a browser walks it: the page's GET starts the
+// interstitial, the password is posted, the redirect lands on the confirmation,
+// and only the confirmation's own POST performs the action.
+func TestAddingAnOperatorThroughTheInterstitial(t *testing.T) {
+	f := newFixture(t)
+	if err := f.auth.SetManage(context.Background(), operatorLabel); err != nil {
+		t.Fatalf("set manage: %v", err)
+	}
+	token := f.signIn(t)
+
+	w := f.get(t, "/operators/reauth?action=add&target=/operators/add&label=kasir-1", token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("interstitial = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	w = f.post(t, "/operators/reauth", url.Values{
+		"action":   {"add"},
+		"target":   {"/operators/add"},
+		"label":    {"kasir-1"},
+		"csrf":     {csrfFrom(t, w.Body.String())},
+		"password": {f.password},
+	}, token)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("reauth = %d, want 303: %s", w.Code, w.Body.String())
+	}
+
+	loc := w.Header().Get("Location")
+	before := countRows(t, f, `SELECT COUNT(*) FROM admin_credentials`)
+	w = f.get(t, loc, token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("confirmation GET = %d, want 200 (a browser landed on 405 before this route existed): %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Tambah operator") {
+		t.Error("the confirmation does not say what it is about to do")
+	}
+	if n := countRows(t, f, `SELECT COUNT(*) FROM admin_credentials`); n != before {
+		t.Errorf("a GET on the confirmation changed the database: %d then %d", before, n)
+	}
+
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatalf("parse location: %v", err)
+	}
+	w = f.post(t, "/operators/add", url.Values{
+		"label":  {u.Query().Get("label")},
+		"csrf":   {csrfFrom(t, body)},
+		"reauth": {u.Query().Get("reauth")},
+	}, token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("add through the flow = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if n := countRows(t, f, `SELECT COUNT(*) FROM admin_credentials WHERE label = 'kasir-1'`); n != 1 {
+		t.Errorf("kasir-1 was not created by the flow: %d rows", n)
+	}
+}
+
+func TestLastManagerGuardOnConsole(t *testing.T) {
+	f := newFixture(t)
+	if err := f.auth.SetManage(context.Background(), operatorLabel); err != nil {
+		t.Fatalf("set manage: %v", err)
+	}
+	_ = f.signIn(t)
+
+	// The console path goes through reauth, so test the guard at the registry layer.
+	err := f.auth.UnsetManage(context.Background(), operatorLabel)
+	if !errors.Is(err, adminauth.ErrLastManager) {
+		t.Errorf("unset last manager = %v, want ErrLastManager", err)
+	}
+}
+
+func TestLastManagerGuardOnCLI(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+	registry := adminauth.New(db, nil)
+	registry.SetIterations(1000)
+	ctx := context.Background()
+
+	if _, err := registry.Add(ctx, "sole-manager"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := registry.SetManage(ctx, "sole-manager"); err != nil {
+		t.Fatalf("set manage: %v", err)
+	}
+	if err := registry.UnsetManage(ctx, "sole-manager"); !errors.Is(err, adminauth.ErrLastManager) {
+		t.Errorf("cli unset last manager = %v, want ErrLastManager", err)
+	}
+}
+
+// --- Forced password change ---
+
+func TestMustChangeRedirectsEverywhere(t *testing.T) {
+	f := newFixture(t)
+	// Leave must_change at 1 (the default from the fixture is 0, so re-enable it)
+	if _, err := f.db.Exec("UPDATE admin_credentials SET must_change = 1 WHERE label = ?", operatorLabel); err != nil {
+		t.Fatalf("set must_change: %v", err)
+	}
+	token := f.signIn(t)
+
+	for _, path := range []string{"/customers", "/stamps", "/operators"} {
+		w := f.get(t, path, token)
+		if w.Code != http.StatusSeeOther {
+			t.Errorf("%s = %d, want 303", path, w.Code)
+			continue
+		}
+		loc := w.Header().Get("Location")
+		if loc != "/password/set" {
+			t.Errorf("%s redirect = %q, want /password/set", path, loc)
+		}
+	}
+}
+
+func TestPasswordSetPageIsReachableWithMustChange(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.db.Exec("UPDATE admin_credentials SET must_change = 1 WHERE label = ?", operatorLabel); err != nil {
+		t.Fatalf("set must_change: %v", err)
+	}
+	token := f.signIn(t)
+	w := f.get(t, "/password/set", token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("password/set = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Ubah kata sandi") {
+		t.Error("page missing set-password heading")
+	}
+}
+
+func TestPasswordSetRefusesShortPassword(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.db.Exec("UPDATE admin_credentials SET must_change = 1 WHERE label = ?", operatorLabel); err != nil {
+		t.Fatalf("set must_change: %v", err)
+	}
+	token := f.signIn(t)
+	csrf := csrfFrom(t, f.get(t, "/password/set", token).Body.String())
+
+	w := f.post(t, "/password/set", url.Values{
+		"csrf":      {csrf},
+		"password":  {"short"},
+		"password2": {"short"},
+	}, token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("short password = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "minimal 12 karakter") {
+		t.Error("page did not refuse short password")
+	}
+}
+
+func TestPasswordSetRefusesMismatchedPasswords(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.db.Exec("UPDATE admin_credentials SET must_change = 1 WHERE label = ?", operatorLabel); err != nil {
+		t.Fatalf("set must_change: %v", err)
+	}
+	token := f.signIn(t)
+	csrf := csrfFrom(t, f.get(t, "/password/set", token).Body.String())
+
+	w := f.post(t, "/password/set", url.Values{
+		"csrf":      {csrf},
+		"password":  {"this-is-long-enough"},
+		"password2": {"this-is-different"},
+	}, token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("mismatch = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "tidak cocok") {
+		t.Error("page did not refuse mismatched passwords")
+	}
+}
+
+func TestPasswordSetClearsMustChangeAndOldPasswordStopsWorking(t *testing.T) {
+	f := newFixture(t)
+	oldPassword := f.password
+	if _, err := f.db.Exec("UPDATE admin_credentials SET must_change = 1 WHERE label = ?", operatorLabel); err != nil {
+		t.Fatalf("set must_change: %v", err)
+	}
+	token := f.signIn(t)
+	csrf := csrfFrom(t, f.get(t, "/password/set", token).Body.String())
+
+	newPw := "this-is-my-new-password"
+	w := f.post(t, "/password/set", url.Values{
+		"csrf":      {csrf},
+		"password":  {newPw},
+		"password2": {newPw},
+	}, token)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("set password = %d, want 303: %s", w.Code, w.Body.String())
+	}
+
+	// Old password no longer works
+	w = f.post(t, "/login", url.Values{"username": {operatorLabel}, "password": {oldPassword}}, "")
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("old password = %d, want 401", w.Code)
+	}
+
+	// New password works
+	w = f.post(t, "/login", url.Values{"username": {operatorLabel}, "password": {newPw}}, "")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("new password = %d, want 303", w.Code)
+	}
+
+	// Console is reachable without redirect
+	for _, ck := range w.Result().Cookies() {
+		if ck.Name == cookieName {
+			token = ck.Value
+		}
+	}
+	w = f.get(t, "/customers", token)
+	if w.Code != http.StatusOK {
+		t.Errorf("customers after change = %d, want 200", w.Code)
+	}
+}
+
+func TestManagerResetRequiresReauth(t *testing.T) {
+	f := newFixture(t)
+	if err := f.auth.SetManage(context.Background(), operatorLabel); err != nil {
+		t.Fatalf("set manage: %v", err)
+	}
+	token := f.signIn(t)
+
+	// Direct POST to /operators/reset without reauth token
+	w := f.post(t, "/operators/reset", url.Values{
+		"label": {operatorLabel},
+		"csrf":  {csrfForAction(t, f, token, "reset", operatorLabel)},
+	}, token)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("reset without reauth = %d, want 403", w.Code)
+	}
+}
+
+func TestManagerResetSetsMustChangeAndShowsPasswordOnce(t *testing.T) {
+	f := newFixture(t)
+	if err := f.auth.SetManage(context.Background(), operatorLabel); err != nil {
+		t.Fatalf("set manage: %v", err)
+	}
+	// Add a second operator to reset
+	if _, err := f.auth.Add(context.Background(), "kasir-2"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := f.db.Exec("UPDATE admin_credentials SET must_change = 0 WHERE label = ?", "kasir-2"); err != nil {
+		t.Fatalf("clear must_change: %v", err)
+	}
+
+	token := f.signIn(t)
+
+	// Go through reauth
+	reauthPage := f.get(t, "/operators/reauth?action=reset&target=/operators/reset&label=kasir-2", token)
+	if reauthPage.Code != http.StatusOK {
+		t.Fatalf("interstitial = %d, want 200: %s", reauthPage.Code, reauthPage.Body.String())
+	}
+	csrf := csrfFrom(t, reauthPage.Body.String())
+	w := f.post(t, "/operators/reauth", url.Values{
+		"action":   {"reset"},
+		"target":   {"/operators/reset"},
+		"label":    {"kasir-2"},
+		"csrf":     {csrf},
+		"password": {f.password},
+	}, token)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("reauth = %d, want 303: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "/operators/reset") {
+		t.Fatalf("expected redirect to reset, got %q", loc)
+	}
+
+	// Follow the redirect (GET is not allowed, but we can parse the query)
+	u, _ := url.Parse(loc)
+	w = f.post(t, "/operators/reset", url.Values{
+		"label":  {u.Query().Get("label")},
+		"csrf":   {u.Query().Get("csrf")},
+		"reauth": {u.Query().Get("reauth")},
+	}, token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("reset = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Kata sandi untuk kasir-2 diatur ulang:") {
+		t.Error("page did not show the reset password")
+	}
+
+	// Extract the password from the notice
+	const prefix = "diatur ulang: "
+	i := strings.Index(body, prefix)
+	if i < 0 {
+		t.Fatal("could not find reset password in page")
+	}
+	resetPw := body[i+len(prefix):]
+	if j := strings.Index(resetPw, "</"); j > 0 {
+		resetPw = resetPw[:j]
+	}
+	resetPw = strings.TrimSpace(resetPw)
+
+	// The reset password should work and the credential should have must_change
+	w = f.post(t, "/login", url.Values{"username": {"kasir-2"}, "password": {resetPw}}, "")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("login with reset password = %d, want 303", w.Code)
+	}
+	for _, ck := range w.Result().Cookies() {
+		if ck.Name == cookieName {
+			token = ck.Value
+		}
+	}
+	w = f.get(t, "/customers", token)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("customers with must_change = %d, want 303", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/password/set" {
+		t.Errorf("redirect = %q, want /password/set", loc)
 	}
 }

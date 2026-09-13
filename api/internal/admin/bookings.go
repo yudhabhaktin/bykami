@@ -30,14 +30,16 @@ func (c *Console) bookingDay(w http.ResponseWriter, r *http.Request, op string) 
 		day = time.Now().In(wib)
 	}
 
+	_, canManage, _, _, _ := c.operator(r)
 	p := page{
-		Title:    "Booking",
-		Operator: op,
-		CSRF:     csrfToken(r),
-		Day:      day.In(wib),
-		DayISO:   day.In(wib).Format("2006-01-02"),
-		PrevDay:  day.AddDate(0, 0, -1).In(wib).Format("2006-01-02"),
-		NextDay:  day.AddDate(0, 0, 1).In(wib).Format("2006-01-02"),
+		Title:     "Booking",
+		Operator:  op,
+		CanManage: canManage,
+		CSRF:      csrfToken(r),
+		Day:       day.In(wib),
+		DayISO:    day.In(wib).Format("2006-01-02"),
+		PrevDay:   day.AddDate(0, 0, -1).In(wib).Format("2006-01-02"),
+		NextDay:   day.AddDate(0, 0, 1).In(wib).Format("2006-01-02"),
 	}
 	if msg := r.URL.Query().Get("ok"); msg != "" {
 		p.Notice = msg

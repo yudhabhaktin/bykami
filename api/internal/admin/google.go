@@ -225,9 +225,11 @@ func (c *Console) googleCallback(w http.ResponseWriter, r *http.Request) {
 	c.log.Info("admin: google connected", "account", primaryAddress(cals), "calendars", len(cals))
 	// A page with a link and nothing else. The click is the same-site navigation
 	// that brings the Strict session cookie back.
+	_, canManage, _, _, _ := c.operator(r)
 	c.render(w, r, http.StatusOK, "google-handoff.html", page{
-		Title:  "Google terhubung",
-		Notice: "Akun Google terhubung. Lanjutkan untuk memilih kalender tiap ruang.",
+		Title:     "Google terhubung",
+		CanManage: canManage,
+		Notice:    "Akun Google terhubung. Lanjutkan untuk memilih kalender tiap ruang.",
 	})
 }
 
@@ -277,9 +279,11 @@ func (c *Console) googleMap(w http.ResponseWriter, r *http.Request, op string) {
 		return
 	}
 
+	_, canManage, _, _, _ := c.operator(r)
 	p := page{
 		Title:          "Hubungkan Google",
 		Operator:       op,
+		CanManage:      canManage,
 		CSRF:           csrfToken(r),
 		GoogleAccount:  g.account,
 		ServiceAccount: c.calendar.ServiceAccount(),

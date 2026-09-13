@@ -1,0 +1,39 @@
+{{define "confirm.html"}}
+{{template "head" .}}
+
+<h1>Konfirmasi</h1>
+
+<p class="muted">
+  Kata sandi Anda sudah dikonfirmasi. Tidak ada yang berubah sampai Anda
+  menekan tombol di bawah.
+</p>
+
+<div class="card">
+  {{template "messages" .}}
+
+  <p style="margin:0 0 1rem">
+    Tindakan: <strong>{{.ConfirmAction}}</strong><br>
+    Operator: <strong>{{.ReauthLabel}}</strong>
+  </p>
+
+  <!--
+    The action runs from this POST and from nowhere else. Arriving here by GET —
+    a link, a refresh, a prefetch by a browser or a scanner — renders this page
+    and changes nothing, which is why no privileged action has a GET route.
+  -->
+  <form method="post" action="{{.ReauthTarget}}">
+    <input type="hidden" name="action" value="{{.ReauthAction}}">
+    <input type="hidden" name="label" value="{{.ReauthLabel}}">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <input type="hidden" name="reauth" value="{{.ReauthToken}}">
+    <button type="submit">Jalankan</button>
+  </form>
+
+  <p class="small muted" style="margin-top:1rem">
+    Konfirmasi ini hanya berlaku sebentar. Kalau kedaluwarsa, ulangi dari
+    halaman Operator.
+  </p>
+</div>
+
+{{template "foot" .}}
+{{end}}
