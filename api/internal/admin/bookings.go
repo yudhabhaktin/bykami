@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/api/internal/booking"
-	"github.com/bhaktiyudha/bykami/api/internal/identity"
 )
 
 // The operator's day. One screen, one date, and the two things somebody standing
@@ -21,7 +20,7 @@ import (
 
 // bookingDay lists a day's bookings, and reports whether the calendars are
 // syncing.
-func (c *Console) bookingDay(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) bookingDay(w http.ResponseWriter, r *http.Request, op string) {
 	day, err := parseDay(r.URL.Query().Get("day"))
 	if err != nil {
 		c.backToBookings(w, r, time.Now().In(wib), "Tanggal tidak valid.")
@@ -33,7 +32,7 @@ func (c *Console) bookingDay(w http.ResponseWriter, r *http.Request, op identity
 
 	p := page{
 		Title:    "Booking",
-		Operator: op.Phone,
+		Operator: op,
 		CSRF:     csrfToken(r),
 		Day:      day.In(wib),
 		DayISO:   day.In(wib).Format("2006-01-02"),
@@ -95,7 +94,7 @@ func (c *Console) bookingDay(w http.ResponseWriter, r *http.Request, op identity
 // operator has already been authenticated and is standing in front of whoever is
 // asking. Every one is logged with the operator's number, the same as a loyalty
 // adjustment, because this is money the studio is choosing not to take.
-func (c *Console) bookingCancel(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) bookingCancel(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -114,12 +113,12 @@ func (c *Console) bookingCancel(w http.ResponseWriter, r *http.Request, op ident
 		c.backToBookings(w, r, day, "Booking tidak ditemukan.")
 		return
 	default:
-		c.log.Error("admin: cancel booking", "operator", op.Phone, "booking", id, "err", err)
+		c.log.Error("admin: cancel booking", "operator", op, "booking", id, "err", err)
 		c.backToBookings(w, r, day, "Gagal membatalkan booking.")
 		return
 	}
 
-	c.log.Info("admin: booking cancelled", "operator", op.Phone, "booking", b.ID,
+	c.log.Info("admin: booking cancelled", "operator", op, "booking", b.ID,
 		"phone", b.Phone, "starts_at", b.StartsAt)
 	c.redirect(w, r, "/bookings?day="+day.In(wib).Format("2006-01-02")+
 		"&ok="+urlQueryEscape(fmt.Sprintf("Booking %s dibatalkan.", b.Name)))
@@ -131,7 +130,7 @@ func (c *Console) bookingCancel(w http.ResponseWriter, r *http.Request, op ident
 // a span rather than a set of days — the inclusive-date translation that frame
 // seasons need does not apply, and pretending otherwise would close an extra half
 // hour nobody asked to close.
-func (c *Console) bookingBlock(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) bookingBlock(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -168,12 +167,12 @@ func (c *Console) bookingBlock(w http.ResponseWriter, r *http.Request, op identi
 	reason := strings.TrimSpace(r.FormValue("reason"))
 
 	if err := c.booking.Blackout(r.Context(), resource, start, end, reason); err != nil {
-		c.log.Error("admin: blackout", "operator", op.Phone, "err", err)
+		c.log.Error("admin: blackout", "operator", op, "err", err)
 		c.backToBookings(w, r, day, "Gagal menutup jadwal.")
 		return
 	}
 
-	c.log.Info("admin: schedule blocked", "operator", op.Phone, "resource", resource,
+	c.log.Info("admin: schedule blocked", "operator", op, "resource", resource,
 		"from", start, "to", end, "reason", reason)
 	c.redirect(w, r, "/bookings?day="+day.In(wib).Format("2006-01-02")+
 		"&ok="+urlQueryEscape("Jadwal ditutup."))

@@ -6,9 +6,8 @@
 {{if not .Enrolled}}
   <p class="error">
     <strong>Belum ada operator yang terdaftar.</strong><br>
-    Konsol ini belum bisa dimasuki siapa pun. Aplikasi autentikator harus
-    didaftarkan dulu dari server, sekali per operator:<br>
-    <code>bykami -db … admin enroll 0812…</code>
+    Konsol ini belum bisa dimasuki siapa pun. Tambahkan operator dari server:
+    <code>bykami -db … admin password add kasir-1</code>
   </p>
 {{end}}
 
@@ -17,22 +16,16 @@
 
   <form method="post" action="/login">
     <div class="field">
-      <label for="phone">Nomor operator</label>
-      <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="username"
-             placeholder="0812…" value="{{.Phone}}" required autofocus>
-    </div>
-    <div class="field">
-      <label for="code">Kode dari aplikasi autentikator</label>
-      <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
-             pattern="[0-9]{6}" maxlength="6" required class="tabular">
+      <label for="password">Kata sandi</label>
+      <input id="password" name="password" type="password"
+             autocomplete="current-password" required autofocus>
     </div>
     <button type="submit">Masuk</button>
   </form>
 
   <p class="small muted" style="margin-top:1rem">
-    Kode berganti setiap 30 detik. Tidak ada kode yang dikirim lewat WhatsApp
-    atau SMS — kode dibuat sendiri oleh aplikasi di ponsel Anda, jadi tidak ada
-    yang bisa dicegat di jalan.
+    Kata sandi adalah satu-satunya cara masuk — tidak ada kode yang dikirim
+    lewat WhatsApp atau SMS. Jika lupa, minta admin untuk membuatkan yang baru.
   </p>
 </div>
 

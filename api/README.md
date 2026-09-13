@@ -14,7 +14,7 @@ three GC heaps and no scaling.
 | `internal/phone` | Indonesian mobile numbers → E.164 |
 | `internal/identity` | Phone-first accounts, OTP challenges, sessions |
 | `internal/totp` | RFC 6238 codes and the `otpauth://` URI. Pure arithmetic |
-| `internal/mfa` | Operator authenticators: enrolment, replay guard, lockout |
+| `internal/adminauth` | Operator credentials: generated passwords, PBKDF2, sessions |
 | `internal/qr` | A QR symbol, drawn to a terminal or a PNG. No dependency |
 | `internal/loyalty` | The append-only `#SobatKAMi` ledger |
 | `internal/httpapi` | JSON transport. Parse, authenticate, delegate, encode |
@@ -178,7 +178,7 @@ keep correct so that staff can look up a phone number.
 | | |
 |---|---|
 | `GET /` | Login, or a redirect to the console when already signed in |
-| `POST /login` | Number plus the six digits an authenticator app is showing |
+| `POST /login` | One password field, no username, no phone, no code |
 | `GET /customers?phone=` | Balance and ledger history for one customer |
 | `POST /customers/{id}/adjust` | Writes a compensating entry |
 | `GET /frames` | What each booth is actually offering, then the catalogue below it |
@@ -324,72 +324,50 @@ credential to rotate and a second thing that can be down while the database is
 up. In the database the bytes share a backup and a transaction with the row
 describing them, so a restore cannot produce a frame with no picture.
 
-### Signing in — an authenticator, not a code sent anywhere
+### Signing in — one password, and what it costs
 
-The console asks for a number and the six digits an authenticator app is
-showing. One form, one submit; nothing is sent to the operator, so there is no
-page whose only job is to say a code is on its way.
+The console asks for one password field. No username, no phone, no code.
 
-That is a deliberate departure from how customers sign in, and the reason is
-that the console had no working login for months. Its login *was* the customer
-OTP flow, which needs a WhatsApp provider account nobody has bought yet — so on
-the deployed box the answer to "who can use the operator console" was nobody,
-and the frame catalogue grew a shell subcommand to work around it. A
-time-based one-time password needs no provider, no delivery and nothing to pay
-for: the secret is agreed once and both ends compute the same number from the
-clock.
+That is one factor, and it is a downgrade from the previous phone-plus-
+authenticator flow that is being taken deliberately, in exchange for not having
+to enrol an app before a person can work. The password is generated — 24
+characters from an alphabet without lookalikes, ~120 bits — and stored as a
+salted PBKDF2-HMAC-SHA256 hash. A lookup index (SHA-256 of the password) finds
+the credential, and the KDF is verified afterwards, so a database read is not a
+login.
 
-Customers keep the code-over-WhatsApp flow. Asking somebody who came in to have
-their photograph taken to install an authenticator is a worse trade than the
-code they already expect.
+**This is honestly one factor.** A password that leaks, that is shoulder-surfed
+at the counter, or that is reused from somewhere else is total access to every
+customer's phone number, every card, every booking, and the ability to void a
+purchase. The mitigations are: a generated password rather than a chosen one, so
+there is no dictionary to attack; per-operator credentials so that removing one
+person does not rotate everybody; and a rate limit per source address (eleven
+failures in fifteen minutes locks that address for fifteen minutes). The refusal
+sentence is identical for a wrong password, a locked-out address, and an unknown
+credential — the page never tells them apart.
 
 **Enrolment is a shell command, and has to be.** Doing it in the console would
 need somebody already signed in to the console, which is the thing that does not
-exist until the first enrolment does:
+exist until the first credential does:
 
 ```bash
-bykami -db /var/lib/bykami/bykami.db admin enroll 081234567890
-bykami -db … admin enroll 081234567890 /tmp/qr.png   # if the terminal will not draw it
-bykami -db … admin list
-bykami -db … admin unlock 081234567890
-bykami -db … admin revoke 081234567890               # a lost phone
+bykami -db /var/lib/bykami/bykami.db admin password add kasir-1
+bykami -db … admin password list
+bykami -db … admin password rm kasir-1
 ```
 
-`enroll` prints a QR code to the terminal, the `otpauth://` URI behind it, and
-the secret in base32 for typing in by hand — the picture is the part most likely
-not to render, so the fallback is always printed beside it. It refuses to
-overwrite an existing enrolment: replacing one silently breaks whatever is on
-that operator's phone, and nobody finds out until they next try to sign in.
+`add` prints the password once, with a line saying it will never be shown again
+and that anyone who reads it has full access. `rm` disables the credential;
+sessions belonging to it stop working on the next request because `SessionForToken`
+joins against `admin_credentials` and checks `disabled_at`.
 
-**Enrolling somebody is not granting them anything**, and that is what makes the
-command safe to run. The allow-list below still decides who may use the console;
-a secret created for a number that is not on it produces perfectly valid codes
-that open nothing. `admin list` marks such a row `not an operator`, because from
-the operator's side that state is indistinguishable from a broken one.
+Every way of failing renders the same page with the same message. A form that
+told them apart would answer, for anyone who cared to ask it, which passwords
+exist.
 
-Two guards sit behind the check. A time step is spent once, so a code read over
-somebody's shoulder is not worth a second login within its half-minute; and five
-consecutive wrong codes lock the enrolment for fifteen minutes, because six
-digits across a three-step window is one guess in three hundred thousand and
-that is only safe while guessing is slow. The lock is on the enrolment rather
-than the caller, since every request arrives through the same tunnel from the
-same address. `admin unlock` lifts it early.
-
-Every way of failing renders the same page with the same message — wrong number,
-wrong code, not enrolled, locked out. A form that told them apart would answer,
-for anyone who cared to ask it, which numbers belong to staff. The allow-list is
-checked before the registry is touched for a second reason: otherwise a stranger
-who guessed an operator's number could spend that operator's failed attempts and
-lock them out.
-
-**Who is an operator is configuration, not data.** `-admin-phones` is a
-comma-separated allow-list, checked against the *currently verified* session on
-every request. There is no role column, deliberately: a role in the database has
-a bootstrap problem — the first operator must be promoted by an operator — whose
-usual answer is a seed script that quietly becomes a way to grant admin. It also
-means revoking someone takes effect on their next request rather than whenever
-their session happens to expire, and that a stolen customer session cannot
-become an operator session, because privilege is never stored in the session.
+**Who is an operator is now the credential, not a list.** `-admin-phones` keeps
+one remaining job: the operator attributed by `bykami membership import` when no
+label is given. It is no longer an authentication input.
 
 Empty means nobody, which is the deployed default. This is a public hostname.
 
@@ -407,7 +385,7 @@ compute it, because the cookie it derives from is `HttpOnly`, host-only and
 
 Adjust is the only mutation, and it is the only one the ledger permits: history
 is corrected by writing a compensating entry, never by editing a row. The
-operator's number is recorded in the entry's reason, because the ledger has no
+operator's label is recorded in the entry's reason, because the ledger has no
 actor column and an anonymous adjustment cannot be defended later.
 
 ## Not here yet
@@ -424,7 +402,8 @@ actor column and an anonymous adjustment cannot be defended later.
 - **A real OTP sender.** WhatsApp is intended and needs a provider account. It
   blocks *customer* logins and everything downstream of them. It no longer
   blocks the console, which is the one thing it used to block that had no
-  business waiting on a provider — see the authenticator section above.
+  business waiting on a provider — the console signs in with a password instead.
+  See *Signing in* above.
 - **No per-booth identity.** One shared secret admits every booth, so a single
   booth cannot be revoked without rotating all of them. Worth fixing when there
   is a second outlet, not before.

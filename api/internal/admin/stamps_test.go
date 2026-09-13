@@ -14,7 +14,7 @@ import (
 // amount below a stamp is refused with the shortfall rather than a 500.
 
 func TestStampsRequiresAnOperator(t *testing.T) {
-	f := newFixture(t, operatorPhone)
+	f := newFixture(t)
 
 	for _, tc := range []struct{ name, cookie string }{
 		{"no cookie", ""},
@@ -33,10 +33,10 @@ func TestStampsRequiresAnOperator(t *testing.T) {
 }
 
 func TestStampsPageShowsTheCard(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	token := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	token := f.signIn(t)
 
-	if _, err := f.stamps.Purchase(context.Background(), customerPhone, "Isyara Hadza", 90_000, "", operatorPhone, ""); err != nil {
+	if _, err := f.stamps.Purchase(context.Background(), customerPhone, "Isyara Hadza", 90_000, "", operatorLabel, ""); err != nil {
 		t.Fatalf("seed purchase: %v", err)
 	}
 
@@ -68,8 +68,8 @@ func TestStampsPageShowsTheCard(t *testing.T) {
 // A handwritten amount off a receipt is where a factor of ten gets typed, so a
 // below-threshold amount is refused with the shortfall named.
 func TestStampsPurchaseRendersTheShortfall(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	token := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	token := f.signIn(t)
 
 	page := f.get(t, "/stamps?phone="+customerPhone, token)
 	csrf := csrfFrom(t, page.Body.String())
@@ -99,8 +99,8 @@ func TestStampsPurchaseRendersTheShortfall(t *testing.T) {
 }
 
 func TestStampsPurchaseWritesTheStamps(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	token := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	token := f.signIn(t)
 
 	csrf := csrfFrom(t, f.get(t, "/stamps?phone="+customerPhone, token).Body.String())
 	w := f.post(t, "/stamps/purchase", url.Values{
@@ -125,8 +125,8 @@ func TestStampsPurchaseWritesTheStamps(t *testing.T) {
 // The write path is a POST from a page, so it carries the same CSRF rule as
 // every other form in the console.
 func TestStampsPurchaseRequiresCSRF(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	token := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	token := f.signIn(t)
 
 	for _, tc := range []struct{ name, csrf string }{
 		{"missing", ""},
@@ -150,10 +150,10 @@ func TestStampsPurchaseRequiresCSRF(t *testing.T) {
 // Redeeming is an operator action, and the same-day rule is enforced by the
 // database rather than by the page.
 func TestStampsRedeemRefusesAGiftIssuedToday(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	token := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	token := f.signIn(t)
 
-	if _, err := f.stamps.Purchase(context.Background(), customerPhone, "Isyara Hadza", 90_000, "", operatorPhone, ""); err != nil {
+	if _, err := f.stamps.Purchase(context.Background(), customerPhone, "Isyara Hadza", 90_000, "", operatorLabel, ""); err != nil {
 		t.Fatalf("seed purchase: %v", err)
 	}
 	card, err := f.stamps.StaffView(context.Background(), customerPhone)
@@ -194,13 +194,4 @@ func redirectPath(t *testing.T, w *httptest.ResponseRecorder) string {
 		t.Fatalf("parse Location %q: %v", loc, err)
 	}
 	return u.Path + "?" + u.RawQuery
-}
-
-func countRows(t *testing.T, f fixture, query string) int {
-	t.Helper()
-	var n int
-	if err := f.db.QueryRow(query).Scan(&n); err != nil {
-		t.Fatalf("count %q: %v", query, err)
-	}
-	return n
 }

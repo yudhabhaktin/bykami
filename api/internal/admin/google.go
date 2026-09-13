@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/api/internal/gcal"
-	"github.com/bhaktiyudha/bykami/api/internal/identity"
 )
 
 // Connecting a Google account from the console.
@@ -131,7 +130,7 @@ func (c *Console) redirectURI(r *http.Request) string {
 }
 
 // googleStart sends the operator to Google's consent screen.
-func (c *Console) googleStart(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) googleStart(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -158,7 +157,7 @@ func (c *Console) googleStart(w http.ResponseWriter, r *http.Request, op identit
 		MaxAge:   int((10 * time.Minute).Seconds()),
 	})
 
-	c.log.Info("admin: google connect started", "operator", op.Phone)
+	c.log.Info("admin: google connect started", "operator", op)
 	c.redirect(w, r, c.connect.AuthCodeURL(c.redirectURI(r), state))
 }
 
@@ -256,7 +255,7 @@ func primaryAddress(cals []gcal.Calendar) string {
 
 // googleMap is the mapping screen: this account's calendars against the studio's
 // resources.
-func (c *Console) googleMap(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) googleMap(w http.ResponseWriter, r *http.Request, op string) {
 	g, key, ok := c.liveGrant(r)
 	if !ok {
 		c.backToSettings(w, r, "Sesi hubung Google sudah berakhir. Tekan “Hubungkan Google” lagi.")
@@ -265,7 +264,7 @@ func (c *Console) googleMap(w http.ResponseWriter, r *http.Request, op identity.
 
 	cals, err := c.connect.Calendars(r.Context(), g.token)
 	if err != nil {
-		c.log.Error("admin: google calendar list", "operator", op.Phone, "err", err)
+		c.log.Error("admin: google calendar list", "operator", op, "err", err)
 		c.grants.drop(key)
 		c.backToSettings(w, r, "Gagal membaca daftar kalender dari Google.")
 		return
@@ -280,7 +279,7 @@ func (c *Console) googleMap(w http.ResponseWriter, r *http.Request, op identity.
 
 	p := page{
 		Title:          "Hubungkan Google",
-		Operator:       op.Phone,
+		Operator:       op,
 		CSRF:           csrfToken(r),
 		GoogleAccount:  g.account,
 		ServiceAccount: c.calendar.ServiceAccount(),
@@ -312,7 +311,7 @@ func (c *Console) googleMap(w http.ResponseWriter, r *http.Request, op identity.
 // calendar the service account cannot read produces a booth that looks connected
 // and syncs nothing — the exact failure this whole flow exists to remove. If the
 // share fails, nothing is written.
-func (c *Console) googleConnect(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) googleConnect(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -338,19 +337,19 @@ func (c *Console) googleConnect(w http.ResponseWriter, r *http.Request, op ident
 			"Masuk dengan akun pemilik kalender tersebut.")
 		return
 	default:
-		c.log.Error("admin: google share", "operator", op.Phone,
+		c.log.Error("admin: google share", "operator", op,
 			"resource", resource, "calendar", calendarID, "err", err)
 		c.backToGoogle(w, r, "Gagal membagikan kalender ke service account.")
 		return
 	}
 
 	if err := c.booking.SetCalendar(r.Context(), resource, calendarID); err != nil {
-		c.log.Error("admin: set calendar", "operator", op.Phone, "resource", resource, "err", err)
+		c.log.Error("admin: set calendar", "operator", op, "resource", resource, "err", err)
 		c.backToGoogle(w, r, "Kalender sudah dibagikan, tapi gagal disimpan. Coba lagi.")
 		return
 	}
 
-	c.log.Info("admin: calendar connected through google", "operator", op.Phone,
+	c.log.Info("admin: calendar connected through google", "operator", op,
 		"resource", resource, "calendar", calendarID, "account", g.account)
 	c.redirect(w, r, "/settings/google?ok="+urlQueryEscape(
 		"Kalender terhubung untuk "+resource+"."))
@@ -359,7 +358,7 @@ func (c *Console) googleConnect(w http.ResponseWriter, r *http.Request, op ident
 // googleFinish drops the consent early, for an operator who has finished mapping
 // and would rather not leave a live token sitting in memory for the rest of the
 // quarter hour.
-func (c *Console) googleFinish(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) googleFinish(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -371,7 +370,7 @@ func (c *Console) googleFinish(w http.ResponseWriter, r *http.Request, op identi
 		Name: googleGrantCookie, Value: "", Path: "/settings/google",
 		HttpOnly: true, Secure: c.secure, SameSite: http.SameSiteStrictMode, MaxAge: -1,
 	})
-	c.log.Info("admin: google consent released", "operator", op.Phone)
+	c.log.Info("admin: google consent released", "operator", op)
 	c.redirect(w, r, "/settings?ok="+urlQueryEscape("Selesai. Izin Google sudah dilepas."))
 }
 

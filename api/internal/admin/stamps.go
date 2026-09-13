@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bhaktiyudha/bykami/api/internal/identity"
 	"github.com/bhaktiyudha/bykami/api/internal/membership"
 	"github.com/bhaktiyudha/bykami/api/internal/phone"
 )
@@ -24,11 +23,11 @@ import (
 // says what a stamp costs and the page shows the stamps an amount earns before
 // it is written.
 
-func (c *Console) stamps(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) stamps(w http.ResponseWriter, r *http.Request, op string) {
 	q := strings.TrimSpace(r.URL.Query().Get("phone"))
 	p := page{
 		Title:      "Stempel",
-		Operator:   op.Phone,
+		Operator:   op,
 		CSRF:       csrfToken(r),
 		StampQuery: q,
 	}
@@ -95,7 +94,7 @@ func (c *Console) stamps(w http.ResponseWriter, r *http.Request, op identity.Use
 // The amount is typed by hand from a receipt, which is why the page shows what
 // a stamp costs and refuses a below-threshold amount with the shortfall rather
 // than recording a zero-point row.
-func (c *Console) stampsPurchase(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) stampsPurchase(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -118,7 +117,7 @@ func (c *Console) stampsPurchase(w http.ResponseWriter, r *http.Request, op iden
 	// outlet is empty: the console serves one studio today, and inventing an
 	// outlet id here would make the settlement report that does not exist yet
 	// wrong in a way nobody would notice for months.
-	res, err := c.members.Purchase(r.Context(), rawPhone, name, amount, reference, op.Phone, "")
+	res, err := c.members.Purchase(r.Context(), rawPhone, name, amount, reference, op, "")
 	switch {
 	case err == nil:
 	case errors.Is(err, membership.ErrBelowMinimum):
@@ -133,12 +132,12 @@ func (c *Console) stampsPurchase(w http.ResponseWriter, r *http.Request, op iden
 		c.backToStamps(w, r, rawPhone, "Nomor tidak valid.")
 		return
 	default:
-		c.log.Error("admin: stamp purchase", "operator", op.Phone, "err", err)
+		c.log.Error("admin: stamp purchase", "operator", op, "err", err)
 		c.backToStamps(w, r, rawPhone, "Gagal menyimpan stempel.")
 		return
 	}
 
-	c.log.Info("admin: stamps written", "operator", op.Phone, "phone", rawPhone,
+	c.log.Info("admin: stamps written", "operator", op, "phone", rawPhone,
 		"amount", amount, "stamps", res.Purchase.Stamps, "replayed", res.Replayed,
 		"card", res.Card.CardNo, "closed", res.CardClosed)
 	if res.Replayed {
@@ -153,7 +152,7 @@ func (c *Console) stampsPurchase(w http.ResponseWriter, r *http.Request, op iden
 
 // stampsRedeem hands a gift over. The write is one conditional UPDATE, so two
 // staff members pressing at once produce one success and one message.
-func (c *Console) stampsRedeem(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) stampsRedeem(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -162,7 +161,7 @@ func (c *Console) stampsRedeem(w http.ResponseWriter, r *http.Request, op identi
 	phoneQuery := strings.TrimSpace(r.FormValue("phone"))
 	id := strings.TrimSpace(r.FormValue("reward"))
 
-	reward, err := c.members.Redeem(r.Context(), id, op.Phone)
+	reward, err := c.members.Redeem(r.Context(), id, op)
 	switch {
 	case err == nil:
 	case errors.Is(err, membership.ErrAlreadyRedeemed):
@@ -175,12 +174,12 @@ func (c *Console) stampsRedeem(w http.ResponseWriter, r *http.Request, op identi
 		c.backToStamps(w, r, phoneQuery, "Hadiah tidak ditemukan.")
 		return
 	default:
-		c.log.Error("admin: redeem reward", "operator", op.Phone, "reward", id, "err", err)
+		c.log.Error("admin: redeem reward", "operator", op, "reward", id, "err", err)
 		c.backToStamps(w, r, phoneQuery, "Gagal menukar hadiah.")
 		return
 	}
 
-	c.log.Info("admin: reward redeemed", "operator", op.Phone, "reward", reward.ID,
+	c.log.Info("admin: reward redeemed", "operator", op, "reward", reward.ID,
 		"phone", reward.Phone, "label", reward.Label)
 	c.redirect(w, r, "/stamps?phone="+urlQueryEscape(phoneQuery)+
 		"&ok="+urlQueryEscape("Hadiah ditukar: "+reward.Label))
@@ -189,7 +188,7 @@ func (c *Console) stampsRedeem(w http.ResponseWriter, r *http.Request, op identi
 // stampsVoid undoes a purchase. Corrections never edit: the purchase and its
 // stamps are marked and a compensating ledger entry is written, so the mistake
 // stays visible.
-func (c *Console) stampsVoid(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) stampsVoid(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -199,7 +198,7 @@ func (c *Console) stampsVoid(w http.ResponseWriter, r *http.Request, op identity
 	id := strings.TrimSpace(r.FormValue("purchase"))
 	reason := strings.TrimSpace(r.FormValue("reason"))
 
-	p, err := c.members.Void(r.Context(), id, reason, op.Phone)
+	p, err := c.members.Void(r.Context(), id, reason, op)
 	switch {
 	case err == nil:
 	case errors.Is(err, membership.ErrNotVoidable):
@@ -211,12 +210,12 @@ func (c *Console) stampsVoid(w http.ResponseWriter, r *http.Request, op identity
 		c.backToStamps(w, r, phoneQuery, "Pembelian tidak ditemukan.")
 		return
 	default:
-		c.log.Error("admin: void purchase", "operator", op.Phone, "purchase", id, "err", err)
+		c.log.Error("admin: void purchase", "operator", op, "purchase", id, "err", err)
 		c.backToStamps(w, r, phoneQuery, "Gagal membatalkan pembelian.")
 		return
 	}
 
-	c.log.Info("admin: purchase voided", "operator", op.Phone, "purchase", p.ID,
+	c.log.Info("admin: purchase voided", "operator", op, "purchase", p.ID,
 		"phone", p.Phone, "stamps", p.Stamps, "reason", reason)
 	c.backToStamps(w, r, phoneQuery, "")
 }

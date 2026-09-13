@@ -61,10 +61,10 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
       derived from the session token
 - [x] Deployed to the VPS behind Cloudflare Tunnel, with a health-gated rollout
       and nightly backups copied off-box to R2 under a storage cap
-- [x] The console signs in with an authenticator app — TOTP, enrolled from the
-      shell with `bykami admin enroll`, which prints a QR code. It depends on no
-      provider, which is why it exists: the console's login used to be the
-      customer OTP flow and therefore blocked on WhatsApp
+- [x] The console signs in with a generated password per operator, enrolled from
+      the shell with `bykami admin password add`. It depends on no provider,
+      which is why it exists: the console's login used to be the customer OTP
+      flow and therefore blocked on WhatsApp
 - [~] **Customer auth is closed on the deployed box, deliberately.** With no OTP
       delivery configured every customer auth route answers 503. Two gates hold
       it: data residency is unresolved, and the only sender that exists writes
@@ -157,7 +157,7 @@ Nothing here is a code problem. Roughly in order of what it unblocks.
 | Waiting on | Unblocks |
 |---|---|
 | Confirmation of the unverified prices | Turns `Offer` schema on across the sites. 66 facts currently render without structured data |
-| A WhatsApp provider account | OTP delivery, and with it every customer auth route. No longer the operator console, which now signs in with an authenticator app |
+| A WhatsApp provider account | OTP delivery, and with it every customer auth route. No longer the operator console, which now signs in with a generated password |
 | Business entity, NPWP, bank account | Xendit onboarding, and with it the booth taking real money |
 | A Google service account, and each studio calendar shared with it | Connecting booking to the calendar the owner actually works from. Until then availability comes from our database alone. The console page for it exists; see `ansible/README.md` |
 | Whether MINI is 5 minutes or 15 | The owner and the booth say 5; the calendar the studio was selling on said 15. 5 is what ships |

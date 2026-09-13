@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/api/internal/booking"
-	"github.com/bhaktiyudha/bykami/api/internal/identity"
 )
 
 // Connecting the studio's Google Calendars.
@@ -27,10 +26,10 @@ import (
 // write timeout even when every calendar is unreachable.
 const syncBudget = 12 * time.Second
 
-func (c *Console) settings(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) settings(w http.ResponseWriter, r *http.Request, op string) {
 	p := page{
 		Title:    "Pengaturan",
-		Operator: op.Phone,
+		Operator: op,
 		CSRF:     csrfToken(r),
 	}
 	if msg := r.URL.Query().Get("ok"); msg != "" {
@@ -81,7 +80,7 @@ func (c *Console) settings(w http.ResponseWriter, r *http.Request, op identity.U
 }
 
 // settingsCalendar points one resource at a calendar, or detaches it.
-func (c *Console) settingsCalendar(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) settingsCalendar(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -99,12 +98,12 @@ func (c *Console) settingsCalendar(w http.ResponseWriter, r *http.Request, op id
 		c.backToSettings(w, r, err.Error())
 		return
 	default:
-		c.log.Error("admin: set calendar", "operator", op.Phone, "resource", resource, "err", err)
+		c.log.Error("admin: set calendar", "operator", op, "resource", resource, "err", err)
 		c.backToSettings(w, r, "Gagal menyimpan kalender.")
 		return
 	}
 
-	c.log.Info("admin: calendar set", "operator", op.Phone, "resource", resource,
+	c.log.Info("admin: calendar set", "operator", op, "resource", resource,
 		"calendar", calendarID)
 
 	if calendarID == "" {
@@ -123,7 +122,7 @@ func (c *Console) settingsCalendar(w http.ResponseWriter, r *http.Request, op id
 // The button exists because the alternative is waiting up to five minutes to find
 // out whether a calendar was shared correctly, and reading a journal to find out
 // why not.
-func (c *Console) settingsSync(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) settingsSync(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -134,12 +133,12 @@ func (c *Console) settingsSync(w http.ResponseWriter, r *http.Request, op identi
 	}
 
 	if err := c.calendar.SyncNow(r.Context(), syncBudget); err != nil {
-		c.log.Error("admin: sync now", "operator", op.Phone, "err", err)
+		c.log.Error("admin: sync now", "operator", op, "err", err)
 		c.backToSettings(w, r, "Sinkronisasi gagal dijalankan.")
 		return
 	}
 
-	c.log.Info("admin: sync run by hand", "operator", op.Phone)
+	c.log.Info("admin: sync run by hand", "operator", op)
 	c.redirect(w, r, "/settings?ok="+urlQueryEscape(
 		"Sinkronisasi dijalankan. Lihat status tiap ruang di bawah."))
 }

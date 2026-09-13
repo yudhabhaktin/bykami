@@ -210,10 +210,10 @@ func (f fixture) postGrant(t *testing.T, path string, form url.Values, cookie, g
 // an owner would write by hand, and a resource pointed at the calendar.
 func TestConnectingACalendarSharesItWithTheServiceAccount(t *testing.T) {
 	g := newFakeGoogle(t)
-	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t), operatorPhone)
+	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t))
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operatorPhone)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.get(t, "/settings", cookie).Body.String())
 	grant := grantFor(t, f, cookie, csrf)
 
@@ -271,10 +271,10 @@ func TestConnectingACalendarSharesItWithTheServiceAccount(t *testing.T) {
 // say which account to use instead — Google's own 403 does not.
 func TestConnectingACalendarTheAccountDoesNotOwnChangesNothing(t *testing.T) {
 	g := newFakeGoogle(t)
-	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t), operatorPhone)
+	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t))
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operatorPhone)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.get(t, "/settings", cookie).Body.String())
 	grant := grantFor(t, f, cookie, csrf)
 	page := f.getGrant(t, "/settings/google", cookie, grant).Body.String()
@@ -307,7 +307,7 @@ func TestConnectingACalendarTheAccountDoesNotOwnChangesNothing(t *testing.T) {
 // cookie cannot travel on Google's cross-site redirect. So it has to be checked.
 func TestTheCallbackRefusesAStateItDidNotIssue(t *testing.T) {
 	g := newFakeGoogle(t)
-	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t), operatorPhone)
+	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t))
 	seedBookingCatalogue(t, f.db)
 
 	for _, tc := range []struct {
@@ -341,10 +341,10 @@ func TestTheCallbackRefusesAStateItDidNotIssue(t *testing.T) {
 // end it — and an ended grant must not still open the mapping screen.
 func TestFinishingReleasesTheConsent(t *testing.T) {
 	g := newFakeGoogle(t)
-	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t), operatorPhone)
+	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t))
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operatorPhone)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.get(t, "/settings", cookie).Body.String())
 	grant := grantFor(t, f, cookie, csrf)
 
@@ -373,10 +373,10 @@ func TestFinishingReleasesTheConsent(t *testing.T) {
 // token — the console's own rule, and these routes are not exempt from it.
 func TestTheGoogleFormsNeedTheCSRFToken(t *testing.T) {
 	g := newFakeGoogle(t)
-	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t), operatorPhone)
+	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t))
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operatorPhone)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.get(t, "/settings", cookie).Body.String())
 	grant := grantFor(t, f, cookie, csrf)
 
@@ -402,10 +402,10 @@ func TestTheGoogleFormsNeedTheCSRFToken(t *testing.T) {
 // blocked, and the symptom is a button that silently does nothing.
 func TestTheConsoleCSPAllowsTheRedirectToGoogle(t *testing.T) {
 	g := newFakeGoogle(t)
-	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t), operatorPhone)
+	f := newFixtureConnect(t, &fakeCalendar{}, g.connect(t))
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operatorPhone)
+	cookie := f.signIn(t)
 	csp := f.get(t, "/settings", cookie).Header().Get("Content-Security-Policy")
 
 	if !strings.Contains(csp, "form-action 'self' https://accounts.google.com") {
@@ -422,10 +422,10 @@ func TestTheConsoleCSPAllowsTheRedirectToGoogle(t *testing.T) {
 // With no OAuth client configured the console falls back to what it did before:
 // print the address and let somebody share the calendar by hand.
 func TestWithoutAnOAuthClientTheConsoleAsksForAManualShare(t *testing.T) {
-	f := newFixtureCal(t, &fakeCalendar{}, operatorPhone)
+	f := newFixtureCal(t, &fakeCalendar{})
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operatorPhone)
+	cookie := f.signIn(t)
 	body := f.get(t, "/settings", cookie).Body.String()
 
 	if strings.Contains(body, "/settings/google/start") {

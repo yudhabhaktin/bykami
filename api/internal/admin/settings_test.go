@@ -57,10 +57,10 @@ var errNotShared = notSharedError{}
 
 func TestSettingsShowsTheAddressToShareCalendarsWith(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, operator)
+	f := newFixtureCal(t, cal)
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	body := f.get(t, "/settings", cookie).Body.String()
 
 	// The one step of the setup that happens inside Google and cannot be done from
@@ -91,10 +91,10 @@ func TestSettingsShowsTheAddressToShareCalendarsWith(t *testing.T) {
 func TestSettingsSaysWhenThereIsNoCredential(t *testing.T) {
 	// The deployed state today, and a different failure from an unshared calendar:
 	// there is nothing to share the calendar *with* yet.
-	f := newFixtureCal(t, nil, operator)
+	f := newFixtureCal(t, nil)
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	body := f.get(t, "/settings", cookie).Body.String()
 
 	if !strings.Contains(body, "BYKAMI_GOOGLE_CREDENTIALS") {
@@ -113,10 +113,10 @@ func TestSettingsSaysWhenThereIsNoCredential(t *testing.T) {
 
 func TestOperatorCanConnectACalendar(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, operator)
+	f := newFixtureCal(t, cal)
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.get(t, "/settings", cookie).Body.String())
 
 	w := f.post(t, "/settings/calendar/self-photo",
@@ -142,10 +142,10 @@ func TestOperatorCanConnectACalendar(t *testing.T) {
 
 func TestConnectingACalendarRefusesSomethingThatIsNotOne(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, operator)
+	f := newFixtureCal(t, cal)
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.get(t, "/settings", cookie).Body.String())
 
 	// The mistake somebody actually makes: pasting the calendar's name, or the URL
@@ -175,7 +175,7 @@ func TestConnectingACalendarRefusesSomethingThatIsNotOne(t *testing.T) {
 
 func TestDetachingACalendarClearsWhatItCached(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, operator)
+	f := newFixtureCal(t, cal)
 	seedBookingCatalogue(t, f.db)
 	desk := booking.New(f.db, 0)
 
@@ -191,7 +191,7 @@ func TestDetachingACalendarClearsWhatItCached(t *testing.T) {
 		t.Fatal("the seeded busy range did not block the slot")
 	}
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.get(t, "/settings", cookie).Body.String())
 	if w := f.post(t, "/settings/calendar/photobox",
 		url.Values{"csrf": {csrf}, "calendar_id": {""}}, cookie); w.Code != http.StatusSeeOther {
@@ -211,10 +211,10 @@ func TestDetachingACalendarClearsWhatItCached(t *testing.T) {
 
 func TestSyncNowReportsWhatGoogleSaid(t *testing.T) {
 	cal := &fakeCalendar{failOn: "broken@group.calendar.google.com"}
-	f := newFixtureCal(t, cal, operator)
+	f := newFixtureCal(t, cal)
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.get(t, "/settings", cookie).Body.String())
 
 	// One calendar shared, one not — the ordinary halfway state of a first setup.
@@ -242,10 +242,10 @@ func TestSyncNowReportsWhatGoogleSaid(t *testing.T) {
 }
 
 func TestSyncNowNeedsACredential(t *testing.T) {
-	f := newFixtureCal(t, nil, operator)
+	f := newFixtureCal(t, nil)
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.get(t, "/settings", cookie).Body.String())
 
 	// The button is not rendered, but the route must not panic on a nil worker if
@@ -261,14 +261,14 @@ func TestSyncNowNeedsACredential(t *testing.T) {
 
 func TestSettingsRoutesNeedAnOperatorAndACSRFToken(t *testing.T) {
 	cal := &fakeCalendar{}
-	f := newFixtureCal(t, cal, operator)
+	f := newFixtureCal(t, cal)
 	seedBookingCatalogue(t, f.db)
 
 	if w := f.get(t, "/settings", ""); w.Code != http.StatusSeeOther {
 		t.Errorf("settings served to a stranger: %d", w.Code)
 	}
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	for _, path := range []string{"/settings/calendar/photobox", "/settings/sync"} {
 		if w := f.post(t, path, url.Values{"calendar_id": {"x@group.calendar.google.com"}}, cookie); w.Code != http.StatusForbidden {
 			t.Errorf("%s without a CSRF token = %d, want 403", path, w.Code)

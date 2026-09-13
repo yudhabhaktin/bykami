@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/api/internal/admin"
+	"github.com/bhaktiyudha/bykami/api/internal/adminauth"
 	"github.com/bhaktiyudha/bykami/api/internal/booking"
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
 	"github.com/bhaktiyudha/bykami/api/internal/gcal"
@@ -33,7 +34,6 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/instagram"
 	"github.com/bhaktiyudha/bykami/api/internal/loyalty"
 	"github.com/bhaktiyudha/bykami/api/internal/membership"
-	"github.com/bhaktiyudha/bykami/api/internal/mfa"
 	"github.com/bhaktiyudha/bykami/api/internal/store"
 )
 
@@ -51,7 +51,7 @@ func main() {
 	// internal/admin: a role in a table has a bootstrap problem whose usual
 	// answer is a seed script that becomes a way to grant admin. Empty means
 	// nobody, which is the safe default and the deployed one.
-	adminPhones := flag.String("admin-phones", "", "comma-separated operator phone numbers allowed into the admin console")
+	adminPhones := flag.String("admin-phones", "", "operator attributed by membership import when no label is given; no longer an authentication input")
 	// How far ahead the booking calendar is open. 31 days is what the studio's
 	// previous booking pages offered, so it is the number its customers are used
 	// to; a flag rather than a constant because it is the kind of thing an owner
@@ -234,15 +234,14 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 		BookingOrigins: splitOrigins(bookingOrigins),
 	})
 
-	// The console's authenticators. Unlike every other credential here this one
+	// The console's credentials. Unlike every other credential here this one
 	// needs nothing from the environment: the secrets are in the database, put
-	// there by `bykami admin enroll`, and there is no provider to sign up with.
-	// That is the whole point of it — the console had no usable login at all
-	// while it waited on a WhatsApp account.
-	auth := mfa.New(db)
-	enrolled, err := auth.Count(context.Background())
+	// there by `bykami admin password add`, and there is no provider to sign up
+	// with.
+	adminAuth := adminauth.New(db, nil)
+	creds, err := adminAuth.Count(context.Background())
 	if err != nil {
-		return fmt.Errorf("admin authenticators: %w", err)
+		return fmt.Errorf("admin credentials: %w", err)
 	}
 
 	// The console's own way to share a calendar with the service account above.
@@ -257,15 +256,12 @@ func run(addr, dsn, otpDelivery, adminPhones, bookingOrigins string, bookingWind
 		log.Info("google connect configured")
 	}
 
-	console, err := admin.New(ident, ledger, members, catalogue, booths, desk, calWorker, auth, connect, log, splitPhones(adminPhones))
+	console, err := admin.New(ident, ledger, members, catalogue, booths, desk, calWorker, adminAuth, connect, log)
 	if err != nil {
 		return fmt.Errorf("admin console: %w", err)
 	}
-	// Both numbers, because either being zero means nobody can sign in, and the
-	// two are fixed in different places: the allow-list in the service
-	// configuration, the enrolments with a subcommand.
 	log.Info("admin console configured",
-		"operators", len(splitPhones(adminPhones)), "authenticators", enrolled)
+		"credentials", creds)
 
 	// The URL space is split here rather than inside either package, because
 	// this is the only place that knows both exist. Go's ServeMux prefers the

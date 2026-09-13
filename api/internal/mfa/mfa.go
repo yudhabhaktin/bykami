@@ -1,16 +1,24 @@
 // Package mfa keeps the operator authenticators and checks their codes.
 //
+// **Nothing calls this package any more.** The console signs in with a single
+// generated password per operator — see `design/admin-auth.md` — so the
+// authenticator path, and the allow-list it was checked against, are no longer
+// part of signing in. It is kept, with the `admin_totp` table from migration
+// `0005`, because that migration may already have run on the box and a schema
+// that drops a table cannot be rolled back. Removing it is a change to take on
+// its own, once the box is known to be past it.
+//
 // It is the stateful half of internal/totp: the arithmetic there is pure, and
 // everything that has to be remembered between two sign-ins is here — which
 // secret belongs to which number, which time step has already been spent, and
 // how many wrong guesses have arrived lately.
 //
-// It knows nothing about who is allowed into the console. That is the
+// It never knew anything about who was allowed into the console. That was the
 // allow-list in internal/admin, checked separately on every request, and the
-// separation is deliberate: enrolling somebody here grants no access, so
-// enrolment can be an ordinary shell command instead of a privileged one. The
-// two questions are "is this really that number" and "does that number matter",
-// and keeping them apart is what stops the second one drifting into a table
+// separation was deliberate: enrolling somebody here granted no access, so
+// enrolment could be an ordinary shell command instead of a privileged one. The
+// two questions were "is this really that number" and "does that number matter",
+// and keeping them apart is what stopped the second one drifting into a table
 // somebody can write to.
 package mfa
 
