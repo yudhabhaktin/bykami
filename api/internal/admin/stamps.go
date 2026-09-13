@@ -25,9 +25,11 @@ import (
 
 func (c *Console) stamps(w http.ResponseWriter, r *http.Request, op string) {
 	q := strings.TrimSpace(r.URL.Query().Get("phone"))
+	_, canManage, _, _, _ := c.operator(r)
 	p := page{
 		Title:      "Stempel",
 		Operator:   op,
+		CanManage:  canManage,
 		CSRF:       csrfToken(r),
 		StampQuery: q,
 	}

@@ -73,11 +73,13 @@ type designView struct {
 const boothSilent = 15 * time.Minute
 
 func (c *Console) frameIndex(w http.ResponseWriter, r *http.Request, op string) {
+	_, canManage, _, _, _ := c.operator(r)
 	p := page{
-		Title:    "Frame",
-		Operator: op,
-		CSRF:     csrfToken(r),
-		Sheets:   frames.SheetSizes(),
+		Title:     "Frame",
+		Operator:  op,
+		CanManage: canManage,
+		CSRF:      csrfToken(r),
+		Sheets:    frames.SheetSizes(),
 	}
 	if r.URL.Query().Get("ok") != "" {
 		p.Notice = r.URL.Query().Get("ok")

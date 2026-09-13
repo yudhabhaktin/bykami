@@ -16,9 +16,14 @@
 
   <form method="post" action="/login">
     <div class="field">
+      <label for="username">Nama pengguna</label>
+      <input id="username" name="username" type="text"
+             autocomplete="username" required autofocus>
+    </div>
+    <div class="field">
       <label for="password">Kata sandi</label>
       <input id="password" name="password" type="password"
-             autocomplete="current-password" required autofocus>
+             autocomplete="current-password" required>
     </div>
     <button type="submit">Masuk</button>
   </form>

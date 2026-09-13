@@ -7,13 +7,14 @@
 //
 // # Who is an operator
 //
-// Staff sign in with one generated password per person. The password is the
-// identity: the server looks it up, finds whose it is, and attributes the
-// write to that person. There is no role column, and that is deliberate. A
-// role in the database has a bootstrap problem — the first operator has to be
-// promoted by an operator — which is normally solved by a seed script that
-// quietly becomes a way to grant admin. Enrolment from a shell breaks the
-// circle without inventing a second way in.
+// Staff sign in with a username (the credential's label) and a password. One
+// generated password per person. The label is the username and the password
+// proves it; they are the same thing, not two columns.
+//
+// An operator with can_manage may create and disable other operators. The
+// bootstrap is a shell subcommand — `bykami admin password add` — because
+// doing it in the console would need somebody already signed in, which is the
+// thing that does not exist until the first credential does.
 //
 // It also means a stolen customer session cannot become an operator session.
 // A console session is a console session, resolved from admin_sessions on
@@ -32,10 +33,12 @@
 package admin
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"html/template"
 	"log/slog"
@@ -45,6 +48,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bhaktiyudha/bykami/api/internal/adminauth"
@@ -122,6 +126,13 @@ type Console struct {
 	// never writes them down.
 	grants *grants
 
+	// reauthTokens are short-lived single-use tokens issued after a manager
+	// re-enters their password on the interstitial. Privileged actions check
+	// for one and consume it, so a direct POST to /operators/disable without
+	// passing through reauth is refused.
+	reauthMu     sync.Mutex
+	reauthTokens map[string]time.Time
+
 	// secure omits the Secure attribute in tests, which speak plain HTTP. It is
 	// never false in production — main.go does not expose it.
 	secure bool
@@ -165,19 +176,20 @@ func New(ident *identity.Service, ledger *loyalty.Ledger, members *membership.Se
 	}
 
 	return &Console{
-		identity: ident,
-		loyalty:  ledger,
-		members:  members,
-		frameCat: cat,
-		booths:   booths,
-		booking:  desk,
-		calendar: calendar,
-		auth:     auth,
-		connect:  connect,
-		grants:   newGrants(),
-		log:      log,
-		tmpl:     tmpl,
-		secure:   true,
+		identity:     ident,
+		loyalty:      ledger,
+		members:      members,
+		frameCat:     cat,
+		booths:       booths,
+		booking:      desk,
+		calendar:     calendar,
+		auth:         auth,
+		connect:      connect,
+		grants:       newGrants(),
+		reauthTokens: make(map[string]time.Time),
+		log:          log,
+		tmpl:         tmpl,
+		secure:       true,
 	}, nil
 }
 
@@ -230,6 +242,35 @@ func (c *Console) Handler() http.Handler {
 	// registration rather than at request time.
 	mux.HandleFunc("GET /booth/art/{sha256}", c.staffOnly(c.boothArt))
 
+	// Operator management. Protected by managerOnly: only an operator with
+	// can_manage may list, add, or disable operators.
+	mux.HandleFunc("GET /operators", c.managerOnly(c.operators))
+	mux.HandleFunc("POST /operators/add", c.managerOnly(c.operatorsAdd))
+	mux.HandleFunc("POST /operators/manage", c.managerOnly(c.operatorsManage))
+	mux.HandleFunc("POST /operators/unmanage", c.managerOnly(c.operatorsUnmanage))
+	mux.HandleFunc("POST /operators/disable", c.managerOnly(c.operatorsDisable))
+	mux.HandleFunc("POST /operators/reset", c.managerOnly(c.operatorsReset))
+	// Re-authentication interstitial for privileged actions, and the
+	// confirmation page that follows it.
+	//
+	// Each action needs its own GET because the interstitial's success
+	// redirects here, and without these a browser landed on 405 Method Not
+	// Allowed after typing the password correctly — the action never ran. The
+	// GET renders a form and changes nothing; the action still runs only from
+	// the POST that carries the token.
+	mux.HandleFunc("GET /operators/reauth", c.staffOnly(c.operatorsReauth))
+	mux.HandleFunc("POST /operators/reauth", c.staffOnly(c.operatorsReauth))
+	mux.HandleFunc("GET /operators/add", c.managerOnly(c.operatorsConfirm("add")))
+	mux.HandleFunc("GET /operators/manage", c.managerOnly(c.operatorsConfirm("manage")))
+	mux.HandleFunc("GET /operators/unmanage", c.managerOnly(c.operatorsConfirm("unmanage")))
+	mux.HandleFunc("GET /operators/disable", c.managerOnly(c.operatorsConfirm("disable")))
+	mux.HandleFunc("GET /operators/reset", c.managerOnly(c.operatorsConfirm("reset")))
+
+	// Password change. Allowed even when must_change is set, because this is
+	// the one page a credential with must_change is permitted to reach.
+	mux.HandleFunc("GET /password/set", c.staffOnly(c.passwordSet))
+	mux.HandleFunc("POST /password/set", c.staffOnly(c.passwordSet))
+
 	// Not behind staffOnly: the login page wears the same chrome as the rest of
 	// the console, so the logo and the typeface have to load for someone who has
 	// not signed in. None of the three says anything a stranger could not read
@@ -265,11 +306,12 @@ func brandAsset(name, mime string) http.Handler {
 // view: the shared chrome needs the same three fields on every page, and
 // keeping them in separate types means remembering to populate them separately.
 type page struct {
-	Title    string
-	Operator string
-	CSRF     string
-	Notice   string
-	Error    string
+	Title     string
+	Operator  string
+	CanManage bool
+	CSRF      string
+	Notice    string
+	Error     string
 
 	// Login. Enrolled is whether any credential exists at all — none means
 	// the console cannot be signed in to by anybody, and the page says which
@@ -332,6 +374,23 @@ type page struct {
 	// account, and the two look identical otherwise.
 	GoogleAccount   string
 	GoogleCalendars []googleCalendarRow
+
+	// Operator management
+	Operators    []adminauth.Credential
+	ManagerCount int
+	// Re-auth interstitial
+	ReauthAction string
+	ReauthTarget string
+	ReauthLabel  string
+	// ReauthToken is the single-use proof that the manager re-entered their
+	// own password. It travels from the interstitial into the confirmation
+	// page and from there into the action's own POST, and every privileged
+	// action refuses without it — which is what stops a stolen session cookie
+	// from minting a credential of its own.
+	ReauthToken string
+	// ConfirmAction is the same action written out for a human. The template
+	// shows this and never has to know the action keys.
+	ConfirmAction string
 }
 
 // googleCalendarRow is one calendar on the signed-in Google account.
@@ -359,7 +418,7 @@ type calendarRow struct {
 }
 
 func (c *Console) index(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := c.operator(r); ok {
+	if _, _, _, _, ok := c.operator(r); ok {
 		// Already an operator, so the login form would be a dead end.
 		c.redirect(w, r, "/customers")
 		return
@@ -370,12 +429,12 @@ func (c *Console) index(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// login is the whole sign-in: one password field, no username, no phone, no
-// code. Every way of failing renders the same page with the same message.
-// That is the property the previous flow had and the one most worth keeping:
-// a form that distinguished them would answer, for anyone who cared to ask it,
-// which passwords exist.
+// login is the whole sign-in: username and password. Every way of failing
+// renders the same page with the same message. That is the property the
+// previous flow had and the one most worth keeping: a form that distinguished
+// them would answer, for anyone who cared to ask it, which passwords exist.
 func (c *Console) login(w http.ResponseWriter, r *http.Request) {
+	label := strings.TrimSpace(r.FormValue("username"))
 	pw := strings.TrimSpace(r.FormValue("password"))
 	ip := callerIP(r)
 
@@ -397,7 +456,7 @@ func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cred, err := c.auth.Verify(r.Context(), pw)
+	cred, err := c.auth.VerifyByLabel(r.Context(), label, pw)
 	if err != nil {
 		// Logged, because this is what an operator will phone about and the
 		// page deliberately does not tell them apart.
@@ -462,9 +521,11 @@ func (c *Console) logout(w http.ResponseWriter, r *http.Request) {
 
 func (c *Console) customers(w http.ResponseWriter, r *http.Request, op string) {
 	q := strings.TrimSpace(r.URL.Query().Get("phone"))
+	_, canManage, _, _, _ := c.operator(r)
 	p := page{
 		Title:     "Cari pelanggan",
 		Operator:  op,
+		CanManage: canManage,
 		CSRF:      csrfToken(r),
 		Query:     q,
 		Verticals: verticals,
@@ -553,6 +614,354 @@ func (c *Console) adjust(w http.ResponseWriter, r *http.Request, op string) {
 	c.redirect(w, r, "/customers?phone="+urlQueryEscape(r.FormValue("phone"))+"&ok=1")
 }
 
+// --- Operator management ---
+
+func (c *Console) operators(w http.ResponseWriter, r *http.Request, op string) {
+	ctx := r.Context()
+	_, canManage, _, _, _ := c.operator(r)
+	p := page{
+		Title:     "Operator",
+		Operator:  op,
+		CanManage: canManage,
+		CSRF:      csrfToken(r),
+	}
+
+	all, err := c.auth.List(ctx)
+	if err != nil {
+		c.serverError(w, r, "list operators", err, p)
+		return
+	}
+	p.Operators = all
+
+	mc, err := c.auth.ManagerCount(ctx)
+	if err != nil {
+		c.serverError(w, r, "count managers", err, p)
+		return
+	}
+	p.ManagerCount = mc
+
+	// Flash messages from POST redirects
+	if r.URL.Query().Get("ok") != "" {
+		p.Notice = "Perubahan tersimpan."
+	}
+	if msg := r.URL.Query().Get("err"); msg != "" {
+		p.Error = msg
+	}
+
+	c.render(w, r, http.StatusOK, "operators.html", p)
+}
+
+func (c *Console) operatorsAdd(w http.ResponseWriter, r *http.Request, op string) {
+	// The re-auth token, not the CSRF token, is what makes this safe. CSRF is
+	// derived from the session cookie, so anybody holding that cookie can
+	// compute it — and creating an operator is the act of minting a credential,
+	// which must cost a password typed a moment ago, not a cookie borrowed a
+	// week ago.
+	if !validCSRF(r) || !c.consumeReauthToken(r.FormValue("reauth")) {
+		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
+		return
+	}
+	label := strings.TrimSpace(r.FormValue("label"))
+	if label == "" {
+		c.redirect(w, r, "/operators?err="+url.QueryEscape("Nama operator wajib diisi."))
+		return
+	}
+
+	pw, err := c.auth.AddWithCreator(r.Context(), label, op)
+	if err != nil {
+		c.log.Error("admin: add operator", "err", err, "label", label)
+		c.redirect(w, r, "/operators?err="+url.QueryEscape("Gagal menambahkan operator."))
+		return
+	}
+	c.log.Info("admin: operator added", "manager", op, "label", label)
+
+	// Show the password once, in the page itself. This is the only time it is
+	// ever visible, so the manager must copy it now.
+	p := page{
+		Title:    "Operator",
+		Operator: op,
+		CSRF:     csrfToken(r),
+		Notice:   "Operator " + label + " ditambahkan. Kata sandi: " + pw,
+	}
+	all, err := c.auth.List(r.Context())
+	if err != nil {
+		c.serverError(w, r, "list operators", err, p)
+		return
+	}
+	p.Operators = all
+	mc, err := c.auth.ManagerCount(r.Context())
+	if err != nil {
+		c.serverError(w, r, "count managers", err, p)
+		return
+	}
+	p.ManagerCount = mc
+	c.render(w, r, http.StatusOK, "operators.html", p)
+}
+
+func (c *Console) operatorsManage(w http.ResponseWriter, r *http.Request, op string) {
+	if !validCSRF(r) || !c.consumeReauthToken(r.FormValue("reauth")) {
+		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
+		return
+	}
+	label := strings.TrimSpace(r.FormValue("label"))
+	if err := c.auth.SetManage(r.Context(), label); err != nil {
+		c.log.Error("admin: set manage", "err", err, "label", label)
+		c.redirect(w, r, "/operators?err="+url.QueryEscape("Gagal mengubah hak akses."))
+		return
+	}
+	c.log.Info("admin: operator promoted", "manager", op, "label", label)
+	c.redirect(w, r, "/operators?ok=1")
+}
+
+func (c *Console) operatorsUnmanage(w http.ResponseWriter, r *http.Request, op string) {
+	if !validCSRF(r) || !c.consumeReauthToken(r.FormValue("reauth")) {
+		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
+		return
+	}
+	label := strings.TrimSpace(r.FormValue("label"))
+	if err := c.auth.UnsetManage(r.Context(), label); err != nil {
+		c.log.Error("admin: unset manage", "err", err, "label", label)
+		if errors.Is(err, adminauth.ErrLastManager) {
+			c.redirect(w, r, "/operators?err="+url.QueryEscape("Tidak bisa mencabut hak akses manajer terakhir."))
+			return
+		}
+		c.redirect(w, r, "/operators?err="+url.QueryEscape("Gagal mengubah hak akses."))
+		return
+	}
+	c.log.Info("admin: operator demoted", "manager", op, "label", label)
+	c.redirect(w, r, "/operators?ok=1")
+}
+
+func (c *Console) operatorsDisable(w http.ResponseWriter, r *http.Request, op string) {
+	if !validCSRF(r) || !c.consumeReauthToken(r.FormValue("reauth")) {
+		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
+		return
+	}
+	label := strings.TrimSpace(r.FormValue("label"))
+	if err := c.auth.RemoveWithActor(r.Context(), label, op); err != nil {
+		c.log.Error("admin: disable operator", "err", err, "label", label)
+		c.redirect(w, r, "/operators?err="+url.QueryEscape("Gagal menonaktifkan operator."))
+		return
+	}
+	c.log.Info("admin: operator disabled", "manager", op, "label", label)
+	c.redirect(w, r, "/operators?ok=1")
+}
+
+func (c *Console) operatorsReset(w http.ResponseWriter, r *http.Request, op string) {
+	if !validCSRF(r) || !c.consumeReauthToken(r.FormValue("reauth")) {
+		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
+		return
+	}
+	label := strings.TrimSpace(r.FormValue("label"))
+	pw, err := c.auth.ResetPassword(r.Context(), label, op)
+	if err != nil {
+		c.log.Error("admin: reset password", "err", err, "label", label)
+		c.redirect(w, r, "/operators?err="+url.QueryEscape("Gagal mengatur ulang kata sandi."))
+		return
+	}
+	c.log.Info("admin: password reset", "manager", op, "label", label)
+
+	p := page{
+		Title:    "Operator",
+		Operator: op,
+		CSRF:     csrfToken(r),
+		Notice:   "Kata sandi untuk " + label + " diatur ulang: " + pw,
+	}
+	all, err := c.auth.List(r.Context())
+	if err != nil {
+		c.serverError(w, r, "list operators", err, p)
+		return
+	}
+	p.Operators = all
+	mc, err := c.auth.ManagerCount(r.Context())
+	if err != nil {
+		c.serverError(w, r, "count managers", err, p)
+		return
+	}
+	p.ManagerCount = mc
+	c.render(w, r, http.StatusOK, "operators.html", p)
+}
+
+func (c *Console) passwordSet(w http.ResponseWriter, r *http.Request, op string) {
+	p := page{
+		Title:    "Ubah kata sandi",
+		Operator: op,
+		CSRF:     csrfToken(r),
+	}
+
+	if r.Method == "GET" {
+		c.render(w, r, http.StatusOK, "password-set.html", p)
+		return
+	}
+
+	pw1 := strings.TrimSpace(r.FormValue("password"))
+	pw2 := strings.TrimSpace(r.FormValue("password2"))
+	if pw1 != pw2 {
+		p.Error = "Kata sandi tidak cocok."
+		c.render(w, r, http.StatusOK, "password-set.html", p)
+		return
+	}
+	if len(pw1) < 12 {
+		p.Error = "Kata sandi minimal 12 karakter."
+		c.render(w, r, http.StatusOK, "password-set.html", p)
+		return
+	}
+	if err := c.auth.SetPassword(r.Context(), op, pw1); err != nil {
+		c.log.Error("admin: set password", "err", err, "operator", op)
+		p.Error = "Gagal mengubah kata sandi."
+		c.render(w, r, http.StatusOK, "password-set.html", p)
+		return
+	}
+	c.log.Info("admin: password changed", "operator", op)
+	c.redirect(w, r, "/customers")
+}
+
+// operatorsReauth is the interstitial that asks a manager to re-enter their
+// password before a privileged action. GET renders the form; POST checks it.
+// On success it redirects to the target action with the same form values,
+// carrying a short-lived re-auth token in a hidden field so the target action
+// can verify the manager proved themselves recently.
+func (c *Console) operatorsReauth(w http.ResponseWriter, r *http.Request, op string) {
+	action := r.FormValue("action")
+	target := r.FormValue("target")
+	label := strings.TrimSpace(r.FormValue("label"))
+
+	// Validate the action and target are one of the known privileged actions.
+	if !isPrivilegedAction(action) {
+		http.Error(w, "bad action", http.StatusBadRequest)
+		return
+	}
+
+	if r.Method == "GET" {
+		_, canManage, _, _, _ := c.operator(r)
+		p := page{
+			Title:        "Konfirmasi kata sandi",
+			Operator:     op,
+			CanManage:    canManage,
+			CSRF:         csrfToken(r),
+			ReauthAction: action,
+			ReauthTarget: target,
+			ReauthLabel:  label,
+		}
+		c.render(w, r, http.StatusOK, "reauth.html", p)
+		return
+	}
+
+	// POST: verify the manager's password.
+	pw := strings.TrimSpace(r.FormValue("password"))
+	cred, err := c.auth.VerifyByLabel(r.Context(), op, pw)
+	if err != nil {
+		_, canManage, _, _, _ := c.operator(r)
+		p := page{
+			Title:        "Konfirmasi kata sandi",
+			Operator:     op,
+			CanManage:    canManage,
+			CSRF:         csrfToken(r),
+			Error:        "Kata sandi salah.",
+			ReauthAction: action,
+			ReauthTarget: target,
+			ReauthLabel:  label,
+		}
+		c.render(w, r, http.StatusUnauthorized, "reauth.html", p)
+		return
+	}
+	if !cred.CanManage {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Re-auth successful. Mint a single-use token and redirect to the target
+	// with the form values preserved so the target handler can replay them.
+	q := url.Values{}
+	q.Set("label", label)
+	q.Set("csrf", csrfToken(r))
+	q.Set("reauth", c.mintReauthToken())
+	c.redirect(w, r, target+"?"+q.Encode())
+}
+
+// confirmActionWords names each privileged action for a person, so the
+// confirmation page can say what is about to happen without the template
+// knowing the action keys.
+var confirmActionWords = map[string]string{
+	"add":      "Tambah operator",
+	"manage":   "Jadikan manajer",
+	"unmanage": "Cabut manajer",
+	"disable":  "Nonaktifkan operator",
+	"reset":    "Atur ulang kata sandi",
+}
+
+// operatorsConfirm is the page between re-authentication and a privileged
+// action.
+//
+// It exists because the interstitial's success redirect lands here by GET, and
+// a GET must never perform one of these actions. So this renders a form, and
+// the action runs from that form's POST — the only request that carries the
+// single-use token onward. Without it a manager was redirected onto a POST-only
+// route and got 405 Method Not Allowed after typing their password correctly,
+// so the action never happened at all.
+func (c *Console) operatorsConfirm(action string) staffHandler {
+	return func(w http.ResponseWriter, r *http.Request, op string) {
+		q := r.URL.Query()
+		c.render(w, r, http.StatusOK, "confirm.html", page{
+			Title:         "Konfirmasi",
+			Operator:      op,
+			CSRF:          csrfToken(r),
+			ReauthAction:  action,
+			ReauthTarget:  "/operators/" + action,
+			ReauthLabel:   strings.TrimSpace(q.Get("label")),
+			ReauthToken:   q.Get("reauth"),
+			ConfirmAction: confirmActionWords[action],
+		})
+	}
+}
+
+func (c *Console) mintReauthToken() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("admin: entropy unavailable: " + err.Error())
+	}
+	tok := hex.EncodeToString(b[:])
+	c.reauthMu.Lock()
+	// Sweep the expired ones on the way past. Without this a token that is
+	// minted and never used stays in the map for the life of the process, and
+	// the only thing keeping the map honest is that most tokens get consumed.
+	now := time.Now()
+	for k, exp := range c.reauthTokens {
+		if now.After(exp) {
+			delete(c.reauthTokens, k)
+		}
+	}
+	c.reauthTokens[tok] = now.Add(60 * time.Second)
+	c.reauthMu.Unlock()
+	return tok
+}
+
+func (c *Console) consumeReauthToken(tok string) bool {
+	c.reauthMu.Lock()
+	defer c.reauthMu.Unlock()
+	exp, ok := c.reauthTokens[tok]
+	if !ok || time.Now().After(exp) {
+		return false
+	}
+	delete(c.reauthTokens, tok)
+	return true
+}
+
+// isPrivilegedAction lists the actions that require the manager to re-enter
+// their own password first.
+//
+// "add" is here for the same reason as the rest and more urgently than any of
+// them: it is the action that mints a credential, so leaving it out would let a
+// stolen session cookie create a permanent way in rather than borrow one for a
+// month. Every caller of this is a check that the token exists.
+func isPrivilegedAction(action string) bool {
+	switch action {
+	case "add", "disable", "manage", "unmanage", "reset":
+		return true
+	}
+	return false
+}
+
 // anyoneEnrolled reports whether any credential exists.
 //
 // A database error is reported as "yes", which is the useful way to be wrong:
@@ -568,30 +977,46 @@ func (c *Console) anyoneEnrolled(r *http.Request) bool {
 	return n > 0
 }
 
-// operator resolves the session cookie to a credential label.
-func (c *Console) operator(r *http.Request) (string, string, bool) {
+// operator resolves the session cookie to a credential label, can_manage, and
+// whether the password must be changed.
+func (c *Console) operator(r *http.Request) (string, bool, bool, string, bool) {
 	ck, err := r.Cookie(sessionCookie)
 	if err != nil || ck.Value == "" {
-		return "", "", false
+		return "", false, false, "", false
 	}
 	cred, err := c.auth.SessionForToken(r.Context(), ck.Value)
 	if err != nil {
-		return "", "", false
+		return "", false, false, "", false
 	}
-	return cred.Label, ck.Value, true
+	return cred.Label, cred.CanManage, cred.MustChange, ck.Value, true
 }
 
 type staffHandler func(w http.ResponseWriter, r *http.Request, op string)
 
 func (c *Console) staffOnly(h staffHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		op, _, ok := c.operator(r)
+		op, _, mustChange, _, ok := c.operator(r)
 		if !ok {
 			c.redirect(w, r, "/")
 			return
 		}
+		if mustChange && r.URL.Path != "/password/set" {
+			c.redirect(w, r, "/password/set")
+			return
+		}
 		h(w, r, op)
 	}
+}
+
+func (c *Console) managerOnly(h staffHandler) http.HandlerFunc {
+	return c.staffOnly(func(w http.ResponseWriter, r *http.Request, op string) {
+		_, isManager, _, _, _ := c.operator(r)
+		if !isManager {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h(w, r, op)
+	})
 }
 
 // csrfToken derives a per-session value from the session token itself, so

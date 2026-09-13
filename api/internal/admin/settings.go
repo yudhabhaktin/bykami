@@ -27,10 +27,12 @@ import (
 const syncBudget = 12 * time.Second
 
 func (c *Console) settings(w http.ResponseWriter, r *http.Request, op string) {
+	_, canManage, _, _, _ := c.operator(r)
 	p := page{
-		Title:    "Pengaturan",
-		Operator: op,
-		CSRF:     csrfToken(r),
+		Title:     "Pengaturan",
+		Operator:  op,
+		CanManage: canManage,
+		CSRF:      csrfToken(r),
 	}
 	if msg := r.URL.Query().Get("ok"); msg != "" {
 		p.Notice = msg

@@ -324,9 +324,12 @@ credential to rotate and a second thing that can be down while the database is
 up. In the database the bytes share a backup and a transaction with the row
 describing them, so a restore cannot produce a frame with no picture.
 
-### Signing in — one password, and what it costs
+### Signing in — username, password, and who may manage whom
 
-The console asks for one password field. No username, no phone, no code.
+The console asks for a username and a password. The username is the
+credential's label — "yudha", "kasir-1" — and the password proves it. They are
+the same thing, not two columns: the label says who the write is attributed to,
+and the password is the only secret.
 
 That is one factor, and it is a downgrade from the previous phone-plus-
 authenticator flow that is being taken deliberately, in exchange for not having
@@ -354,12 +357,38 @@ exist until the first credential does:
 bykami -db /var/lib/bykami/bykami.db admin password add kasir-1
 bykami -db … admin password list
 bykami -db … admin password rm kasir-1
+bykami -db … admin password manage kasir-1
+bykami -db … admin password unmanage kasir-1
 ```
 
 `add` prints the password once, with a line saying it will never be shown again
 and that anyone who reads it has full access. `rm` disables the credential;
 sessions belonging to it stop working on the next request because `SessionForToken`
-joins against `admin_credentials` and checks `disabled_at`.
+joins against `admin_credentials` and checks `disabled_at`. `manage` and
+`unmanage` grant and revoke the `can_manage` flag.
+
+**Managers may create and disable operators from the console.** `/operators`
+lists every credential, lets a manager add one, and lets a manager disable or
+promote another. Every privileged action — add first among them, since that is
+the one that mints a credential — requires the manager to re-enter their own
+password: a speed bump against an unattended session, not a second factor. The
+CSRF token is no substitute there, because it is derived from the session cookie
+and anybody holding the cookie can compute it. What that re-entry hands back is a
+single-use token, which lands on a confirmation page saying what is about to
+happen; only that page's POST performs the action, so no link, refresh or
+prefetch can disable anybody. The console refuses to remove the last manager,
+because somebody has to be able to get back in.
+
+**A new credential is born unrotated.** `must_change` is set on every credential,
+including the first one added from the shell, and until the operator sets a
+password of their own every request they make is redirected to `/password/set`.
+The handed-over password is dead before it can serve as an alibi for writes that
+are supposed to be theirs — which is the whole reason the username exists. Twelve
+characters minimum and no symbol rules, because length is the rule that does
+measurable work. A manager resets somebody from `/operators`: a fresh one-time
+password, shown once, which forces the change again. There is no email or
+WhatsApp recovery on purpose — the manager is standing next to the person, and a
+reset link would make a mailbox the way into an admin console.
 
 Every way of failing renders the same page with the same message. A form that
 told them apart would answer, for anyone who cared to ask it, which passwords
