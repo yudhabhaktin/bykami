@@ -11,8 +11,6 @@ import (
 	"github.com/bhaktiyudha/bykami/api/internal/booking"
 )
 
-const operator = "081234567890"
-
 // seedBookingCatalogue writes just enough of the studio for the console to have
 // something to show: two resources so the blackout form has a choice to make, one
 // package, and a day the studio is open.
@@ -68,12 +66,12 @@ func bookOne(t *testing.T, db *sql.DB, name string, at time.Time) booking.Bookin
 }
 
 func TestBookingDayShowsWhoIsComing(t *testing.T) {
-	f := newFixture(t, operator)
+	f := newFixture(t)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(14)
 	bookOne(t, f.db, "Rina Wulandari", at)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	day := at.Format("2006-01-02")
 	w := f.get(t, "/bookings?day="+day, cookie)
 	if w.Code != http.StatusOK {
@@ -103,7 +101,7 @@ func TestBookingDayShowsWhoIsComing(t *testing.T) {
 // sessions and has a few minutes to hang a roll; a booking that does not say
 // which one is a booking they find out about when the customer walks in.
 func TestBookingDayShowsTheBackgroundToPrepare(t *testing.T) {
-	f := newFixture(t, operator)
+	f := newFixture(t)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(15)
 
@@ -121,7 +119,7 @@ func TestBookingDayShowsTheBackgroundToPrepare(t *testing.T) {
 	// A package with no choice, on the other resource so the two do not collide.
 	bookOne(t, f.db, "Rina Wulandari", at)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	body := f.get(t, "/bookings?day="+at.Format("2006-01-02"), cookie).Body.String()
 
 	// The name, not the id — the operator hangs "Duck Egg", nobody says "duck-egg".
@@ -134,7 +132,7 @@ func TestBookingDayShowsTheBackgroundToPrepare(t *testing.T) {
 }
 
 func TestBookingDayReportsCalendarHealth(t *testing.T) {
-	f := newFixture(t, operator)
+	f := newFixture(t)
 	seedBookingCatalogue(t, f.db)
 	desk := booking.New(f.db, 0)
 
@@ -142,7 +140,7 @@ func TestBookingDayReportsCalendarHealth(t *testing.T) {
 		t.Fatalf("record failure: %v", err)
 	}
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	body := f.get(t, "/bookings", cookie).Body.String()
 
 	// The whole point of this row: a calendar that stopped syncing is otherwise
@@ -156,12 +154,12 @@ func TestBookingDayReportsCalendarHealth(t *testing.T) {
 }
 
 func TestOperatorCanCancelWithoutTheCustomersNumber(t *testing.T) {
-	f := newFixture(t, operator)
+	f := newFixture(t)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(15)
 	b := bookOne(t, f.db, "Budi", at)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	day := at.Format("2006-01-02")
 	csrf := csrfFrom(t, f.get(t, "/bookings?day="+day, cookie).Body.String())
 
@@ -191,11 +189,11 @@ func TestOperatorCanCancelWithoutTheCustomersNumber(t *testing.T) {
 }
 
 func TestBlockingClosesTheSchedule(t *testing.T) {
-	f := newFixture(t, operator)
+	f := newFixture(t)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(14)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	day := at.Format("2006-01-02")
 	csrf := csrfFrom(t, f.get(t, "/bookings?day="+day, cookie).Body.String())
 
@@ -224,11 +222,11 @@ func TestBlockingClosesTheSchedule(t *testing.T) {
 }
 
 func TestBlockingWithNoHoursClosesTheWholeDay(t *testing.T) {
-	f := newFixture(t, operator)
+	f := newFixture(t)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(14)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	day := at.Format("2006-01-02")
 	csrf := csrfFrom(t, f.get(t, "/bookings?day="+day, cookie).Body.String())
 
@@ -251,10 +249,10 @@ func TestBlockingWithNoHoursClosesTheWholeDay(t *testing.T) {
 }
 
 func TestBlockingRefusesABackwardsRange(t *testing.T) {
-	f := newFixture(t, operator)
+	f := newFixture(t)
 	seedBookingCatalogue(t, f.db)
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	day := tomorrowAt(14).Format("2006-01-02")
 	csrf := csrfFrom(t, f.get(t, "/bookings?day="+day, cookie).Body.String())
 
@@ -277,7 +275,7 @@ func TestBlockingRefusesABackwardsRange(t *testing.T) {
 }
 
 func TestBookingRoutesNeedAnOperatorAndACSRFToken(t *testing.T) {
-	f := newFixture(t, operator)
+	f := newFixture(t)
 	seedBookingCatalogue(t, f.db)
 	at := tomorrowAt(16)
 	b := bookOne(t, f.db, "Budi", at)
@@ -295,7 +293,7 @@ func TestBookingRoutesNeedAnOperatorAndACSRFToken(t *testing.T) {
 		t.Error("a customer's name leaked to a signed-out request")
 	}
 
-	cookie := f.signIn(t, operator)
+	cookie := f.signIn(t)
 	// Signed in, but no token — the same shape as every other mutation here.
 	for _, path := range []string{"/bookings/" + b.ID + "/cancel", "/bookings/block"} {
 		if w := f.post(t, path, url.Values{"day": {at.Format("2006-01-02")}}, cookie); w.Code != http.StatusForbidden {

@@ -145,12 +145,14 @@ sender that exists writes one-time codes to the log. `/healthz` is ungated, so
 the deploy health check and the tunnel check still work. See `api/README.md`.
 
 **The operator console is deliberately not behind that gate.** It signs in with
-a time-based one-time password from an authenticator app, enrolled from a shell
-on the box — so the people who run the place are not waiting on a provider
-account bought for customers. Two different populations, two different trades:
-a customer gets the code they already expect, an operator installs an app once.
-Authorisation is unchanged and is still the allow-list above; the authenticator
-proves only that a number is who it says it is.
+a single generated password per operator, enrolled from a shell on the box — so
+the people who run the place are not waiting on a provider account bought for
+customers. Two different populations, two different trades: a customer gets the
+code they already expect, an operator is handed a password once. This is one
+factor and is honestly a downgrade from the previous phone-plus-authenticator
+flow; the mitigations are a generated password (~120 bits, no dictionary to
+attack), per-operator credentials, and a rate limit per source address. The
+password identifies the person, so every write still names a human.
 
 ### Loyalty — `#SobatKAMi`
 

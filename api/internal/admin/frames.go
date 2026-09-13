@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/bhaktiyudha/bykami/api/internal/frames"
-	"github.com/bhaktiyudha/bykami/api/internal/identity"
 )
 
 // maxUpload bounds a frame PNG. The house strips are around 25 KB; a
@@ -73,10 +72,10 @@ type designView struct {
 // between a list that is a few minutes old and a list that is a week old.
 const boothSilent = 15 * time.Minute
 
-func (c *Console) frameIndex(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) frameIndex(w http.ResponseWriter, r *http.Request, op string) {
 	p := page{
 		Title:    "Frame",
-		Operator: op.Phone,
+		Operator: op,
 		CSRF:     csrfToken(r),
 		Sheets:   frames.SheetSizes(),
 	}
@@ -159,7 +158,7 @@ func boothViews(reports []frames.Booth, catalogue []frames.Frame) ([]boothView, 
 // offers has no catalogue row to hang an id off — the built-in designs exist
 // only inside the agent binary. The hash is the name for the same reason it is
 // the sync protocol: identical artwork on five booths is one stored copy.
-func (c *Console) boothArt(w http.ResponseWriter, r *http.Request, _ identity.User) {
+func (c *Console) boothArt(w http.ResponseWriter, r *http.Request, _ string) {
 	sum := strings.TrimSuffix(r.PathValue("sha256"), ".png")
 
 	art, err := c.booths.Artwork(r.Context(), sum)
@@ -190,7 +189,7 @@ func (c *Console) boothArt(w http.ResponseWriter, r *http.Request, _ identity.Us
 }
 
 // frameUpload takes the PNG and reads the rest of the design out of it.
-func (c *Console) frameUpload(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) frameUpload(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -246,7 +245,7 @@ func (c *Console) frameUpload(w http.ResponseWriter, r *http.Request, op identit
 		return
 	}
 
-	c.log.Info("admin: frame uploaded", "operator", op.Phone, "frame", f.ID,
+	c.log.Info("admin: frame uploaded", "operator", op, "frame", f.ID,
 		"layout", f.Layout, "cells", len(f.Cells), "bytes", f.Bytes)
 	c.redirect(w, r, "/frames?ok="+urlQueryEscape(fmt.Sprintf(
 		"%q tersimpan: %d slot foto terdeteksi. Periksa dulu, lalu terbitkan.", f.Name, len(f.Cells))))
@@ -281,7 +280,7 @@ func uploadMessage(err error) string {
 // Staff-only like every other frame route. The artwork is not secret, but this
 // is the operator console and an unauthenticated image route here would be a
 // way to enumerate the catalogue of a business that has not launched it.
-func (c *Console) frameArt(w http.ResponseWriter, r *http.Request, _ identity.User) {
+func (c *Console) frameArt(w http.ResponseWriter, r *http.Request, _ string) {
 	art, sum, err := c.frameCat.Artwork(r.Context(), r.PathValue("id"))
 	if errors.Is(err, frames.ErrNoFrame) {
 		http.NotFound(w, r)
@@ -309,7 +308,7 @@ func (c *Console) frameArt(w http.ResponseWriter, r *http.Request, _ identity.Us
 	}
 }
 
-func (c *Console) framePublish(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) framePublish(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -323,7 +322,7 @@ func (c *Console) framePublish(w http.ResponseWriter, r *http.Request, op identi
 		return
 	}
 
-	c.log.Info("admin: frame published", "operator", op.Phone, "frame", id, "published", publish)
+	c.log.Info("admin: frame published", "operator", op, "frame", id, "published", publish)
 	if publish {
 		c.redirect(w, r, "/frames?ok="+urlQueryEscape("Frame diterbitkan. Booth akan menariknya beberapa menit lagi."))
 		return
@@ -331,7 +330,7 @@ func (c *Console) framePublish(w http.ResponseWriter, r *http.Request, op identi
 	c.redirect(w, r, "/frames?ok="+urlQueryEscape("Frame ditarik dari booth."))
 }
 
-func (c *Console) frameSeason(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) frameSeason(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -359,13 +358,13 @@ func (c *Console) frameSeason(w http.ResponseWriter, r *http.Request, op identit
 		c.log.Error("admin: frame season", "err", err, "frame", id)
 		c.backToFrames(w, r, "Gagal menyimpan musim.")
 	default:
-		c.log.Info("admin: frame season set", "operator", op.Phone, "frame", id,
+		c.log.Info("admin: frame season set", "operator", op, "frame", id,
 			"from", r.FormValue("active_from"), "until", r.FormValue("active_until"))
 		c.redirect(w, r, "/frames?ok="+urlQueryEscape("Musim tersimpan."))
 	}
 }
 
-func (c *Console) frameDelete(w http.ResponseWriter, r *http.Request, op identity.User) {
+func (c *Console) frameDelete(w http.ResponseWriter, r *http.Request, op string) {
 	if !validCSRF(r) {
 		http.Error(w, "bad or missing CSRF token", http.StatusForbidden)
 		return
@@ -376,7 +375,7 @@ func (c *Console) frameDelete(w http.ResponseWriter, r *http.Request, op identit
 		c.backToFrames(w, r, "Gagal menghapus frame.")
 		return
 	}
-	c.log.Info("admin: frame deleted", "operator", op.Phone, "frame", id)
+	c.log.Info("admin: frame deleted", "operator", op, "frame", id)
 	c.redirect(w, r, "/frames?ok="+urlQueryEscape("Frame dihapus."))
 }
 

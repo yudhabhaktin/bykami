@@ -87,8 +87,8 @@ func (f fixture) framesPage(t *testing.T, cookie string) string {
 }
 
 func TestUploadingAPNGProducesAWorkingFrame(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
 	w := f.upload(t, cookie, csrf, "Wisuda 2026", stripArt(t), url.Values{"group": {"wisuda"}})
@@ -114,8 +114,8 @@ func TestUploadingAPNGProducesAWorkingFrame(t *testing.T) {
 // inferred from a picture, and the operator looking at the detected slots is
 // what catches a wrong inference.
 func TestAnUploadIsNotPublishedUntilSomebodySaysSo(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	f.upload(t, cookie, csrf, "Draf", stripArt(t), nil)
 
@@ -140,8 +140,8 @@ func TestAnUploadIsNotPublishedUntilSomebodySaysSo(t *testing.T) {
 }
 
 func TestUploadRejectsArtworkWithNothingToFill(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
 	// A flat frame with no holes — the mistake a designer makes by exporting
@@ -170,8 +170,8 @@ func TestUploadRejectsArtworkWithNothingToFill(t *testing.T) {
 }
 
 func TestFrameRoutesAreStaffOnly(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	f.upload(t, cookie, csrf, "Rahasia", stripArt(t), nil)
 
@@ -193,8 +193,8 @@ func TestFrameRoutesAreStaffOnly(t *testing.T) {
 }
 
 func TestChangingAFrameNeedsTheCSRFToken(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	f.upload(t, cookie, csrf, "Klasik", stripArt(t), nil)
 
@@ -215,8 +215,8 @@ func TestChangingAFrameNeedsTheCSRFToken(t *testing.T) {
 }
 
 func TestSeasonRoundTripsThroughTheForm(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
 	// The form asks for the last day the frame runs. Stored exclusively and
@@ -239,8 +239,8 @@ func TestSeasonRoundTripsThroughTheForm(t *testing.T) {
 }
 
 func TestArtworkComesBackByteForByte(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 	art := stripArt(t)
 	f.upload(t, cookie, csrf, "Klasik", art, nil)
@@ -269,8 +269,8 @@ func (f fixture) report(t *testing.T, outlet string, designs ...frames.Design) {
 // the designs compiled into its binary, so the console showed four frames while
 // customers chose from eleven — and nothing anywhere said so.
 func TestTheBoothSectionShowsDesignsThatAreNotInTheCatalogue(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 
 	f.report(t, "jajag", frames.Design{
 		ID: "gacoan-1-taplak", Name: "Taplak Gacoan", Layout: frames.R4,
@@ -288,8 +288,8 @@ func TestTheBoothSectionShowsDesignsThatAreNotInTheCatalogue(t *testing.T) {
 // Published means an operator flipped a switch. On the booth means a machine in
 // a shop downloaded it. The page used to call both of them "Tayang di booth".
 func TestPublishedIsNotTheSameAsOnTheBooth(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 	csrf := csrfFrom(t, f.framesPage(t, cookie))
 
 	f.upload(t, cookie, csrf, "Wisuda", stripArt(t), nil)
@@ -318,8 +318,8 @@ func TestPublishedIsNotTheSameAsOnTheBooth(t *testing.T) {
 // the difference between a page that is a few minutes stale and one that is a
 // week stale with no way to tell.
 func TestABoothThatHasGoneQuietSaysSo(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 
 	f.report(t, "jajag", frames.Design{ID: "gacoan-1-taplak", Name: "Taplak Gacoan", Layout: frames.R4})
 	if _, err := f.db.Exec(`UPDATE booth_reports SET reported_at = ?`,
@@ -335,8 +335,8 @@ func TestABoothThatHasGoneQuietSaysSo(t *testing.T) {
 // The artwork for a built-in design has no catalogue row to hang an id off, so
 // it is served by hash — and, like every other route here, only to staff.
 func TestBoothArtworkIsServedByHashAndOnlyToStaff(t *testing.T) {
-	f := newFixture(t, operatorPhone)
-	cookie := f.signIn(t, operatorPhone)
+	f := newFixture(t)
+	cookie := f.signIn(t)
 
 	art := stripArt(t)
 	sum := sha256.Sum256(art)
