@@ -32,6 +32,7 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
 | `booth-test.bykami.id` | Built | Temporary. One access token per tester, auto-deploying from `agent-<sha>` |
 | The VPS | Built | Alibaba ECS trial box, Singapore. Synthetic data only |
 | Booking on `studio.bykami.id/booking` | Built | Replaces two YouCanBook.me calendars. Reachable by URL and linked from nowhere until the Google calendars are connected |
+| The membership card — stamps, gifts, the counter page | Built | Not deployed. Seeded from the paper cards by `bykami membership import`. See `design/membership.md` |
 | QRIS and WhatsApp delivery | Blocked | See the owner list below |
 
 ## Phase 1 — marketing pages
@@ -48,6 +49,14 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
 - [x] Phone-first accounts, OTP challenges and sessions in `api/internal/identity`
 - [x] The append-only `#SobatKAMi` loyalty ledger, with concurrency tests that
       prove a retried webhook credits once
+- [x] **The membership card** — the studio's paper loyalty card as rows, in
+      `api/internal/membership`. A stamp per Rp 45.000 floored per transaction,
+      nine to a card, gifts at 2/4/6/8/9 issued as rows that can be handed over
+      exactly once. `admin.bykami.id/stamps` mints stamps from a WhatsApp number,
+      redeems gifts and voids a mistyped amount; `bykami.id/kartu` shows a member
+      their own card with no login; `bykami membership import` brings the cards in
+      customers' hands across without re-registering anyone. Built, not deployed.
+      See `design/membership.md`
 - [x] Operator console — server-rendered, no JavaScript, `__Host-` cookie, CSRF
       derived from the session token
 - [x] Deployed to the VPS behind Cloudflare Tunnel, with a health-gated rollout
@@ -60,9 +69,11 @@ nothing in it needed a merchant account, a phone provider or a legal entity.
       delivery configured every customer auth route answers 503. Two gates hold
       it: data residency is unresolved, and the only sender that exists writes
       codes to a log. The console is no longer behind this
-- [ ] Earn and burn have no HTTP route. That needs a device credential which is
-      neither a customer session nor an operator one — the open question in
-      `design/kiosk.md`
+- [~] **The booth cannot earn.** The operator console is the earning surface
+      (see the card above) and needs no credential that does not exist. A booth
+      crediting its own sessions needs one that is neither a customer session nor
+      an operator one — the open question in `design/kiosk.md`. Nothing burns
+      either: no route spends loyalty, because nothing spendable exists yet
 - [x] **Booking**, in `api/internal/booking` and `sites/studio/src/pages/booking.astro`.
       The resource question that blocked it was answered by reading the two
       YouCanBook.me calendars through their own API: three resources, and the old

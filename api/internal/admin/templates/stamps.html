@@ -1,0 +1,196 @@
+{{define "stamps.html"}}
+{{template "head" .}}
+
+<!--
+  The card's own grid. Scoped to this page rather than added to the shared
+  stylesheet: .slot is already taken there by the frame previews, where it means
+  a photo hole, and one word meaning two things is how a stylesheet stops being
+  readable.
+-->
+<style>
+.stampgrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.stampcell {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  min-height: 6rem;
+}
+.stampcell .no { font-size: 20px; font-weight: 600; letter-spacing: -0.04em; line-height: 1.2; }
+.stampcell .gift { font-size: 13px; color: var(--muted); white-space: normal; }
+.stampcell.on { border-color: var(--good); }
+.stampcell.void { border-style: dashed; color: var(--muted); }
+.stampcell.off { color: var(--faint); }
+</style>
+
+<h1>Stempel</h1>
+
+{{template "messages" .}}
+
+<div class="card">
+  <form method="get" action="/stamps">
+    <div class="field">
+      <label for="phone">Nomor WhatsApp</label>
+      <input id="phone" name="phone" type="tel" inputmode="tel" placeholder="0812…"
+             value="{{.StampQuery}}" required autofocus>
+    </div>
+    <button type="submit">Cari kartu</button>
+  </form>
+</div>
+
+{{if .StampCard}}
+  <h2>Kartu {{.StampCard.CardNo}}</h2>
+  <div class="card">
+    <p class="small muted" style="margin:0">{{.StampCard.Name}} · {{.StampCard.Phone}}</p>
+    <p class="balance tabular" style="margin:0">{{.StampCard.Filled}} / {{.StampCard.StampsPerCard}}</p>
+    <p class="small muted" style="margin:0">
+      Satu stempel = {{rupiah .StampCard.AmountPerStampIDR}}. Sisa pembulatan tidak dihitung.
+    </p>
+    <div class="stampgrid">
+      {{range .StampCard.Slots}}
+        <div class="stampcell {{if .Filled}}on{{else}}off{{end}}">
+          <div class="no tabular">{{.No}}</div>
+          <div class="small">
+            {{if .Filled}}terisi{{else}}kosong{{end}}
+          </div>
+          {{if .Label}}<div class="gift">{{.Label}}</div>{{end}}
+          {{if .Reward}}
+            {{if .Reward.RedeemedAt}}
+              <div class="state off">sudah ditukar</div>
+            {{else if .Reward.Available}}
+              <div class="state on">siap ditukar</div>
+            {{else}}
+              <!-- The same-day rule, shown rather than sprung on the customer. -->
+              <div class="state off">bisa ditukar {{wib .Reward.RedeemAfter}}</div>
+            {{end}}
+          {{end}}
+        </div>
+      {{end}}
+    </div>
+  </div>
+{{else if .StampSearched}}
+  <p class="muted">
+    Nomor itu belum terdaftar. Tulis stempel pertama dengan nama pelanggan di
+    bawah, dan akunnya dibuat sekalian — tidak ada OTP, tidak ada formulir.
+  </p>
+{{end}}
+
+{{if .StampSearched}}
+  <h2>Tulis stempel</h2>
+  <div class="card">
+    <p class="small muted">
+      Nominal dibaca dari struk dan ditulis apa adanya. Satu stempel per kelipatan
+      penuh, dibulatkan ke bawah per transaksi — jadi Rp 88.500 mendapat 1 stempel
+      dan Rp 885.000 mendapat 19, bukan 20.
+    </p>
+    <form method="post" action="/stamps/purchase">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="phone" value="{{.StampQuery}}">
+      <div class="row">
+        <div class="field">
+          <label for="amount">Nominal dari struk (Rp)</label>
+          <input id="amount" name="amount" type="number" step="1" min="1" required
+                 class="tabular" placeholder="88500">
+        </div>
+        <div class="field">
+          <label for="reference">No. struk / pesanan (opsional)</label>
+          <input id="reference" name="reference" placeholder="mis. INV-0913-04">
+        </div>
+      </div>
+      {{if not .StampCard}}
+        <div class="field">
+          <label for="name">Nama (wajib untuk nomor baru)</label>
+          <input id="name" name="name" placeholder="mis. Isyara Hadza">
+        </div>
+      {{end}}
+      <button type="submit">Simpan stempel</button>
+    </form>
+  </div>
+{{end}}
+
+<h2>Hadiah menunggu</h2>
+{{if .StampRewards}}
+  <div class="card scroll-x">
+    <table>
+      <thead>
+        <tr><th>Nomor</th><th>Hadiah</th><th>Diterbitkan</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{range .StampRewards}}
+          <tr>
+            <td class="tabular">{{.Phone}}</td>
+            <td>{{.Label}}</td>
+            <td class="tabular">{{wib .IssuedAt}}</td>
+            <td>
+              {{if .Available}}
+                <span class="state on">siap ditukar</span>
+              {{else}}
+                <span class="state off">bisa ditukar {{wib .RedeemAfter}}</span>
+              {{end}}
+            </td>
+            <td>
+              <form class="inline" method="post" action="/stamps/redeem">
+                <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="phone" value="{{$.StampQuery}}">
+                <input type="hidden" name="reward" value="{{.ID}}">
+                <button type="submit" {{if not .Available}}disabled{{end}}>Tukar</button>
+              </form>
+            </td>
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+{{else}}
+  <p class="muted">Tidak ada hadiah yang menunggu.</p>
+{{end}}
+
+<h2>Stempel hari ini</h2>
+{{if .StampToday}}
+  <div class="card scroll-x">
+    <table>
+      <thead>
+        <tr><th>Jam</th><th>Nomor</th><th>Nominal</th><th>Stempel</th><th>Referensi</th><th>Operator</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{range .StampToday}}
+          <tr>
+            <td class="tabular">{{clock .CreatedAt}}</td>
+            <td class="tabular">{{.Phone}}</td>
+            <td class="tabular">{{rupiah .AmountIDR}}</td>
+            <td class="tabular">+{{.Stamps}}</td>
+            <td class="reason muted">{{.ReferenceID}}</td>
+            <td class="tabular">{{.Operator}}</td>
+            <td>
+              {{if .Voided}}
+                <span class="muted" title="{{.VoidReason}}">dibatalkan</span>
+              {{else}}
+                <form class="cell-form" method="post" action="/stamps/void">
+                  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                  <input type="hidden" name="phone" value="{{$.StampQuery}}">
+                  <input type="hidden" name="purchase" value="{{.ID}}">
+                  <input name="reason" placeholder="alasan" required>
+                  <button class="danger" type="submit">Batalkan</button>
+                </form>
+              {{end}}
+            </td>
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <p class="small muted">
+    Pembatalan menulis entri koreksi di ledger dan tidak menghapus apa pun.
+    Hanya stempel terakhir pada kartu yang masih terbuka, kurang dari 24 jam, dan
+    yang hadiahnya belum ditukar yang bisa dibatalkan.
+  </p>
+{{else}}
+  <p class="muted">Belum ada stempel hari ini.</p>
+{{end}}
+
+{{template "foot" .}}
+{{end}}
