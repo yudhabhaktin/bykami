@@ -263,6 +263,12 @@ without writing the file, both arrive as a refusal and the customer is told to
 call staff, exactly as a refused `-shutter` is. Nothing is billed for a frame
 the camera did not expose.
 
+`/api/state` carries a `reason` field alongside `detected` so the operator can
+tell three cases apart: `"not_found"` when the tool works but nothing is on
+the bus, `"probe_failed: <text>"` when the binary itself is missing or broken,
+and `""` when a camera is present. The probe logs the transition, not every
+tick, so a missing binary does not fill the log.
+
 ## Which camera the booth previews
 
 A booth PC has two cameras: the tethered one the customer is photographed by,
@@ -426,6 +432,11 @@ go test -race -count=1 ./...
 
 `-race` because the print queue drains jobs on one goroutine while the HTTP
 handler submits them on another. That is the normal case here, not an edge one.
+
+`TestCaptureEndToEnd` in `cmd/bykami-agent` is a real end-to-end test: it
+builds the agent binary, starts it as a child process with the fake gphoto2
+tool, and exercises `/api/capture` through HTTP. It covers present, absent,
+busy, liar and hung camera states.
 
 ## Security posture
 

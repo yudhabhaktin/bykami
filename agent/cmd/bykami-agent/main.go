@@ -47,6 +47,12 @@ import (
 	"github.com/bhaktiyudha/bykami/agent/internal/store"
 )
 
+// cameraStatus is the atomically-shared result of the gphoto2 probe.
+type cameraStatus struct {
+	model  string
+	reason string
+}
+
 type config struct {
 	addr       string
 	root       string
@@ -321,7 +327,7 @@ func run(c config, log *slog.Logger) error {
 	// at whatever was plugged in at boot. Initialised empty so the reader never
 	// loads an unset slot; only the detector goroutine writes it.
 	var presence atomic.Value
-	presence.Store("")
+	presence.Store(cameraStatus{})
 
 	srv, err := httpd.New(httpd.Deps{
 		Sessions: sessions, Photos: photos, Payments: payments, Printer: prints,
@@ -331,8 +337,9 @@ func run(c config, log *slog.Logger) error {
 		// What the USB camera the booth photographs is, as opposed to Camera,
 		// which is what the kiosk should preview. nil cam (no -camera-tool)
 		// leaves it permanently empty — there is no probe to answer it.
-		Detected:  func() string { return presence.Load().(string) },
-		Simulated: simulated, PublicHost: c.publicHost, AccessTokens: tokens,
+		Detected:     func() string { return presence.Load().(cameraStatus).model },
+		CameraReason: func() string { return presence.Load().(cameraStatus).reason },
+		Simulated:    simulated, PublicHost: c.publicHost, AccessTokens: tokens,
 		Retention: c.retention,
 		Log:       log,
 	})
@@ -479,19 +486,19 @@ func probeCamera(ctx context.Context, log *slog.Logger, cam *camera.Camera, pres
 				log.Warn("camera: probe failed", "err", err)
 			}
 			lastErr, lastModel = true, ""
-			presence.Store("")
+			presence.Store(cameraStatus{reason: "probe_failed: " + err.Error()})
 		case dev.Model == "":
 			if lastModel != "" || lastErr {
-				log.Warn("camera: none detected")
+				log.Warn("camera: no device on bus")
 			}
 			lastErr, lastModel = false, ""
-			presence.Store("")
+			presence.Store(cameraStatus{reason: "not_found"})
 		default:
 			if lastModel != dev.Model || lastErr {
 				log.Info("camera: detected", "model", dev.Model, "port", dev.Port)
 			}
 			lastErr, lastModel = false, dev.Model
-			presence.Store(dev.Model)
+			presence.Store(cameraStatus{model: dev.Model})
 		}
 
 		select {
