@@ -11,11 +11,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/agent/internal/access"
 	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
 	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/compose"
@@ -31,6 +33,7 @@ import (
 
 type fixture struct {
 	srv       http.Handler
+	server    *httpd.Server
 	simulated *payment.Simulated
 	sessions  *session.Store
 	photos    *photo.Store
@@ -79,7 +82,7 @@ func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 		Clips:  clips,
 		Ingest: watcher, Templates: live, Packages: packages,
 		Root: root, Source: httpd.SourceWebcam, OutletID: "jajag",
-		Simulated: sim, Log: log,
+		Simulated: sim, Access: access.New(db, nil), Log: log,
 	}
 	if tweak != nil {
 		tweak(&deps)
@@ -95,7 +98,7 @@ func setupWith(t *testing.T, tweak func(*httpd.Deps)) *fixture {
 	}
 
 	return &fixture{
-		srv: srv.Handler(), simulated: sim, sessions: sessions, photos: photos,
+		srv: srv.Handler(), server: srv, simulated: sim, sessions: sessions, photos: photos,
 		clips: clips, printer: prints, templates: live, root: root,
 	}
 }
@@ -631,148 +634,194 @@ func TestRebindingHostIsRefused(t *testing.T) {
 // would matter.
 const testHost = "booth-test.bykami.id"
 
-const testToken = "s3cr3t-token-value"
+const testUser = "tester"
 
-func publicBooth(t *testing.T) *fixture {
+// publicBoothWithAccount creates a fixture with a public host and one booth
+// account already added. It returns the fixture and the generated password.
+func publicBoothWithAccount(t *testing.T) (*fixture, string) {
 	t.Helper()
-	return setupWith(t, func(d *httpd.Deps) {
+	var reg *access.Registry
+	f := setupWith(t, func(d *httpd.Deps) {
 		d.PublicHost = testHost
-		d.AccessTokens = []string{testToken}
+		reg = d.Access
 	})
+	ctx := context.Background()
+	pw, err := reg.Add(ctx, testUser)
+	if err != nil {
+		t.Fatalf("add account: %v", err)
+	}
+	return f, pw
 }
 
-func publicGet(t *testing.T, f *fixture, target string, cookie string) *httptest.ResponseRecorder {
+// login performs a booth login over the public host and returns the session
+// cookie. It fails the test if login does not succeed.
+func login(t *testing.T, f *fixture, username, password string) *http.Cookie {
+	t.Helper()
+	r := httptest.NewRequest("POST", "/login", strings.NewReader(url.Values{
+		"username": {username},
+		"password": {password},
+	}.Encode()))
+	r.Host = testHost
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("login failed: %d %s", w.Code, w.Body)
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "__Host-bykami-booth-session" {
+			return c
+		}
+	}
+	t.Fatal("no session cookie after login")
+	return nil
+}
+
+func publicGet(t *testing.T, f *fixture, target string, cookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest("GET", target, nil)
 	r.Host = testHost
-	if cookie != "" {
-		r.AddCookie(&http.Cookie{Name: "bykami_booth_access", Value: cookie})
+	if cookie != nil {
+		r.AddCookie(cookie)
 	}
 	w := httptest.NewRecorder()
 	f.srv.ServeHTTP(w, r)
 	return w
 }
 
-// The interlock. /api/capture takes a 16 MB upload and writes it to disk, so a
-// public hostname with nothing in front of it is an open file drop.
-func TestPublicHostWithoutATokenIsRefusedAtStartup(t *testing.T) {
-	_, err := httpd.New(httpd.Deps{PublicHost: testHost, Log: slog.New(slog.DiscardHandler)})
-	if err == nil {
-		t.Fatal("built a server that answers the internet with no token at all")
+func publicPost(t *testing.T, f *fixture, target string, cookie *http.Cookie, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest("POST", target, bytes.NewReader(body))
+	r.Host = testHost
+	if cookie != nil {
+		r.AddCookie(cookie)
 	}
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	return w
 }
 
-func TestPublicHostNeedsTheToken(t *testing.T) {
-	f := publicBooth(t)
-
-	if w := publicGet(t, f, "/api/state", ""); w.Code != http.StatusUnauthorized {
-		t.Fatalf("answered an untokened request from the internet: %d %s", w.Code, w.Body)
-	}
-	if w := publicGet(t, f, "/api/state?t=wrong", ""); w.Code != http.StatusUnauthorized {
-		t.Fatalf("accepted the wrong token: %d", w.Code)
-	}
-	if w := publicGet(t, f, "/api/state", "wrong"); w.Code != http.StatusUnauthorized {
-		t.Fatalf("accepted a forged cookie: %d", w.Code)
-	}
-}
-
-func TestPublicHostAcceptsTheTokenAndThenTheCookie(t *testing.T) {
-	f := publicBooth(t)
-
-	w := publicGet(t, f, "/api/state?t="+testToken, "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("refused the right token: %d %s", w.Code, w.Body)
-	}
-
-	var handed string
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "bykami_booth_access" {
-			handed = c.Value
-			if !c.HttpOnly || !c.Secure {
-				t.Errorf("access cookie is not HttpOnly+Secure: %+v", c)
-			}
-		}
-	}
-	if handed == "" {
-		t.Fatal("no cookie was set, so every following tap would need the token in the URL")
-	}
-
-	// The point of the cookie: the fifteen requests after the first carry no
-	// token in the URL.
-	if w := publicGet(t, f, "/api/state", handed); w.Code != http.StatusOK {
-		t.Fatalf("refused the cookie it had just issued: %d", w.Code)
-	}
-}
-
-// One token per tester, which is the whole reason this is a list. With a single
-// shared secret, withdrawing one person's access means rotating for everybody —
-// which in practice means nobody's access is ever withdrawn.
-func TestAnyOfTheConfiguredTokensAdmits(t *testing.T) {
-	tokens := []string{"token-for-rina-000000000", "token-for-adi-0000000000", "token-for-sari-000000000"}
+// A booth with a public host but no accounts yet answers 503 so the installer
+// knows to create one.
+func TestPublicHostWithNoAccountsIs503(t *testing.T) {
 	f := setupWith(t, func(d *httpd.Deps) {
 		d.PublicHost = testHost
-		d.AccessTokens = tokens
 	})
-
-	for _, tok := range tokens {
-		if w := publicGet(t, f, "/api/state?t="+tok, ""); w.Code != http.StatusOK {
-			t.Errorf("refused a configured token: %d %s", w.Code, w.Body)
-		}
-		if w := publicGet(t, f, "/api/state", tok); w.Code != http.StatusOK {
-			t.Errorf("refused a configured token presented as a cookie: %d", w.Code)
-		}
+	w := publicGet(t, f, "/api/state", nil)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when no accounts exist, got %d", w.Code)
 	}
-
-	if w := publicGet(t, f, "/api/state?t=token-for-nobody-00000", ""); w.Code != http.StatusUnauthorized {
-		t.Errorf("a token that is not on the list opened the booth: %d", w.Code)
+	if !strings.Contains(w.Body.String(), "No booth account exists yet") {
+		t.Fatalf("unexpected body: %s", w.Body)
 	}
 }
 
-// And withdrawing one has to actually withdraw it. The cookie carries the token
-// that matched rather than the list, so dropping that token from the
-// configuration stops recognising the cookie it was issued for — and leaves
-// everyone else's working.
-func TestWithdrawingOneTokenLeavesTheOthersWorking(t *testing.T) {
-	const withdrawn = "token-for-the-ex-tester0"
-	const kept = "token-for-everyone-else0"
+// Without a session every request is redirected to /login.
+func TestPublicHostNeedsLogin(t *testing.T) {
+	f, _ := publicBoothWithAccount(t)
 
-	f := setupWith(t, func(d *httpd.Deps) {
-		d.PublicHost = testHost
-		d.AccessTokens = []string{withdrawn, kept}
-	})
-	w := publicGet(t, f, "/api/state?t="+withdrawn, "")
+	w := publicGet(t, f, "/api/state", nil)
+	if w.Code != http.StatusSeeOther || !strings.Contains(w.Header().Get("Location"), "/login") {
+		t.Fatalf("expected redirect to login, got %d", w.Code)
+	}
+}
+
+// A successful login sets a cookie and the cookie admits further requests.
+func TestPublicHostAcceptsGoodCredentials(t *testing.T) {
+	f, pw := publicBoothWithAccount(t)
+
+	c := login(t, f, testUser, pw)
+	if !c.HttpOnly || !c.Secure {
+		t.Errorf("session cookie is not HttpOnly+Secure: %+v", c)
+	}
+
+	w := publicGet(t, f, "/api/state", c)
 	if w.Code != http.StatusOK {
-		t.Fatalf("refused a configured token: %d %s", w.Code, w.Body)
-	}
-
-	var handed string
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "bykami_booth_access" {
-			handed = c.Value
-		}
-	}
-	if handed != withdrawn {
-		t.Fatalf("cookie carries %q, want the token that matched — otherwise one cookie survives every withdrawal", handed)
-	}
-
-	// The booth as it is after the token is taken out and the play re-run.
-	after := setupWith(t, func(d *httpd.Deps) {
-		d.PublicHost = testHost
-		d.AccessTokens = []string{kept}
-	})
-	if w := publicGet(t, after, "/api/state", handed); w.Code != http.StatusUnauthorized {
-		t.Errorf("the withdrawn tester's cookie still opens the booth: %d", w.Code)
-	}
-	if w := publicGet(t, after, "/api/state?t="+kept, ""); w.Code != http.StatusOK {
-		t.Errorf("withdrawing one token locked out the others: %d %s", w.Code, w.Body)
+		t.Fatalf("refused a valid session: %d %s", w.Code, w.Body)
 	}
 }
 
-// The booth's own browser is unaffected. A token demanded on loopback would be
+// Wrong password is refused with the same message as an unknown user, so the
+// response does not reveal which one was wrong.
+func TestPublicHostRejectsBadPassword(t *testing.T) {
+	f, _ := publicBoothWithAccount(t)
+
+	r := httptest.NewRequest("POST", "/login", strings.NewReader(url.Values{
+		"username": {testUser},
+		"password": {"wrong"},
+	}.Encode()))
+	r.Host = testHost
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for bad password, got %d", w.Code)
+	}
+}
+
+func TestPublicHostRejectsUnknownUser(t *testing.T) {
+	f, _ := publicBoothWithAccount(t)
+
+	r := httptest.NewRequest("POST", "/login", strings.NewReader(url.Values{
+		"username": {"nobody"},
+		"password": {"wrong"},
+	}.Encode()))
+	r.Host = testHost
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unknown user, got %d", w.Code)
+	}
+}
+
+// Logging out expires the session so the next request is redirected again.
+func TestLogoutExpiresSession(t *testing.T) {
+	f, pw := publicBoothWithAccount(t)
+	c := login(t, f, testUser, pw)
+
+	// logout
+	r := httptest.NewRequest("POST", "/logout", nil)
+	r.Host = testHost
+	r.AddCookie(c)
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("logout failed: %d", w.Code)
+	}
+
+	// session is gone
+	w = publicGet(t, f, "/api/state", c)
+	if w.Code != http.StatusSeeOther || !strings.Contains(w.Header().Get("Location"), "/login") {
+		t.Fatalf("expected redirect after logout, got %d", w.Code)
+	}
+}
+
+// A state-changing POST from the booth's own page, with a session, is admitted.
+// There is no CSRF token to carry: the session cookie is SameSite=Strict, so a
+// cross-site POST arrives without it, and the Origin tests below cover the
+// sibling-subdomain case that SameSite alone would not.
+func TestStateChangingPOSTIsAdmitted(t *testing.T) {
+	f, pw := publicBoothWithAccount(t)
+	c := login(t, f, testUser, pw)
+
+	body := []byte(`{"package_id":"mini"}`)
+	w := publicPost(t, f, "/api/session", c, body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 with a session, got %d", w.Code)
+	}
+
+	// The same POST without a session never reaches the handler.
+	if w := publicPost(t, f, "/api/session", nil, body); w.Code != http.StatusSeeOther {
+		t.Fatalf("expected a redirect without a session, got %d", w.Code)
+	}
+}
+
+// The booth's own browser is unaffected. A login demanded on loopback would be
 // security theatre — anything on that machine can read it — and would break the
 // production configuration, which sets no public host at all.
-func TestLoopbackStillNeedsNoToken(t *testing.T) {
-	f := publicBooth(t)
+func TestLoopbackStillNeedsNoLogin(t *testing.T) {
+	f, _ := publicBoothWithAccount(t)
 
 	if w := f.do(t, "GET", "/api/state", nil); w.Code != http.StatusOK {
 		t.Fatalf("made the booth's own screen log in: %d %s", w.Code, w.Body)
@@ -782,7 +831,8 @@ func TestLoopbackStillNeedsNoToken(t *testing.T) {
 // The tunnel serves TLS, so the page's own requests carry an https Origin. It
 // has to be allowed without opening the door to every other https site.
 func TestPublicHostAcceptsItsOwnHTTPSOriginOnly(t *testing.T) {
-	f := publicBooth(t)
+	f, pw := publicBoothWithAccount(t)
+	c := login(t, f, testUser, pw)
 
 	for origin, want := range map[string]int{
 		"https://" + testHost:  http.StatusOK,
@@ -791,7 +841,7 @@ func TestPublicHostAcceptsItsOwnHTTPSOriginOnly(t *testing.T) {
 	} {
 		r := httptest.NewRequest("GET", "/api/state", nil)
 		r.Host = testHost
-		r.AddCookie(&http.Cookie{Name: "bykami_booth_access", Value: testToken})
+		r.AddCookie(c)
 		r.Header.Set("Origin", origin)
 		w := httptest.NewRecorder()
 		f.srv.ServeHTTP(w, r)
