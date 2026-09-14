@@ -146,9 +146,14 @@ because there is no menu to build a catalogue from.
 - [~] The box is an **Alibaba ECS trial instance in Singapore**, not
       Terraform-managed, and holds **synthetic data only until residency is
       settled**. `design/infrastructure.md` records the R2-versus-OSS fork
-- [ ] Releases are not signed. Anyone who can push to `main` can publish a
-      release both boxes will install — the same trust boundary as any CI
-      deploy, and the reason the pollers are opt-in
+- [x] Releases are signed with an ed25519 key pair; the public key is compiled
+      into the agent binary and the private seed lives in a GitHub environment
+      secret. The release job uses `environment: release` so it waits for
+      approval before publishing anything signed
+- [~] OTA on the booth PC is built but unproven on Windows. The updater logic,
+      signature verification and session-aware deferral are tested on Linux.
+      The Windows service install/uninstall commands and the binary swap have
+      been compiled for Windows but have never run on a real Windows machine
 
 ## Blocked on the owner
 
