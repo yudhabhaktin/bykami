@@ -45,7 +45,12 @@ import (
 	"github.com/bhaktiyudha/bykami/agent/internal/session"
 	"github.com/bhaktiyudha/bykami/agent/internal/shutter"
 	"github.com/bhaktiyudha/bykami/agent/internal/store"
+	"github.com/bhaktiyudha/bykami/agent/internal/update"
 )
+
+// version is set at link time with -ldflags "-X main.version=...".
+// When empty the updater reads the last installed tag from a file instead.
+var version string
 
 // cameraStatus is the atomically-shared result of the gphoto2 probe.
 type cameraStatus struct {
@@ -76,6 +81,12 @@ type config struct {
 
 	publicHost  string
 	accessToken string
+
+	// Self-update. Opt-in; a booth PC in a shop with no inbound path polls
+	// GitHub Releases and installs its own updates.
+	updateRepo     string
+	updateEvery    time.Duration
+	updateMaxDefer time.Duration
 }
 
 func main() {
@@ -145,6 +156,13 @@ func main() {
 	flag.DurationVar(&c.autoSettle, "sim-auto-settle", 0, "with -payments=sim, settle a charge after this long with nobody pressing anything")
 	flag.Float64Var(&c.speed, "sim-print-speed", 1, "with -printer=sim, divide the manufacturer's print time by this")
 
+	// Self-update. A booth PC with no inbound path polls GitHub Releases and
+	// installs its own updates, verified against the compiled-in public key.
+	// Empty disables polling entirely.
+	flag.StringVar(&c.updateRepo, "update-repo", "", "GitHub repository to poll for releases, e.g. bhaktiyudha/bykami")
+	flag.DurationVar(&c.updateEvery, "update-every", update.DefaultInterval, "how often to check for a newer release")
+	flag.DurationVar(&c.updateMaxDefer, "update-max-defer", update.DefaultMaxDefer, "how long an update may be deferred while the booth is busy")
+
 	// A real booth sets neither. The kiosk is a screen wired to the PC beside
 	// it; a public address is a test-deployment concession, taken because
 	// getUserMedia will not run on an insecure origin and a phone cannot reach
@@ -159,13 +177,29 @@ func main() {
 	// Subcommands come after the flags so that -root applies to them, which is
 	// the only flag they need.
 	if args := flag.Args(); len(args) > 0 {
-		if args[0] != "media" {
+		switch args[0] {
+		case "media":
+			if err := media(c.root, args[1:]); err != nil {
+				log.Error("media", "err", err)
+				os.Exit(1)
+			}
+			return
+		case "service":
+			if err := serviceCmd(args[1:]); err != nil {
+				log.Error("service", "err", err)
+				os.Exit(1)
+			}
+			return
+		default:
 			log.Error("unknown command", "command", args[0])
 			usage()
 			os.Exit(2)
 		}
-		if err := media(c.root, args[1:]); err != nil {
-			log.Error("media", "err", err)
+	}
+
+	if update.IsWindowsService() {
+		if err := runAsService(c, log); err != nil {
+			log.Error("service fatal", "err", err)
 			os.Exit(1)
 		}
 		return
@@ -186,11 +220,20 @@ func usage() {
 	fmt.Fprintln(out, "  bykami-agent media status")
 	fmt.Fprintln(out, "  bykami-agent media load 700 \"roll 1\"")
 	fmt.Fprintln(out, "  bykami-agent media adjust -5 \"jam, five sheets wasted\"")
+	fmt.Fprintln(out, "\nService management (Windows only):")
+	fmt.Fprintln(out, "  bykami-agent service install")
+	fmt.Fprintln(out, "  bykami-agent service uninstall")
 	fmt.Fprintln(out, "\nFlags:")
 	flag.PrintDefaults()
 }
 
 func run(c config, log *slog.Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	return runCtx(ctx, c, log)
+}
+
+func runCtx(ctx context.Context, c config, log *slog.Logger) error {
 	root, err := filepath.Abs(c.root)
 	if err != nil {
 		return err
@@ -355,9 +398,6 @@ func run(c config, log *slog.Logger) error {
 	// power than to be asked politely, which is why nothing here depends on a
 	// clean shutdown for correctness — the recovery scan and the interrupted-job
 	// reconciliation are what actually make a restart safe.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
-
 	var wg sync.WaitGroup
 	background := func(name string, fn func(context.Context) error) {
 		wg.Add(1)
@@ -388,6 +428,22 @@ func run(c config, log *slog.Logger) error {
 		background("framesync", frameSync.Run)
 	} else {
 		log.Info("frame sync is off; this booth offers only the designs already installed")
+	}
+
+	// Self-update worker. Opt-in; only starts when -update-repo is set.
+	versionFile := filepath.Join(root, ".deployed-version")
+	if version != "" {
+		// A version compiled in at build time takes precedence over whatever
+		// is in the file, and is written back so the file stays current.
+		_ = os.WriteFile(versionFile, []byte(version), 0o644)
+	}
+	binPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot find own executable path: %w", err)
+	}
+	updater := update.New(c.updateRepo, binPath, versionFile, "http://"+c.addr+"/api/state", c.updateEvery, c.updateMaxDefer, &update.OSDefaultSwapper{BinPath: binPath}, log)
+	if updater != nil {
+		background("update", updater.Run)
 	}
 
 	if cam != nil {
@@ -428,6 +484,7 @@ func run(c config, log *slog.Logger) error {
 		log.Info("booth listening",
 			"addr", c.addr, "root", root, "source", source,
 			"hot_folder", c.hotFolder, "outlet", c.outlet,
+			"version", version,
 			// Whether the booth fires its own camera decides whether staff have
 			// to stand next to it, so it does not belong only in the unit file.
 			"shutter", fireShutter != nil,
@@ -437,7 +494,8 @@ func run(c config, log *slog.Logger) error {
 			// reading the unit file, because a sync that finds nothing changed
 			// is deliberately silent — so "is sync even on?" had no answer in
 			// the log at all.
-			"frame_sync", frameSyncTarget(frameSync, c.frameSync))
+			"frame_sync", frameSyncTarget(frameSync, c.frameSync),
+			"update_repo", c.updateRepo)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -455,6 +513,24 @@ func run(c config, log *slog.Logger) error {
 	err = httpSrv.Shutdown(shutdownCtx)
 	wg.Wait()
 	return err
+}
+
+func serviceCmd(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: bykami-agent service <install|uninstall>")
+	}
+	switch args[0] {
+	case "install":
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		return update.InstallService(exe, "bykami-agent", "Bykami booth agent")
+	case "uninstall":
+		return update.UninstallService("")
+	default:
+		return fmt.Errorf("unknown service command: %q", args[0])
+	}
 }
 
 // cameraProbeEvery is how often the agent asks gphoto2 whether the camera is

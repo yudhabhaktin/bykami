@@ -126,6 +126,7 @@ jobs:
     needs: verify
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       # The one write in this file, and the narrowest that can publish a release.
       contents: write
@@ -160,11 +161,14 @@ jobs:
         env:
           CGO_ENABLED: "0"
           GOARCH: amd64
+          TAG: agent-${{ github.sha }}
         run: |
           set -euo pipefail
-          GOOS=windows go build -trimpath -ldflags="-s -w" \
+          GOOS=windows go build -trimpath \
+            -ldflags="-s -w -X main.version=$TAG" \
             -o "$RUNNER_TEMP/bykami-agent.exe" ./cmd/bykami-agent
-          GOOS=linux go build -trimpath -ldflags="-s -w" \
+          GOOS=linux go build -trimpath \
+            -ldflags="-s -w -X main.version=$TAG" \
             -o "$RUNNER_TEMP/bykami-agent-linux-amd64" ./cmd/bykami-agent
 
       - name: Checksum
@@ -179,6 +183,20 @@ jobs:
           sha256sum bykami-agent-linux-amd64 > bykami-agent-linux-amd64.sha256
           cat bykami-agent.exe.sha256 bykami-agent-linux-amd64.sha256
 
+      - name: Sign
+        # The private seed is in the environment secret RELEASE_SIGNING_KEY.
+        # The public key is compiled into agent/internal/release. Rotating the
+        # key means shipping a new agent binary first, because the old binary
+        # will not trust signatures made with the new key.
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        working-directory: agent
+        run: |
+          set -euo pipefail
+          go run ./cmd/relsign \
+            "$RUNNER_TEMP/bykami-agent.exe" \
+            "$RUNNER_TEMP/bykami-agent-linux-amd64"
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -191,5 +209,7 @@ jobs:
             --notes "booth agent built from ${GITHUB_SHA}" \
             "$RUNNER_TEMP/bykami-agent.exe" \
             "$RUNNER_TEMP/bykami-agent.exe.sha256" \
+            "$RUNNER_TEMP/bykami-agent.exe.sig" \
             "$RUNNER_TEMP/bykami-agent-linux-amd64" \
-            "$RUNNER_TEMP/bykami-agent-linux-amd64.sha256"
+            "$RUNNER_TEMP/bykami-agent-linux-amd64.sha256" \
+            "$RUNNER_TEMP/bykami-agent-linux-amd64.sig"

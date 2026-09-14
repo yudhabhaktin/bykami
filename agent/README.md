@@ -660,6 +660,58 @@ One shared secret for every booth, not one each. Per-booth tokens would be a
 table, an enrolment flow and a revocation story for a fleet that does not exist;
 when there is a second outlet, that becomes worth having.
 
+## Self-update
+
+`-update-repo bhaktiyudha/bykami` turns on the updater. It polls GitHub
+Releases every ten minutes, filters for `agent-*` tags, downloads the asset for
+its own platform, verifies the SHA256 checksum and an ed25519 signature against
+the compiled-in public key, and swaps the binary.
+
+The signature is what makes this safe on an unattended machine: anyone who can
+push to `main` can publish a release, and without a signature the updater would
+install whatever they published. The public key is compiled in, so rotating it
+means shipping a new agent binary first — the old binary will not trust
+signatures made with the new key.
+
+**Never restart out from under a customer.** Before swapping, the updater reads
+`/api/state`. A non-nil `session` means somebody has paid and is standing at the
+machine; no answer means the booth cannot be asked and the safe reading is
+"busy". Both defer the installation. The deferral is bounded (60 minutes by
+default) so an abandoned session cannot block updates forever.
+
+The version is embedded at build time with `-ldflags "-X main.version=..."` and
+written to `<root>/.deployed-version` on startup. After a successful swap the
+updater polls `/api/state` until it answers 200; if that fails it rolls back to
+the previous binary.
+
+### Windows service
+
+The booth PC runs as a Windows service so it starts automatically and restarts
+on failure:
+
+```powershell
+bykami-agent service install
+bykami-agent service uninstall
+```
+
+The service name is `bykami-agent`. The install command points the service at
+the current executable path, so moving the binary after installing requires
+re-installing.
+
+The swap copes with Windows refusing to overwrite a running executable by
+renaming the outgoing binary to `.previous` first — Windows allows renaming a
+running file, even though it forbids overwriting it.
+
+When the agent runs as a service, the service account must have access to:
+- the hot folder (where the camera's tethering software writes),
+- the printer queues (if `-printer=dnp` is set), and
+- `<root>` (database, sessions, frames, sheets, derivatives).
+
+Chrome in kiosk mode is still started from a logon session, not by the
+service. The service owns the API and the background workers; the browser is
+started separately by whoever is logged in at the booth PC, or by an
+auto-login script.
+
 ## Not here yet
 
 - **Nothing leaves the booth PC**, and the download now leans on that rather
@@ -685,11 +737,13 @@ when there is a second outlet, that becomes worth having.
   test it — which stops at the point where Windows is involved. See *Printing
   on the real machine* above for the three things only the RX1HS can settle.
 - **No liveness heartbeat to `api/`**, so nothing knows the booth is down.
-- **No OTA updates on the booth PC.** The shop machine is Windows with no
-  inbound anything, so its release is still installed by whoever is standing at
-  it. The linux/amd64 build published alongside it *does* update itself — see
-  `booth_update_enabled` in `ansible/README.md` — but that is the test VPS, and
-  a box reachable through a tunnel it dialled out to is not the problem the shop
-  PC has.
+- **OTA on the booth PC is built but unproven on Windows.** The updater logic,
+  signature verification and session-aware deferral are tested on Linux. The
+  Windows service install/uninstall commands and the binary swap that renames
+  the running executable have been compiled for Windows but have never run on a
+  real Windows machine. The linux/amd64 build published alongside it *does*
+  update itself — see `booth_update_enabled` in `ansible/README.md` — but that
+  is the test VPS, and a box reachable through a tunnel it dialled out to is
+  not the problem the shop PC has.
 - **No per-booth identity.** Frame sync authenticates with one shared secret, so
   a booth cannot be revoked without rotating every booth's token.
