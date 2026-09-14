@@ -26,12 +26,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/agent/internal/access"
 	"github.com/bhaktiyudha/bykami/agent/internal/camera"
 	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
 	"github.com/bhaktiyudha/bykami/agent/internal/clip"
@@ -81,8 +81,7 @@ type config struct {
 	autoSettle time.Duration
 	speed      float64
 
-	publicHost  string
-	accessToken string
+	publicHost string
 
 	// Self-update. Opt-in; a booth PC in a shop with no inbound path polls
 	// GitHub Releases and installs its own updates.
@@ -169,8 +168,7 @@ func main() {
 	// it; a public address is a test-deployment concession, taken because
 	// getUserMedia will not run on an insecure origin and a phone cannot reach
 	// localhost.
-	flag.StringVar(&c.publicHost, "public-host", "", "extra hostname to answer to, for a tunnelled test deployment; needs -access-token")
-	flag.StringVar(&c.accessToken, "access-token", "", "secret admitting requests to -public-host; comma-separated for one per tester; read from BYKAMI_ACCESS_TOKEN when unset")
+	flag.StringVar(&c.publicHost, "public-host", "", "extra hostname to answer to, for a tunnelled test deployment; needs a booth account")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -195,6 +193,12 @@ func main() {
 		case "doctor":
 			if err := doctorCmd(c, log); err != nil {
 				log.Error("doctor", "err", err)
+				os.Exit(1)
+			}
+			return
+		case "access":
+			if err := accessCmd(c, args[1:]); err != nil {
+				log.Error("access", "err", err)
 				os.Exit(1)
 			}
 			return
@@ -233,6 +237,11 @@ func usage() {
 	fmt.Fprintln(out, "  bykami-agent service uninstall")
 	fmt.Fprintln(out, "\nDiagnostics:")
 	fmt.Fprintln(out, "  bykami-agent doctor")
+	fmt.Fprintln(out, "\nAccess management (test deployments):")
+	fmt.Fprintln(out, "  bykami-agent access add <username>")
+	fmt.Fprintln(out, "  bykami-agent access passwd <username>")
+	fmt.Fprintln(out, "  bykami-agent access rm <username>")
+	fmt.Fprintln(out, "  bykami-agent access list")
 	fmt.Fprintln(out, "\nFlags:")
 	flag.PrintDefaults()
 }
@@ -345,16 +354,6 @@ func runCtx(ctx context.Context, c config, log *slog.Logger) error {
 		return err
 	}
 
-	// Preferred over the flag, and the flag is kept only for a quick local run.
-	// A token in argv is visible to every process on the box via ps, and a
-	// token in a systemd unit is world-readable in /etc/systemd; an
-	// EnvironmentFile can be mode 0600.
-	token := c.accessToken
-	if token == "" {
-		token = os.Getenv("BYKAMI_ACCESS_TOKEN")
-	}
-	tokens := splitTokens(token)
-
 	// The booth's credential for the cloud catalogue. Environment only — there
 	// is no flag — for the same reason the access token prefers one: argv is
 	// world-readable through ps.
@@ -392,7 +391,7 @@ func runCtx(ctx context.Context, c config, log *slog.Logger) error {
 		// leaves it permanently empty — there is no probe to answer it.
 		Detected:     func() string { return presence.Load().(cameraStatus).model },
 		CameraReason: func() string { return presence.Load().(cameraStatus).reason },
-		Simulated:    simulated, PublicHost: c.publicHost, AccessTokens: tokens,
+		Simulated:    simulated, PublicHost: c.publicHost, Access: access.New(db, nil),
 		Retention: c.retention,
 		Log:       log,
 	})
@@ -400,7 +399,7 @@ func runCtx(ctx context.Context, c config, log *slog.Logger) error {
 		return err
 	}
 	if c.publicHost != "" {
-		log.Warn("PUBLIC HOSTNAME ENABLED: this booth is reachable from the internet behind a shared token — test deployments only",
+		log.Warn("PUBLIC HOSTNAME ENABLED: this booth is reachable from the internet — test deployments only",
 			"host", c.publicHost)
 	}
 
@@ -605,10 +604,9 @@ func serviceArgs(c config) []string {
 }
 
 // Two things are deliberately not carried into the service definition.
-// -access-token belongs in BYKAMI_ACCESS_TOKEN, because a flag lands in the
-// service registry where every local user can read it; and the -sim-* flags are
-// development only, so a booth installed by the script is never one that
-// simulates money.
+// Booth accounts are created after install, not baked into the service
+// definition; and the -sim-* flags are development only, so a booth installed
+// by the script is never one that simulates money.
 
 func doctorCmd(c config, log *slog.Logger) error {
 	tool := c.cameraTool
@@ -805,6 +803,59 @@ func newPrintBackend(c config, log *slog.Logger) (printer.Backend, error) {
 	}
 }
 
+func accessCmd(c config, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: bykami-agent access <add|passwd|rm|list>")
+	}
+	db, err := store.Open(filepath.Join(c.root, "booth.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	reg := access.New(db, nil)
+	ctx := context.Background()
+
+	switch args[0] {
+	case "add":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: bykami-agent access add <username>")
+		}
+		pw, err := reg.Add(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Println(pw)
+		return nil
+	case "passwd":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: bykami-agent access passwd <username>")
+		}
+		pw, err := reg.Passwd(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Println(pw)
+		return nil
+	case "rm":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: bykami-agent access rm <username>")
+		}
+		return reg.Remove(ctx, args[1])
+	case "list":
+		us, err := reg.List(ctx)
+		if err != nil {
+			return err
+		}
+		for _, u := range us {
+			fmt.Println(u)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown access command: %q", args[0])
+	}
+}
+
 // loadTemplates returns the designs this booth can offer, in order of
 // increasing authority: the built-ins, then whatever the cloud catalogue has
 // been synced into syncDir, then a local directory an operator pointed at.
@@ -918,21 +969,6 @@ func frameSyncTarget(w *framesync.Worker, base string) string {
 	default:
 		return "disabled"
 	}
-}
-
-// splitTokens parses the comma-separated access token setting.
-//
-// Blanks are dropped rather than becoming a token that an empty ?t= matches,
-// which is what a trailing comma would otherwise leave behind — and the failure
-// mode of that mistake is an open booth.
-func splitTokens(s string) []string {
-	var out []string
-	for _, t := range strings.Split(s, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 func providerName(p payment.Provider) string {

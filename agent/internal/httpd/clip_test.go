@@ -457,7 +457,6 @@ func TestAReprintReusesTheAnimationItAlreadyHas(t *testing.T) {
 func TestTheClipRouteIsReachableWithoutTheBoothsAccessToken(t *testing.T) {
 	f := setupWith(t, func(d *httpd.Deps) {
 		d.PublicHost = "booth-test.bykami.id"
-		d.AccessTokens = []string{"s3cret"}
 	})
 	f.pay(t)
 
@@ -486,7 +485,6 @@ func TestTheClipRouteIsReachableWithoutTheBoothsAccessToken(t *testing.T) {
 func TestTheSheetAnimationIsReachableWithoutTheBoothsAccessToken(t *testing.T) {
 	f := setupWith(t, func(d *httpd.Deps) {
 		d.PublicHost = "booth-test.bykami.id"
-		d.AccessTokens = []string{"s3cret"}
 	})
 
 	token := f.printedSessionWithClips(t, 4)

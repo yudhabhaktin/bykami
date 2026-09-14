@@ -26,8 +26,9 @@ package httpd
 
 import (
 	"context"
-	"crypto/subtle"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,8 +40,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/bhaktiyudha/bykami/agent/internal/access"
 	"github.com/bhaktiyudha/bykami/agent/internal/catalog"
 	"github.com/bhaktiyudha/bykami/agent/internal/clip"
 	"github.com/bhaktiyudha/bykami/agent/internal/compose"
@@ -194,24 +197,16 @@ type Deps struct {
 	// where the flow has to be reachable from a phone over HTTPS because
 	// getUserMedia refuses to run on an insecure origin.
 	//
-	// Setting it without AccessTokens is refused at startup. An unauthenticated
-	// public endpoint here accepts 16 MB image uploads and writes them to disk.
+	// When PublicHost is set, the booth requires a username+password login for
+	// every route except the download gallery and the brand logo. The login
+	// page is server-rendered with no JavaScript, matching the operator console.
+	// If no account exists yet, the public surface answers 503 with a plain
+	// message so the box stays reachable for account creation.
 	PublicHost string
 
-	// AccessTokens gate PublicHost. Not a login: a secret in the URL, which is
-	// the point — the operator console's real auth is unrelated and, for a UI a
-	// customer walks up to, a password prompt is the wrong shape.
-	//
-	// A list rather than one string so a handful of testers can hold one each.
-	// With a single shared secret, withdrawing access from one person means
-	// rotating for everybody, which in practice means nobody's access is ever
-	// withdrawn. There is no endpoint that mints these: a token vending machine
-	// on the unauthenticated side of this server would hand out the booth.
-	//
-	// They do not gate the download gallery. A customer cannot be given one —
-	// they drive the booth — so a QR behind them would work for nobody but the
-	// operator. See gallery.go for what guards that surface instead.
-	AccessTokens []string
+	// Access is the booth's local account registry. Nil when PublicHost is
+	// empty, because a real booth needs no authentication.
+	Access *access.Registry
 
 	// Retention is how long photographs survive on this PC, and therefore how
 	// long a download link works. Passed in rather than assumed because the
@@ -225,20 +220,31 @@ type Deps struct {
 type Server struct {
 	Deps
 	mux *http.ServeMux
+
+	// sessionMu guards sessions.
+	sessionMu sync.Mutex
+	sessions  map[string]sessionEntry // token -> entry
 }
+
+type sessionEntry struct {
+	username string
+	expires  time.Time
+}
+
+const (
+	sessionCookie = "__Host-bykami-booth-session"
+	sessionTTL    = 12 * time.Hour
+)
 
 func New(d Deps) (*Server, error) {
 	if d.Log == nil {
 		d.Log = slog.New(slog.DiscardHandler)
 	}
-	// Refused rather than warned about. Every route here is unauthenticated by
-	// design — see the package comment — which is correct while the only client
-	// is a browser on the same machine and indefensible the moment the hostname
-	// is public: /api/capture accepts 16 MB uploads and writes them to disk.
-	if d.PublicHost != "" && len(d.AccessTokens) == 0 {
-		return nil, errors.New("httpd: a public host needs an access token; without one every route is open to the internet")
+	s := &Server{
+		Deps:     d,
+		mux:      http.NewServeMux(),
+		sessions: make(map[string]sessionEntry),
 	}
-	s := &Server{Deps: d, mux: http.NewServeMux()}
 	s.routes()
 	return s, nil
 }
@@ -259,6 +265,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/print", s.print)
 	s.mux.HandleFunc("GET /api/print/{id}", s.printStatus)
 	s.mux.HandleFunc("POST /api/delivery", s.delivery)
+
+	// Login and logout for the tunnelled test deployment.
+	s.mux.HandleFunc("GET /login", s.loginForm)
+	s.mux.HandleFunc("POST /login", s.login)
+	s.mux.HandleFunc("POST /logout", s.logout)
 
 	// The customer's download link. Read-only, and the only routes here a
 	// stranger is meant to reach — see gallery.go. Adding one means teaching
@@ -293,6 +304,11 @@ func (s *Server) Handler() http.Handler { return s.guard(s.mux) }
 //   - the Host header must name localhost, which defeats rebinding because the
 //     browser sends the attacker's hostname, not the address it resolved to;
 //   - a cross-site Origin is refused outright.
+//
+// The public hostname additionally requires a username+password login. The
+// login page is server-rendered with no JavaScript, matching the operator
+// console. If no account exists yet, the public surface answers 503 with a
+// plain message so the box stays reachable for account creation.
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
@@ -300,10 +316,6 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			host = h
 		}
 
-		// Whether this request arrived over the public hostname rather than the
-		// loopback one. The two are held to different rules: loopback is the
-		// booth's own browser and is trusted, the public hostname is the
-		// internet and has to prove it holds the token.
 		public := s.PublicHost != "" && host == s.PublicHost
 
 		switch {
@@ -314,16 +326,38 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			return
 		}
 
-		// The download gallery is exempt, and has to be. The access token is the
-		// booth's — it opens the capture and print routes — so handing it to a
-		// customer to collect their photos would hand them the booth. The
+		// The download gallery is exempt, and has to be. The session cookie is
+		// the booth's — it opens the capture and print routes — so handing it
+		// to a customer to collect their photos would hand them the booth. The
 		// gallery carries its own, narrower secret in the path instead.
-		// The logo the gallery renders is exempt for the same reason and on the
-		// same terms: it is public by nature, it carries no session, and it is
-		// matched exactly rather than by prefix.
-		if public && !isGalleryPath(r.URL.Path) && r.URL.Path != brandLogoPath && !s.admit(w, r) {
-			http.Error(w, "this test booth needs its access token", http.StatusUnauthorized)
-			return
+		// The logo the gallery renders is exempt for the same reason.
+		if public && !isGalleryPath(r.URL.Path) && r.URL.Path != brandLogoPath && r.URL.Path != "/login" && r.URL.Path != "/logout" {
+			// If no account exists yet, the box is freshly installed and nobody
+			// can log in. Answer 503 so the caller knows to create an account.
+			count, err := s.Access.Count(r.Context())
+			if err != nil {
+				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if count == 0 {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprintln(w, "No booth account exists yet.")
+				fmt.Fprintln(w, "Create one with: bykami-agent access add <username>")
+				return
+			}
+
+			if !s.authenticated(r) {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
+
+			// No CSRF token, deliberately. The session cookie is
+			// SameSite=Strict, so a cross-site POST arrives without it and is
+			// sent to the login, and a foreign Origin is refused outright
+			// below. A token would need a delivery path into the page, and the
+			// kiosk UI has nowhere to put one — the workflow this branch
+			// replaced shipped the token requirement with no way to satisfy it.
 		}
 
 		if origin := r.Header.Get("Origin"); origin != "" && !s.allowedOrigin(origin) {
@@ -331,7 +365,6 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			return
 		}
 
-		// Nothing here is cacheable: it is all the live state of one session.
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		next.ServeHTTP(w, r)
@@ -341,9 +374,6 @@ func (s *Server) guard(next http.Handler) http.Handler {
 func (s *Server) allowedOrigin(origin string) bool {
 	rest, ok := strings.CutPrefix(origin, "http://")
 	if !ok {
-		// The test deployment is served over TLS, so its own same-origin
-		// requests arrive with an https Origin and would otherwise be refused
-		// by the check that exists to keep other sites out.
 		if rest, ok = strings.CutPrefix(origin, "https://"); !ok {
 			return false
 		}
@@ -361,61 +391,42 @@ func (s *Server) allowedOrigin(origin string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "[::1]"
 }
 
-// accessCookie holds the token once it has been presented in a URL, so the
-// customer's next tap does not need it and the token stops appearing in the
-// address bar.
-const accessCookie = "bykami_booth_access"
-
-// admit reports whether a request over the public hostname carries one of the
-// tokens.
-//
-// Accepted from ?t= once, then moved into a cookie. A query parameter is how
-// somebody opens the link on a phone; a cookie is how the fifteen requests that
-// follow do not each need one, and keeps the secret out of the Referer header
-// on any link the page might later carry.
-func (s *Server) admit(w http.ResponseWriter, r *http.Request) bool {
-	if len(s.AccessTokens) == 0 {
-		// Unreachable: New refuses this combination. Belt and braces, because
-		// the failure mode is an open photo-upload endpoint on the internet.
+// authenticated reports whether the request carries a valid session cookie.
+func (s *Server) authenticated(r *http.Request) bool {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
 		return false
 	}
-
-	if c, err := r.Cookie(accessCookie); err == nil && s.knownToken(c.Value) {
-		return true
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	entry, ok := s.sessions[c.Value]
+	if !ok || time.Now().After(entry.expires) {
+		return false
 	}
-
-	if t := r.URL.Query().Get("t"); s.knownToken(t) {
-		http.SetCookie(w, &http.Cookie{
-			Name: accessCookie,
-			// The token that matched, not the whole list. It is what makes
-			// withdrawing one tester possible: drop their token from the
-			// configuration and their cookie stops being recognised, while
-			// everyone else's keeps working.
-			Value:    t,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   int((12 * time.Hour).Seconds()),
-		})
-		return true
-	}
-	return false
+	return true
 }
 
-// knownToken reports whether tok is one of the configured tokens.
-//
-// Every one is compared, with no early return on a match. Stopping early would
-// make the time taken depend on which token was presented — reintroducing, over
-// the list, exactly the leak the constant-time compare removes within a token.
-func (s *Server) knownToken(tok string) bool {
-	ok := false
-	for _, want := range s.AccessTokens {
-		if subtle.ConstantTimeCompare([]byte(tok), []byte(want)) == 1 {
-			ok = true
-		}
+// sessionFor returns the session token from the cookie, or empty.
+func (s *Server) sessionFor(r *http.Request) string {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return ""
 	}
-	return ok
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	entry, ok := s.sessions[c.Value]
+	if !ok || time.Now().After(entry.expires) {
+		return ""
+	}
+	return c.Value
+}
+
+func newToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
 }
 
 // ui serves the embedded bundle, falling back to index.html so that the UI can
@@ -449,6 +460,97 @@ func (s *Server) ui() http.Handler {
 		}
 		files.ServeHTTP(w, r)
 	})
+}
+
+// ---- Login / Logout ----
+
+func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html>
+<html>
+<head><title>Bykami Booth</title></head>
+<body>
+<h1>Sign in</h1>
+<form method="post" action="/login">
+  <p><label>Username<br><input name="username" autocomplete="username"></label></p>
+  <p><label>Password<br><input name="password" type="password" autocomplete="current-password"></label></p>
+  <p><button>Sign in</button></p>
+</form>
+</body>
+</html>`)
+}
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	username := strings.TrimSpace(r.PostFormValue("username"))
+	password := r.PostFormValue("password")
+
+	ip := callerIP(r)
+	locked, err := s.Access.IsLockedOut(ctx, ip)
+	if err != nil {
+		s.Log.Warn("access: lockout check failed", "err", err)
+	}
+	if locked {
+		http.Error(w, "Too many failed attempts. Try again in 15 minutes.", http.StatusTooManyRequests)
+		return
+	}
+
+	if err := s.Access.Verify(ctx, username, password); err != nil {
+		_ = s.Access.RecordAttempt(ctx, ip, username)
+		s.Log.Warn("access: failed login", "ip", ip, "username", username)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprintln(w, `<p>Invalid username or password.</p><p><a href="/login">Try again</a></p>`)
+		return
+	}
+
+	tok := newToken()
+	s.sessionMu.Lock()
+	s.sessions[tok] = sessionEntry{username: username, expires: time.Now().Add(sessionTTL)}
+	s.sessionMu.Unlock()
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    tok,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(sessionTTL.Seconds()),
+	})
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(sessionCookie)
+	if err == nil {
+		s.sessionMu.Lock()
+		delete(s.sessions, c.Value)
+		s.sessionMu.Unlock()
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// callerIP returns the remote address without the port.
+func callerIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // ---- API ----

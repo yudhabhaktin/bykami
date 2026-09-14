@@ -17,7 +17,7 @@ Group={{ booth_user }}
 # takes the API down with it — and the API is the thing that actually matters.
 Environment=GOMEMLIMIT={{ booth_gomemlimit }}
 
-# The access token and the frame-sync token, out of the unit file and out of ps.
+# The frame-sync token, out of the unit file and out of ps.
 # Anything in ExecStart is readable by every local user; this file is 0600 and
 # owned by root.
 EnvironmentFile=/etc/bykami-agent.env

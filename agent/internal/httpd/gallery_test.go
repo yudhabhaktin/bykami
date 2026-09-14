@@ -146,13 +146,18 @@ func (f *fixture) sheetIDs(t *testing.T) []string {
 // The whole point. The access token opens /api/capture and /api/print, so it is
 // the booth's credential and a customer can never be given it — a gallery
 // behind it would be a QR code that only the operator could scan.
+func publicBooth(t *testing.T) *fixture {
+	f, _ := publicBoothWithAccount(t)
+	return f
+}
+
 func TestGalleryOpensWithoutTheBoothsAccessToken(t *testing.T) {
 	f := publicBooth(t)
 	token := f.shotSession(t, 2)
 
-	w := publicGet(t, f, "/g/"+token, "")
+	w := publicGet(t, f, "/g/"+token, nil)
 	if w.Code != http.StatusOK {
-		t.Fatalf("gallery = %d %s, want it to open with no booth token", w.Code, w.Body)
+		t.Fatalf("gallery = %d %s, want it to open with no booth login", w.Code, w.Body)
 	}
 	if !strings.Contains(w.Body.String(), "/g/"+token+"/p/") {
 		t.Error("the page lists no photos")
@@ -168,15 +173,15 @@ func TestTheGalleryExemptionDoesNotOpenTheBooth(t *testing.T) {
 
 	// The near-misses matter as much as the API routes. Anything the mux cannot
 	// route falls through to the kiosk UI, so a path that merely looks like a
-	// gallery URL must not be waved past the token on its way there.
+	// gallery URL must not be waved past the login on its way there.
 	for _, path := range []string{
 		"/api/state", "/api/photos", "/",
 		"/g", "/g/", "/g/x/y/z", "/g/x/p/y/z", "/g/x/notp/y",
 		"/g/x/s/y/z", "/g/x/s/", "/g/x/s",
 		"/g/x/f/y/z", "/g/x/f/", "/g/x/f",
 	} {
-		if w := publicGet(t, f, path, ""); w.Code != http.StatusUnauthorized {
-			t.Errorf("%s = %d, want 401 without the access token", path, w.Code)
+		if w := publicGet(t, f, path, nil); w.Code != http.StatusSeeOther {
+			t.Errorf("%s = %d, want 303 redirect to login without a session", path, w.Code)
 		}
 	}
 }
@@ -190,16 +195,16 @@ func TestTheLogoExemptionIsOnlyTheLogo(t *testing.T) {
 	// Deliberately not asserted as 200. Whether the file is there at all
 	// depends on whether the kiosk bundle was built before `go test`, and it is
 	// the exemption that is under test — a 404 from an unbuilt bundle is still
-	// an answer given without the booth's token.
-	if w := publicGet(t, f, "/brand/logo.png", ""); w.Code == http.StatusUnauthorized {
-		t.Error("the logo demands the booth's token, so the gallery renders without one")
+	// an answer given without the booth's login.
+	if w := publicGet(t, f, "/brand/logo.png", nil); w.Code == http.StatusSeeOther {
+		t.Error("the logo demands a login, so the gallery renders without one")
 	}
 
 	for _, path := range []string{
 		"/brand", "/brand/", "/brand/logo.png/x", "/brand/logo.pngx", "/brand/other.png",
 	} {
-		if w := publicGet(t, f, path, ""); w.Code != http.StatusUnauthorized {
-			t.Errorf("%s = %d, want 401 without the access token", path, w.Code)
+		if w := publicGet(t, f, path, nil); w.Code != http.StatusSeeOther {
+			t.Errorf("%s = %d, want 303 redirect to login without a session", path, w.Code)
 		}
 	}
 }
@@ -210,7 +215,7 @@ func TestGalleryRefusesATokenItDidNotMint(t *testing.T) {
 	f.shotSession(t, 1)
 
 	for _, token := range []string{"nope", strings.Repeat("a", 32), "0"} {
-		if w := publicGet(t, f, "/g/"+token, ""); w.Code != http.StatusNotFound {
+		if w := publicGet(t, f, "/g/"+token, nil); w.Code != http.StatusNotFound {
 			t.Errorf("token %q = %d, want 404", token, w.Code)
 		}
 	}
@@ -218,7 +223,7 @@ func TestGalleryRefusesATokenItDidNotMint(t *testing.T) {
 	// Traversal is answered by the mux normalising the path before any of this
 	// runs, so the assertion is that nothing is served rather than which code
 	// says so — a redirect to the cleaned path is a correct answer here.
-	if w := publicGet(t, f, "/g/../../etc/passwd", ""); w.Code == http.StatusOK {
+	if w := publicGet(t, f, "/g/../../etc/passwd", nil); w.Code == http.StatusOK {
 		t.Error("a traversal attempt was served something")
 	}
 }
@@ -246,14 +251,14 @@ func TestGallerySeesOnlyItsOwnSessionsPhotos(t *testing.T) {
 	}
 
 	// The first customer's link, pointed at the second customer's photograph.
-	w := publicGet(t, f, "/g/"+first+"/p/"+theirs[0], "")
+	w := publicGet(t, f, "/g/"+first+"/p/"+theirs[0], nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("cross-session photo = %d, want 404 — one token opened another customer's session", w.Code)
 	}
 
 	// And its own still works, so the check above is not simply refusing
 	// everything.
-	if w := publicGet(t, f, "/g/"+first+"/p/"+mine[0], ""); w.Code != http.StatusOK {
+	if w := publicGet(t, f, "/g/"+first+"/p/"+mine[0], nil); w.Code != http.StatusOK {
 		t.Fatalf("own photo = %d %s", w.Code, w.Body)
 	}
 }
@@ -265,7 +270,7 @@ func TestGalleryOffersBothTheFramedPrintAndTheLooseFrames(t *testing.T) {
 	f := publicBooth(t)
 	token := f.printedSession(t, "")
 
-	w := publicGet(t, f, "/g/"+token, "")
+	w := publicGet(t, f, "/g/"+token, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("gallery = %d %s", w.Code, w.Body)
 	}
@@ -290,7 +295,7 @@ func TestGalleryServesTheSheetAndOffersItAsADownload(t *testing.T) {
 		t.Fatalf("%d print jobs, want 1", len(ids))
 	}
 
-	w := publicGet(t, f, "/g/"+token+"/s/"+ids[0], "")
+	w := publicGet(t, f, "/g/"+token+"/s/"+ids[0], nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("sheet = %d %s", w.Code, w.Body)
 	}
@@ -303,7 +308,7 @@ func TestGalleryServesTheSheetAndOffersItAsADownload(t *testing.T) {
 
 	// iOS Safari honours the header and has historically ignored the anchor's
 	// download attribute, and iOS is most of what will scan this code.
-	w = publicGet(t, f, "/g/"+token+"/s/"+ids[0]+"?dl=1", "")
+	w = publicGet(t, f, "/g/"+token+"/s/"+ids[0]+"?dl=1", nil)
 	if cd := w.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment") {
 		t.Errorf("Content-Disposition = %q, want an attachment", cd)
 	}
@@ -325,11 +330,11 @@ func TestGallerySeesOnlyItsOwnSessionsSheets(t *testing.T) {
 	f.printedSession(t, "")
 	theirs := f.sheetIDs(t)
 
-	w := publicGet(t, f, "/g/"+first+"/s/"+theirs[0], "")
+	w := publicGet(t, f, "/g/"+first+"/s/"+theirs[0], nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("cross-session sheet = %d, want 404 — one token opened another customer's print", w.Code)
 	}
-	if w := publicGet(t, f, "/g/"+first+"/s/"+mine[0], ""); w.Code != http.StatusOK {
+	if w := publicGet(t, f, "/g/"+first+"/s/"+mine[0], nil); w.Code != http.StatusOK {
 		t.Fatalf("own sheet = %d %s, so the check above refuses everything", w.Code, w.Body)
 	}
 }
@@ -345,7 +350,7 @@ func TestGalleryShowsARepeatedPrintOnce(t *testing.T) {
 	if got := len(f.sheetIDs(t)); got != 2 {
 		t.Fatalf("%d print jobs, want the 2 this test is about", got)
 	}
-	body := publicGet(t, f, "/g/"+token, "").Body.String()
+	body := publicGet(t, f, "/g/"+token, nil).Body.String()
 	if n := strings.Count(body, `href="/g/`+token+`/s/`); n != 1 {
 		t.Fatalf("%d framed downloads for one picture printed twice, want 1", n)
 	}
@@ -358,7 +363,7 @@ func TestGalleryKeepsTwoPrintsThatDiffer(t *testing.T) {
 	f := publicBooth(t)
 	token := f.printedSession(t, "", "hitam-putih")
 
-	body := publicGet(t, f, "/g/"+token, "").Body.String()
+	body := publicGet(t, f, "/g/"+token, nil).Body.String()
 	if n := strings.Count(body, `href="/g/`+token+`/s/`); n != 2 {
 		t.Fatalf("%d framed downloads for two different prints, want 2", n)
 	}
@@ -371,7 +376,7 @@ func TestGalleryPageAllowsNoScript(t *testing.T) {
 	f := publicBooth(t)
 	token := f.shotSession(t, 1)
 
-	w := publicGet(t, f, "/g/"+token, "")
+	w := publicGet(t, f, "/g/"+token, nil)
 	csp := w.Header().Get("Content-Security-Policy")
 	switch {
 	case csp == "":
@@ -398,7 +403,7 @@ func TestGalleryStyleMatchesItsContentSecurityPolicyHash(t *testing.T) {
 	f := publicBooth(t)
 	token := f.shotSession(t, 1)
 
-	w := publicGet(t, f, "/g/"+token, "")
+	w := publicGet(t, f, "/g/"+token, nil)
 	csp := w.Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "style-src 'sha256-") {
 		t.Fatalf("CSP = %q, want a hashed style source", csp)
@@ -420,7 +425,7 @@ func TestGalleryIsGoneOnceThePhotosArePurged(t *testing.T) {
 		}
 	}
 
-	w := publicGet(t, f, "/g/"+token, "")
+	w := publicGet(t, f, "/g/"+token, nil)
 	if w.Code != http.StatusGone {
 		t.Fatalf("purged gallery = %d, want 410", w.Code)
 	}
@@ -450,12 +455,13 @@ func TestShareURLIsEmptyWithoutAPublicHost(t *testing.T) {
 // And with one, it is the address the customer's phone will actually resolve —
 // https, because the only way this hostname exists is a tunnel in front of it.
 func TestShareURLPointsAtTheGallery(t *testing.T) {
-	f := publicBooth(t)
+	f, pw := publicBoothWithAccount(t)
 	token := f.shotSession(t, 1)
+	c := login(t, f, testUser, pw)
 
 	r := httptest.NewRequest("GET", "/api/state", nil)
 	r.Host = testHost
-	r.AddCookie(&http.Cookie{Name: "bykami_booth_access", Value: testToken})
+	r.AddCookie(c)
 	w := httptest.NewRecorder()
 	f.srv.ServeHTTP(w, r)
 

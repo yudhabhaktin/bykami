@@ -21,21 +21,6 @@
 - name: Deploy the booth agent
   when: booth_enabled
   block:
-    - name: Require an access token
-      # The agent refuses to start without one, so this only moves the failure
-      # earlier and names it. Every route it serves is unauthenticated by
-      # design — correct for a screen wired to the PC beside it, indefensible
-      # on a public hostname where /api/capture takes 16 MB uploads.
-      ansible.builtin.assert:
-        that:
-          - booth_access_token | length >= 24
-        fail_msg: >-
-          booth_access_token is empty or too short. Generate one with
-          `openssl rand -hex 24` — or several, comma-separated, for one per
-          tester — and pass it from a vars file, not on the command line where
-          ps would show it to every local user.
-        quiet: true
-
     - name: Check the pushed binary exists on the control machine
       ansible.builtin.stat:
         path: "{{ booth_binary_src }}"
@@ -104,7 +89,6 @@
     - name: Write the environment file
       ansible.builtin.copy:
         content: |
-          BYKAMI_ACCESS_TOKEN={{ booth_access_token }}
           BYKAMI_BOOTH_TOKEN={{ booth_token }}
         dest: /etc/bykami-agent.env
         owner: root
