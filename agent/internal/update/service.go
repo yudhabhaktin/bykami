@@ -9,6 +9,6 @@ import "errors"
 
 var ErrNotWindows = errors.New("service management is only available on Windows")
 
-func InstallService(_, _, _ string) error { return ErrNotWindows }
-func UninstallService(_ string) error     { return ErrNotWindows }
-func IsWindowsService() bool              { return false }
+func InstallService(_, _, _ string, _ []string) error { return ErrNotWindows }
+func UninstallService(_ string) error                 { return ErrNotWindows }
+func IsWindowsService() bool                          { return false }

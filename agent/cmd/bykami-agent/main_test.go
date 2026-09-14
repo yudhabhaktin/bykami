@@ -347,3 +347,37 @@ func listPhotos(t *testing.T, url string) []photoListItem {
 	}
 	return result.Photos
 }
+
+func TestDoctorStates(t *testing.T) {
+	agentBin := buildAgent(t)
+	fakeToolBin := buildCameraTestBinary(t)
+
+	scenarios := []struct {
+		name       string
+		tool       string
+		env        string
+		wantPhrase string
+	}{
+		{name: "tool_missing", tool: filepath.Join(t.TempDir(), "no-such-gphoto2"), env: "", wantPhrase: "NOT FOUND"},
+		{name: "no_device", tool: fakeToolBin, env: "absent", wantPhrase: "no device on bus"},
+		{name: "unclaimable", tool: fakeToolBin, env: "unclaimable", wantPhrase: "present but unclaimable"},
+		{name: "present", tool: fakeToolBin, env: "present", wantPhrase: "present and claimable"},
+	}
+
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			cmd := exec.Command(agentBin, "-camera-tool", sc.tool, "doctor")
+			if sc.env != "" {
+				cmd.Env = append(os.Environ(), "BYKAMI_FAKE_GPHOTO2="+sc.env)
+			}
+			out, err := cmd.CombinedOutput()
+			// The doctor exits 0 for all four states; it is a diagnostic, not a
+			// pass/fail gate. The tool_missing case may exit non-zero because
+			// LookPath fails, so we only check the output text.
+			_ = err
+			if !bytes.Contains(out, []byte(sc.wantPhrase)) {
+				t.Fatalf("output missing %q:\n%s", sc.wantPhrase, out)
+			}
+		})
+	}
+}

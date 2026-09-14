@@ -33,6 +33,7 @@ func TestMain(m *testing.M) {
 func runFakeTool(scenario string) {
 	args := os.Args[1:]
 	isDetect := len(args) > 0 && args[0] == "--auto-detect"
+	isSummary := len(args) > 0 && args[0] == "--summary"
 	isCapture := len(args) > 0 && args[0] == "--capture-image-and-download"
 
 	var filename string
@@ -48,6 +49,11 @@ func runFakeTool(scenario string) {
 			fmt.Println("Model                          Port")
 			fmt.Println("----------------------------------------------------------")
 			fmt.Println("Canon EOS 200D                 usb:002,006")
+			os.Exit(0)
+		}
+		if isSummary {
+			fmt.Println("Camera summary:")
+			fmt.Println("Manufacturer: Canon Inc.")
 			os.Exit(0)
 		}
 		if isCapture {
@@ -117,6 +123,24 @@ func runFakeTool(scenario string) {
 		if isCapture {
 			time.Sleep(5 * time.Second)
 			os.Exit(0)
+		}
+		fmt.Fprintln(os.Stderr, "unknown args")
+		os.Exit(1)
+
+	case "unclaimable":
+		if isDetect {
+			fmt.Println("Model                          Port")
+			fmt.Println("----------------------------------------------------------")
+			fmt.Println("Canon EOS 200D                 usb:002,006")
+			os.Exit(0)
+		}
+		if isSummary {
+			fmt.Fprintln(os.Stderr, "Could not claim the USB device")
+			os.Exit(1)
+		}
+		if isCapture {
+			fmt.Fprintln(os.Stderr, "Could not claim the USB device")
+			os.Exit(1)
 		}
 		fmt.Fprintln(os.Stderr, "unknown args")
 		os.Exit(1)
@@ -254,5 +278,25 @@ func TestCaptureIsBounded(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "deadline exceeded") {
 		t.Errorf("want the timeout to be the diagnosis, got: %v", err)
+	}
+}
+
+func TestSummarySucceedsWhenCameraIsClaimable(t *testing.T) {
+	t.Setenv("BYKAMI_FAKE_GPHOTO2", "present")
+	cam := camera.New(camera.WithTool(fakeTool(t)))
+	if err := cam.Summary(t.Context()); err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+}
+
+func TestSummaryFailsWhenCameraIsUnclaimable(t *testing.T) {
+	t.Setenv("BYKAMI_FAKE_GPHOTO2", "unclaimable")
+	cam := camera.New(camera.WithTool(fakeTool(t)))
+	err := cam.Summary(t.Context())
+	if err == nil {
+		t.Fatal("expected error for unclaimable camera")
+	}
+	if !strings.Contains(err.Error(), "Could not claim") {
+		t.Errorf("expected claim error, got: %v", err)
 	}
 }

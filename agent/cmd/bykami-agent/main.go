@@ -22,8 +22,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -185,8 +187,14 @@ func main() {
 			}
 			return
 		case "service":
-			if err := serviceCmd(args[1:]); err != nil {
+			if err := serviceCmd(c, args[1:]); err != nil {
 				log.Error("service", "err", err)
+				os.Exit(1)
+			}
+			return
+		case "doctor":
+			if err := doctorCmd(c, log); err != nil {
+				log.Error("doctor", "err", err)
 				os.Exit(1)
 			}
 			return
@@ -223,6 +231,8 @@ func usage() {
 	fmt.Fprintln(out, "\nService management (Windows only):")
 	fmt.Fprintln(out, "  bykami-agent service install")
 	fmt.Fprintln(out, "  bykami-agent service uninstall")
+	fmt.Fprintln(out, "\nDiagnostics:")
+	fmt.Fprintln(out, "  bykami-agent doctor")
 	fmt.Fprintln(out, "\nFlags:")
 	flag.PrintDefaults()
 }
@@ -515,7 +525,7 @@ func runCtx(ctx context.Context, c config, log *slog.Logger) error {
 	return err
 }
 
-func serviceCmd(args []string) error {
+func serviceCmd(c config, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: bykami-agent service <install|uninstall>")
 	}
@@ -525,12 +535,169 @@ func serviceCmd(args []string) error {
 		if err != nil {
 			return err
 		}
-		return update.InstallService(exe, "bykami-agent", "Bykami booth agent")
+		return update.InstallService(exe, "bykami-agent", "Bykami booth agent", serviceArgs(c))
 	case "uninstall":
 		return update.UninstallService("")
 	default:
 		return fmt.Errorf("unknown service command: %q", args[0])
 	}
+}
+
+// serviceArgs builds the argument list the service should start with.
+// It captures the flags that matter to a running booth, so a new flag added
+// to config is not silently dropped from the service definition.
+func serviceArgs(c config) []string {
+	args := []string{
+		"-root", c.root,
+		"-source", c.source,
+		"-outlet", c.outlet,
+		"-update-repo", c.updateRepo,
+	}
+	if c.hotFolder != "" {
+		args = append(args, "-hot-folder", c.hotFolder)
+	}
+	if c.cameraTool != "" {
+		args = append(args, "-camera-tool", c.cameraTool)
+	}
+	if c.shutter != "" {
+		args = append(args, "-shutter", c.shutter)
+	}
+	if c.payments != "" {
+		args = append(args, "-payments", c.payments)
+	}
+	if c.printerKit != "" {
+		args = append(args, "-printer", c.printerKit)
+	}
+	if c.printQueue != "" {
+		args = append(args, "-printer-queue", c.printQueue)
+	}
+	if c.printCut != "" {
+		args = append(args, "-printer-cut-queue", c.printCut)
+	}
+	if c.frameSync != "" {
+		args = append(args, "-frame-sync", c.frameSync)
+	}
+	if c.publicHost != "" {
+		args = append(args, "-public-host", c.publicHost)
+	}
+	if c.camera != "" {
+		args = append(args, "-camera", c.camera)
+	}
+	if c.templates != "" {
+		args = append(args, "-templates", c.templates)
+	}
+	if c.addr != "" {
+		args = append(args, "-addr", c.addr)
+	}
+	// Retention is not a tuning knob: it is how long a customer's photographs
+	// stay on this machine, so a service that quietly fell back to the default
+	// would make a different promise from the one the booth was set up with.
+	if c.retention != 0 {
+		args = append(args, "-retention", c.retention.String())
+	}
+	if c.syncEvery != 0 {
+		args = append(args, "-frame-sync-every", c.syncEvery.String())
+	}
+	if c.printWait != 0 {
+		args = append(args, "-printer-wait", c.printWait.String())
+	}
+	return args
+}
+
+// Two things are deliberately not carried into the service definition.
+// -access-token belongs in BYKAMI_ACCESS_TOKEN, because a flag lands in the
+// service registry where every local user can read it; and the -sim-* flags are
+// development only, so a booth installed by the script is never one that
+// simulates money.
+
+func doctorCmd(c config, log *slog.Logger) error {
+	tool := c.cameraTool
+	if tool == "" {
+		tool = "gphoto2"
+	}
+
+	fmt.Println("Camera diagnostic")
+	fmt.Println()
+
+	// Is the tool resolvable?
+	_, err := exec.LookPath(tool)
+	if err != nil {
+		fmt.Printf("gphoto2: NOT FOUND at %q\n", tool)
+		fmt.Println()
+		fmt.Println("Next step:")
+		switch runtime.GOOS {
+		case "windows":
+			fmt.Println("  Install gphoto2 and add it to PATH.")
+		case "linux":
+			fmt.Println("  sudo apt install gphoto2   # or dnf install gphoto2")
+		case "darwin":
+			fmt.Println("  brew install gphoto2")
+		}
+		fmt.Println()
+		fmt.Printf("Once gphoto2 is on PATH, start the booth:\n  bykami-agent -root %q -source hotfolder -hot-folder <path> -camera-tool gphoto2\n", c.root)
+		return nil
+	}
+	fmt.Printf("gphoto2: found at %s\n", tool)
+
+	cam := camera.New(camera.WithTool(tool))
+	dev, err := cam.Detect(context.Background())
+	if err != nil {
+		fmt.Printf("gphoto2 --auto-detect: FAILED (%v)\n", err)
+		fmt.Println()
+		fmt.Println("The tool exists but refuses to run. Check that it is a working install.")
+		return nil
+	}
+
+	if dev.Model == "" {
+		fmt.Println("camera: no device on bus")
+		fmt.Println()
+		fmt.Println("Next step:")
+		switch runtime.GOOS {
+		case "windows":
+			fmt.Println("  1. Plug the camera in via USB.")
+			fmt.Println("  2. Set the camera to PC Connection mode (not charge-only).")
+			fmt.Println("  3. Run Zadig and swap the Canon driver for WinUSB.")
+		case "linux":
+			fmt.Println("  1. Plug the camera in via USB.")
+			fmt.Println("  2. Set the camera to PC Connection mode (not charge-only).")
+			fmt.Println("  3. Check the udev rule in setup-booth.sh.")
+		case "darwin":
+			fmt.Println("  1. Plug the camera in via USB.")
+			fmt.Println("  2. Quit Image Capture if it has grabbed the device.")
+		}
+		fmt.Println()
+		fmt.Printf("Once the camera is detected, start the booth:\n  bykami-agent -root %q -source hotfolder -hot-folder <path> -camera-tool gphoto2\n", c.root)
+		return nil
+	}
+
+	fmt.Printf("camera: detected %s on %s\n", dev.Model, dev.Port)
+
+	if err := cam.Summary(context.Background()); err != nil {
+		fmt.Printf("camera: present but unclaimable (%v)\n", err)
+		fmt.Println()
+		fmt.Println("Next step:")
+		switch runtime.GOOS {
+		case "windows":
+			fmt.Println("  The Canon PTP driver is still in control. Run Zadig and")
+			fmt.Println("  replace it with WinUSB. A Windows or Canon driver update")
+			fmt.Println("  can silently undo this swap — check Zadig again if the")
+			fmt.Println("  booth worked before and stopped.")
+		case "linux":
+			fmt.Println("  Permission denied. The udev rule may be missing or the")
+			fmt.Println("  user may not be in the plugdev group. Run setup-booth.sh.")
+		case "darwin":
+			fmt.Println("  Image Capture or another app is holding the PTP device.")
+			fmt.Println("  Quit Image Capture and any photo-import tool.")
+		}
+		fmt.Println()
+		fmt.Printf("Once the camera can be claimed, start the booth:\n  bykami-agent -root %q -source hotfolder -hot-folder <path> -camera-tool gphoto2\n", c.root)
+		return nil
+	}
+
+	fmt.Println("camera: present and claimable")
+	fmt.Println()
+	fmt.Printf("Start the booth:\n  bykami-agent -root %q -source hotfolder -hot-folder <path> -camera-tool gphoto2\n", c.root)
+	return nil
 }
 
 // cameraProbeEvery is how often the agent asks gphoto2 whether the camera is

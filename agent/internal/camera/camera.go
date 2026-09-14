@@ -93,6 +93,16 @@ func (c *Camera) Detect(ctx context.Context) (Device, error) {
 	return firstDevice(out)
 }
 
+// Summary asks the camera for a summary without taking a photograph. It is
+// the non-destructive way to verify that the device can be opened and claimed.
+// A failure here means the camera is visible on the bus but something blocks
+// opening it — wrong driver on Windows, missing permissions on Linux, or
+// another process holding the device.
+func (c *Camera) Summary(ctx context.Context) error {
+	_, err := c.run(ctx, "--summary")
+	return err
+}
+
 // Capture fires the camera and downloads the frame into dest, returning the
 // path it was written to.
 //

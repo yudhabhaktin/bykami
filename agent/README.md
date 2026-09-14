@@ -684,6 +684,39 @@ written to `<root>/.deployed-version` on startup. After a successful swap the
 updater polls `/api/state` until it answers 200; if that fails it rolls back to
 the previous binary.
 
+### Installing on a new booth PC
+
+One pasted command in an elevated PowerShell window:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force
+Invoke-RestMethod -Uri https://raw.githubusercontent.com/bhaktiyudha/bykami/main/deploy/booth/install-booth.ps1 -OutFile $env:TEMP\install-booth.ps1
+& $env:TEMP\install-booth.ps1
+```
+
+Or download `install-booth.ps1` and run it locally:
+
+```powershell
+.\install-booth.ps1
+```
+
+The script picks the newest `agent-*` release, verifies the SHA256 digest,
+installs the binary under `Program Files\Bykami`, registers the service, and
+reports whether gphoto2 and the printer queues are present. A re-run updates
+an existing installation rather than failing because the service already exists.
+
+`-DryRun` previews everything without changing anything:
+
+```powershell
+.\install-booth.ps1 -DryRun
+```
+
+What the script does not do:
+- The WinUSB driver swap for the Canon camera (Zadig).
+- Chrome in kiosk mode. The browser is started from a logon session, not by the
+  service.
+- Assigned Access. That is a Windows configuration step done separately.
+
 ### Windows service
 
 The booth PC runs as a Windows service so it starts automatically and restarts
