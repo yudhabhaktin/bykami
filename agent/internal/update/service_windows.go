@@ -5,6 +5,7 @@ package update
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -15,18 +16,24 @@ const ServiceName = "bykami-agent"
 
 // InstallService registers the agent as a Windows service.
 //
+// svcArgs are the arguments passed to the service on start, e.g.
+// ["-root", "C:\\ProgramData\\Bykami\\booth", "-source", "hotfolder"].
+// The service binary path is built as "<exe> <args>".
+//
 // This has never run on Windows.
-func InstallService(binPath, displayName, desc string) error {
+func InstallService(binPath, displayName, desc string, svcArgs []string) error {
 	m, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("connect to service manager: %w", err)
 	}
 	defer m.Disconnect()
 
+	// Delete an existing service so the new binary path and arguments take
+	// effect. A re-run must update, not fail because the service exists.
 	s, err := m.OpenService(ServiceName)
 	if err == nil {
+		_ = s.Delete()
 		s.Close()
-		return fmt.Errorf("service %s already exists", ServiceName)
 	}
 
 	abs, err := filepath.Abs(binPath)
@@ -34,12 +41,17 @@ func InstallService(binPath, displayName, desc string) error {
 		return err
 	}
 
+	cmd := abs
+	if len(svcArgs) > 0 {
+		cmd = abs + " " + strings.Join(svcArgs, " ")
+	}
+
 	cfg := mgr.Config{
 		DisplayName: displayName,
 		Description: desc,
 		StartType:   mgr.StartAutomatic,
 	}
-	s, err = m.CreateService(ServiceName, abs, cfg)
+	s, err = m.CreateService(ServiceName, cmd, cfg)
 	if err != nil {
 		return fmt.Errorf("create service: %w", err)
 	}
