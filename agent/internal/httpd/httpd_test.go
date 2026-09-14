@@ -1161,6 +1161,51 @@ func TestStateSaysWhetherTheBoothCanFireItsOwnCamera(t *testing.T) {
 	}
 }
 
+// The two ways a booth can have no camera are the same empty table out of
+// gphoto2, so which one it is has to reach the state — otherwise whoever is
+// standing at the machine is guessing, and the guess is usually "the camera is
+// unplugged" when the tool is missing or the driver is not bound.
+func TestStateSaysWhyThereIsNoCamera(t *testing.T) {
+	absent := setupWith(t, func(d *httpd.Deps) {
+		d.Detected = func() string { return "" }
+		d.CameraReason = func() string { return "not_found" }
+	})
+	if got := decode[struct {
+		Detected string `json:"detected"`
+		Reason   string `json:"reason"`
+	}](t, absent.do(t, "GET", "/api/state", nil)); got.Reason != "not_found" || got.Detected != "" {
+		t.Errorf("detected = %q, reason = %q, want an empty model and not_found", got.Detected, got.Reason)
+	}
+
+	broken := setupWith(t, func(d *httpd.Deps) {
+		d.CameraReason = func() string { return `probe_failed: exec: "gphoto2": executable file not found in $PATH` }
+	})
+	if got := decode[struct {
+		Reason string `json:"reason"`
+	}](t, broken.do(t, "GET", "/api/state", nil)); !strings.HasPrefix(got.Reason, "probe_failed:") {
+		t.Errorf("reason = %q, want the probe failure quoted", got.Reason)
+	}
+
+	// A camera that is there has no reason to report, and every other fixture
+	// in this file has no hook at all — neither may panic the state route.
+	present := setupWith(t, func(d *httpd.Deps) {
+		d.Detected = func() string { return "Canon EOS 200D" }
+		d.CameraReason = func() string { return "" }
+	})
+	if got := decode[struct {
+		Detected string `json:"detected"`
+		Reason   string `json:"reason"`
+	}](t, present.do(t, "GET", "/api/state", nil)); got.Detected != "Canon EOS 200D" || got.Reason != "" {
+		t.Errorf("detected = %q, reason = %q, want the model and no reason", got.Detected, got.Reason)
+	}
+
+	if got := decode[struct {
+		Reason string `json:"reason"`
+	}](t, setupWith(t, func(*httpd.Deps) {}).do(t, "GET", "/api/state", nil)); got.Reason != "" {
+		t.Errorf("reason = %q with no probe wired up, want empty", got.Reason)
+	}
+}
+
 // openPaidSession walks a fixture to the point where the shutter is unlocked.
 func openPaidSession(t *testing.T, f *fixture) {
 	t.Helper()

@@ -171,6 +171,12 @@ type Deps struct {
 	// which is what the kiosk should preview.
 	Detected func() string
 
+	// CameraReason is a machine-readable explanation of why Detected is empty:
+	// "not_found" when the tool works but no camera is on the bus,
+	// "probe_failed: <text>" when the tool itself could not run, or empty
+	// when a camera is present.
+	CameraReason func() string
+
 	// OutletID is stamped on every session. One booth today; the ledger is
 	// pooled across outlets by design, so this is not a placeholder.
 	OutletID string
@@ -461,6 +467,9 @@ type stateResponse struct {
 	// being told to anybody.
 	Detected string `json:"detected"`
 
+	// Reason is a machine-readable explanation of why Detected is empty.
+	Reason string `json:"reason"`
+
 	// Shutter is whether the agent can fire the camera itself. The kiosk runs
 	// the automatic countdown only where something will actually fire at the
 	// end of it — a 3-2-1 that finishes with nobody photographed is worse than
@@ -579,6 +588,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		Source:     s.Source,
 		Camera:     s.Camera,
 		Detected:   s.detected(),
+		Reason:     s.cameraReason(),
 		Shutter:    s.Shutter != nil,
 		Packages:   packages,
 		Templates:  views,
@@ -1447,6 +1457,15 @@ func (s *Server) detected() string {
 		return ""
 	}
 	return s.Detected()
+}
+
+// cameraReason reports why detected is empty, tolerating a Deps without a
+// CameraReason func.
+func (s *Server) cameraReason() string {
+	if s.CameraReason == nil {
+		return ""
+	}
+	return s.CameraReason()
 }
 
 func (s *Server) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
