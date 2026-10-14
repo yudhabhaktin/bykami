@@ -182,6 +182,65 @@ func TestStampsRedeemRefusesAGiftIssuedToday(t *testing.T) {
 	}
 }
 
+// Tukar has to land on the member whose gift it was: the operator may have a
+// different number in the search box, and posting that instead would hand the
+// confirmation to the wrong person.
+func TestStampsRedeemLandsOnTheGiftsOwner(t *testing.T) {
+	f := newFixture(t)
+	token := f.signIn(t)
+
+	// Two purchases: four stamps mint the slot-2 and slot-4 gifts, so one stays
+	// outstanding after the redeem and the unsearched page still has a name.
+	for i := 0; i < 2; i++ {
+		if _, err := f.stamps.Purchase(context.Background(), customerPhone, "Isyara Hadza", 90_000, "", operatorLabel, ""); err != nil {
+			t.Fatalf("seed purchase: %v", err)
+		}
+	}
+	card, err := f.stamps.StaffView(context.Background(), customerPhone)
+	if err != nil {
+		t.Fatalf("staff view: %v", err)
+	}
+	reward := card.Slots[1].Reward
+	if reward == nil {
+		t.Fatal("no gift on slot 2")
+	}
+	if _, err := f.db.Exec(`UPDATE membership_rewards SET redeem_after = 0`); err != nil {
+		t.Fatalf("make gifts due: %v", err)
+	}
+
+	// A different number sits in the search box.
+	csrf := csrfFrom(t, f.get(t, "/stamps", token).Body.String())
+	w := f.post(t, "/stamps/redeem", url.Values{
+		"csrf":   {csrf},
+		"phone":  {"081200000001"},
+		"reward": {reward.ID},
+	}, token)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("redeem = %d, want 303: %s", w.Code, w.Body.String())
+	}
+
+	// The member's name appears twice on this page - the card view and the
+	// outstanding list both carry it - so the name alone cannot say which
+	// member the operator was sent back to. The Location can.
+	if loc := w.Header().Get("Location"); !strings.Contains(loc, url.QueryEscape("+6281298765432")) {
+		t.Errorf("redirect = %q, want it to carry the gift owner's own number", loc)
+	}
+
+	back := f.get(t, redirectPath(t, w), token)
+	if back.Code != http.StatusOK {
+		t.Fatalf("stamps = %d, want 200", back.Code)
+	}
+	body := back.Body.String()
+	if !strings.Contains(body, "Isyara Hadza") || !strings.Contains(body, "Hadiah ditukar") {
+		t.Errorf("the confirmation did not land on the gift's owner: %s", body)
+	}
+	// With no search, the only place a name can come from is the outstanding
+	// list, so this is also the list naming the member.
+	if page := f.get(t, "/stamps", token).Body.String(); !strings.Contains(page, "Isyara Hadza") {
+		t.Error("the outstanding list does not name the member whose gift is waiting")
+	}
+}
+
 // redirectPath is the Location a POST sent the operator to, as a request path.
 func redirectPath(t *testing.T, w *httptest.ResponseRecorder) string {
 	t.Helper()

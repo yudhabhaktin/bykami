@@ -128,14 +128,16 @@
 
 <h2>Hadiah menunggu</h2>
 {{if .StampRewards}}
+  <p class="small muted">Semua {{len .StampRewards}} hadiah yang belum ditukar, terlama di atas.</p>
   <div class="card scroll-x">
     <table>
       <thead>
-        <tr><th>Nomor</th><th>Hadiah</th><th>Diterbitkan</th><th>Status</th><th></th></tr>
+        <tr><th>Nama</th><th>Nomor</th><th>Hadiah</th><th>Diterbitkan</th><th>Status</th><th></th></tr>
       </thead>
       <tbody>
         {{range .StampRewards}}
           <tr>
+            <td>{{.Name}}</td>
             <td class="tabular">{{.Phone}}</td>
             <td>{{.Label}}</td>
             <td class="tabular">{{wib .IssuedAt}}</td>
@@ -149,7 +151,7 @@
             <td>
               <form class="inline" method="post" action="/stamps/redeem">
                 <input type="hidden" name="csrf" value="{{$.CSRF}}">
-                <input type="hidden" name="phone" value="{{$.StampQuery}}">
+                <input type="hidden" name="phone" value="{{.Phone}}">
                 <input type="hidden" name="reward" value="{{.ID}}">
                 <button type="submit" {{if not .Available}}disabled{{end}}>Tukar</button>
               </form>

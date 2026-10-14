@@ -165,6 +165,11 @@ func TestCardLookupReturnsTheMaskedCard(t *testing.T) {
 	if got := after.Sub(time.Now()); got <= 0 || got > 48*time.Hour {
 		t.Errorf("redeem_after is %s away, want the next studio day", got)
 	}
+	// The reward's own name is unmasked, and the decoded JSON ignores unknown
+	// fields, so a leaked surname passes unnoticed unless the bytes are checked.
+	if strings.Contains(w.Body.String(), "Hadza") {
+		t.Error("the public lookup body contains the member's surname")
+	}
 }
 
 // The console's fields must not leak onto a surface anyone can call: an account

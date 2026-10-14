@@ -74,7 +74,7 @@ func (c *Console) stamps(w http.ResponseWriter, r *http.Request, op string) {
 	// Both lists are read on every visit: a gift outstanding is the thing the
 	// next customer asks about, and today's stamps are the thing the operator
 	// voids when they typed the amount wrong.
-	rewards, err := c.members.OpenRewards(r.Context(), 50)
+	rewards, err := c.members.OpenRewards(r.Context())
 	if err != nil {
 		c.serverError(w, r, "open rewards", err, p)
 		return
@@ -183,7 +183,7 @@ func (c *Console) stampsRedeem(w http.ResponseWriter, r *http.Request, op string
 
 	c.log.Info("admin: reward redeemed", "operator", op, "reward", reward.ID,
 		"phone", reward.Phone, "label", reward.Label)
-	c.redirect(w, r, "/stamps?phone="+urlQueryEscape(phoneQuery)+
+	c.redirect(w, r, "/stamps?phone="+urlQueryEscape(reward.Phone)+
 		"&ok="+urlQueryEscape("Hadiah ditukar: "+reward.Label))
 }
 

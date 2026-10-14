@@ -65,10 +65,6 @@ const (
 	lookupRetention = 24 * time.Hour
 )
 
-// openRewardsLimit bounds the console's outstanding list when the caller has no
-// opinion, so nothing asks the server to walk the whole table.
-const openRewardsLimit = 50
-
 // voidWindow is how long a purchase may be undone. Past a day the receipt has
 // been reconciled and the stamp has been counted; the way back then is an
 // adjustment by hand, which is visible.
@@ -155,6 +151,10 @@ type Reward struct {
 	// somebody has to hand to a named person, and a list of labels with no
 	// names is a list nobody can act on.
 	Phone string `json:"-"`
+	// Name is the member's full name, for the same outstanding list. Not
+	// serialised: Slot.Reward goes out on the public lookup, which masks the
+	// name, and the tag is what keeps the unmasked one from leaking there.
+	Name string `json:"-"`
 }
 
 // Purchase is one stamping event: the amount, the stamps it earned, and who
@@ -778,16 +778,17 @@ func (s *Service) Today(ctx context.Context) ([]Purchase, error) {
 // OpenRewards lists the gifts still to be handed over, oldest first. Included
 // are the ones not yet redeemable, so the console can say "bisa ditukar besok"
 // rather than hiding a gift the customer can see on their own card.
-func (s *Service) OpenRewards(ctx context.Context, limit int) ([]Reward, error) {
-	if limit <= 0 {
-		limit = openRewardsLimit
-	}
+//
+// The list is deliberately unbounded: a cap hid gifts the operator could not
+// reach, and an outstanding gift that the console does not show is one that is
+// never handed over. The upgrade path when outstanding passes roughly 500 is to
+// filter this list to the searched member rather than to page it.
+func (s *Service) OpenRewards(ctx context.Context) ([]Reward, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+rewardColumns+`
 		   FROM membership_rewards r JOIN users u ON u.id = r.user_id
 		  WHERE r.redeemed_at IS NULL
-		  ORDER BY r.issued_at ASC, r.id ASC
-		  LIMIT ?`, limit)
+		  ORDER BY r.issued_at ASC, r.id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("membership: open rewards: %w", err)
 	}
@@ -1218,7 +1219,7 @@ func (s *Service) cardRewards(ctx context.Context, q queryer, cardID string) (ma
 // rewardColumns is the select list every reward read shares, with the phone
 // joined on. One list rather than three, because three copies drift.
 const rewardColumns = `r.id, r.stamp_no, r.reward_kind, r.label, r.issued_at, r.redeem_after,
-	r.redeemed_at, COALESCE(r.redeemed_by, ''), COALESCE(u.phone, '')`
+	r.redeemed_at, COALESCE(r.redeemed_by, ''), COALESCE(u.phone, ''), COALESCE(u.name, '')`
 
 func (s *Service) scanReward(sc scanner) (Reward, error) {
 	var (
@@ -1227,7 +1228,7 @@ func (s *Service) scanReward(sc scanner) (Reward, error) {
 		redeemed      sql.NullInt64
 	)
 	if err := sc.Scan(&r.ID, &r.StampNo, &r.Kind, &r.Label, &issued, &after,
-		&redeemed, &r.RedeemedBy, &r.Phone); err != nil {
+		&redeemed, &r.RedeemedBy, &r.Phone, &r.Name); err != nil {
 		return Reward{}, fmt.Errorf("membership: scan reward: %w", err)
 	}
 	r.IssuedAt = time.Unix(issued, 0).UTC()
