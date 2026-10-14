@@ -620,7 +620,7 @@ func TestOpenRewardsListsEveryGift(t *testing.T) {
 	f.member(t)
 
 	// Each 90.000 purchase earns two stamps, so a card fills every fifth one and
-	// mints its four gifts. Buy until the outstanding table is past the old cap
+	// mints its five gifts. Buy until the outstanding table is past the old cap
 	// of fifty.
 	for i := 0; i < 200 && f.count(t, `SELECT COUNT(*) FROM membership_rewards WHERE redeemed_at IS NULL`) <= 50; i++ {
 		f.buy(t, 90_000)

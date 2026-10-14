@@ -167,8 +167,8 @@ app.
   zero-point row.
 - Everything the operator wrote carries their number.
 
-Below it, the outstanding gifts with a redeem button, and the purchases made
-today with a void action.
+Below it, the purchases made today with a void action, then the outstanding
+gifts with a redeem button.
 
 **Corrections never edit.** The ledger is append-only and the purchase row is
 the durable record of a void — `voided_at` and `void_reason` on
