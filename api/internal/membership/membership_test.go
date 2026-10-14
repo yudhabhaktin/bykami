@@ -590,7 +590,7 @@ func TestOpenRewardsListsTheGiftsStillToHandOver(t *testing.T) {
 	f.member(t)
 	f.buy(t, 90_000)
 
-	open, err := f.svc.OpenRewards(context.Background(), 0)
+	open, err := f.svc.OpenRewards(context.Background())
 	if err != nil {
 		t.Fatalf("open rewards: %v", err)
 	}
@@ -604,6 +604,39 @@ func TestOpenRewardsListsTheGiftsStillToHandOver(t *testing.T) {
 	}
 	if open[0].Phone == "" {
 		t.Error("the list does not say whose gift it is")
+	}
+	// The operator hands the gift to a person, so the list carries the full
+	// name, not just the number.
+	if open[0].Name != "Isyara Hadza" {
+		t.Errorf("name = %q, want the member's full name", open[0].Name)
+	}
+}
+
+// The outstanding list is unbounded on purpose: a cap hides gifts the operator
+// can never reach, and a gift the console does not show is one that is never
+// handed over.
+func TestOpenRewardsListsEveryGift(t *testing.T) {
+	f := newFixture(t)
+	f.member(t)
+
+	// Each 90.000 purchase earns two stamps, so a card fills every fifth one and
+	// mints its five gifts. Buy until the outstanding table is past the old cap
+	// of fifty.
+	for i := 0; i < 200 && f.count(t, `SELECT COUNT(*) FROM membership_rewards WHERE redeemed_at IS NULL`) <= 50; i++ {
+		f.buy(t, 90_000)
+	}
+
+	want := f.count(t, `SELECT COUNT(*) FROM membership_rewards WHERE redeemed_at IS NULL`)
+	if want <= 50 {
+		t.Fatalf("only %d outstanding gifts, want more than the old cap of 50", want)
+	}
+
+	open, err := f.svc.OpenRewards(context.Background())
+	if err != nil {
+		t.Fatalf("open rewards: %v", err)
+	}
+	if len(open) != want {
+		t.Errorf("%d gifts returned for %d outstanding, want every one", len(open), want)
 	}
 }
 

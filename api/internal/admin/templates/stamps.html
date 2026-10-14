@@ -25,6 +25,17 @@
 .stampcell.on { border-color: var(--good); }
 .stampcell.void { border-style: dashed; color: var(--muted); }
 .stampcell.off { color: var(--faint); }
+/*
+ * The outstanding list at phone width: three cells that wrap instead of a
+ * six-column table that scrolls sideways, and a Tukar button that is a real tap
+ * target again. Scoped through .gifts so it beats the shared form.inline
+ * button rule, which a plain .gifts button would lose to silently.
+ */
+.gifts td { white-space: normal; }
+/* The last cell's own right padding is what pushed 6px of sideways scroll onto
+   a 360px phone. */
+.gifts td:last-child { padding-right: 0; }
+.gifts form.inline button { min-height: var(--tap); }
 </style>
 
 <h1>Stempel</h1>
@@ -59,7 +70,7 @@
 {{if .StampCard}}
   <h2>Kartu {{.StampCard.CardNo}}</h2>
   <div class="card">
-    <p class="small muted" style="margin:0">{{.StampCard.Name}} · {{.StampCard.Phone}}</p>
+    <p class="small muted" style="margin:0">{{or .StampCard.Name "—"}} · {{.StampCard.Phone}}</p>
     <p class="balance tabular" style="margin:0">{{.StampCard.Filled}} / {{.StampCard.StampsPerCard}}</p>
     <p class="small muted" style="margin:0">
       Satu stempel = {{rupiah .StampCard.AmountPerStampIDR}}. Sisa pembulatan tidak dihitung.
@@ -78,8 +89,11 @@
             {{else if .Reward.Available}}
               <div class="state on">siap ditukar</div>
             {{else}}
-              <!-- The same-day rule, shown rather than sprung on the customer. -->
-              <div class="state off">bisa ditukar {{wib .Reward.RedeemAfter}}</div>
+              <!-- The same-day rule, shown rather than sprung on the customer.
+                   Worded as the outstanding list words it: the rule is that a
+                   gift earned today becomes redeemable at the next WIB
+                   midnight, so the date was only ever the word "besok". -->
+              <div class="state off">bisa ditukar besok</div>
             {{end}}
           {{end}}
         </div>
@@ -126,43 +140,6 @@
   </div>
 {{end}}
 
-<h2>Hadiah menunggu</h2>
-{{if .StampRewards}}
-  <div class="card scroll-x">
-    <table>
-      <thead>
-        <tr><th>Nomor</th><th>Hadiah</th><th>Diterbitkan</th><th>Status</th><th></th></tr>
-      </thead>
-      <tbody>
-        {{range .StampRewards}}
-          <tr>
-            <td class="tabular">{{.Phone}}</td>
-            <td>{{.Label}}</td>
-            <td class="tabular">{{wib .IssuedAt}}</td>
-            <td>
-              {{if .Available}}
-                <span class="state on">siap ditukar</span>
-              {{else}}
-                <span class="state off">bisa ditukar {{wib .RedeemAfter}}</span>
-              {{end}}
-            </td>
-            <td>
-              <form class="inline" method="post" action="/stamps/redeem">
-                <input type="hidden" name="csrf" value="{{$.CSRF}}">
-                <input type="hidden" name="phone" value="{{$.StampQuery}}">
-                <input type="hidden" name="reward" value="{{.ID}}">
-                <button type="submit" {{if not .Available}}disabled{{end}}>Tukar</button>
-              </form>
-            </td>
-          </tr>
-        {{end}}
-      </tbody>
-    </table>
-  </div>
-{{else}}
-  <p class="muted">Tidak ada hadiah yang menunggu.</p>
-{{end}}
-
 <h2>Stempel hari ini</h2>
 {{if .StampToday}}
   <div class="card scroll-x">
@@ -204,6 +181,38 @@
   </p>
 {{else}}
   <p class="muted">Belum ada stempel hari ini.</p>
+{{end}}
+
+<h2>Hadiah menunggu</h2>
+{{if .StampRewards}}
+  <p class="small muted">Semua {{len .StampRewards}} hadiah yang belum ditukar, terlama di atas.</p>
+  <div class="card scroll-x">
+    <table class="gifts">
+      <thead>
+        <tr><th>Nama</th><th>Hadiah</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{range .StampRewards}}
+          <tr>
+            <td>{{or .Name "—"}}<br><span class="muted tabular">{{.Phone}}</span></td>
+            <td>{{.Label}}<br>
+              {{if .Available}}<span class="state on">siap ditukar</span>{{else}}<span class="state off">bisa ditukar besok</span>{{end}}
+            </td>
+            <td>
+              <form class="inline" method="post" action="/stamps/redeem">
+                <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="phone" value="{{.Phone}}">
+                <input type="hidden" name="reward" value="{{.ID}}">
+                <button type="submit" {{if not .Available}}disabled{{end}}>Tukar</button>
+              </form>
+            </td>
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+{{else}}
+  <p class="muted">Tidak ada hadiah yang menunggu.</p>
 {{end}}
 
 {{template "foot" .}}
