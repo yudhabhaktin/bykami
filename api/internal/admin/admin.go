@@ -334,7 +334,11 @@ type page struct {
 	StampSearched bool
 	StampCard     *membership.CardView
 	StampRewards  []membership.Reward
-	StampToday    []membership.Purchase
+	// StampEarlier is how many of StampRewards sit on a card the grid is not
+	// showing, so the page can point at the list rather than imply the gift
+	// was never earned.
+	StampEarlier int
+	StampToday   []membership.Purchase
 
 	// Frame catalogue
 	Frames []frames.Frame

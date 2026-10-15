@@ -36,6 +36,10 @@
    a 360px phone. */
 .gifts td:last-child { padding-right: 0; }
 .gifts form.inline button { min-height: var(--tap); }
+/* The shared button's 16px side padding leaves "Tukar" less room than it
+   needs in a grid cell, which overflows the label; the cell already has its
+   own padding. */
+.stampcell button { padding-inline: 0; }
 </style>
 
 <h1>Stempel</h1>
@@ -88,6 +92,12 @@
               <div class="state off">sudah ditukar</div>
             {{else if .Reward.Available}}
               <div class="state on">siap ditukar</div>
+              <form method="post" action="/stamps/redeem">
+                <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="phone" value="{{$.StampCard.Phone}}">
+                <input type="hidden" name="reward" value="{{.Reward.ID}}">
+                <button type="submit">Tukar</button>
+              </form>
             {{else}}
               <!-- The same-day rule, shown rather than sprung on the customer.
                    Worded as the outstanding list words it: the rule is that a
@@ -99,6 +109,11 @@
         </div>
       {{end}}
     </div>
+    {{if .StampEarlier}}
+      <p class="small muted" style="margin:0">
+        <a href="#hadiah">{{.StampEarlier}} hadiah dari kartu sebelumnya belum ditukar.</a>
+      </p>
+    {{end}}
   </div>
 {{else if .StampSearched}}
   <p class="muted">
@@ -183,9 +198,13 @@
   <p class="muted">Belum ada stempel hari ini.</p>
 {{end}}
 
-<h2>Hadiah menunggu</h2>
+<h2 id="hadiah">Hadiah menunggu</h2>
 {{if .StampRewards}}
-  <p class="small muted">Semua {{len .StampRewards}} hadiah yang belum ditukar, terlama di atas.</p>
+  {{if .StampCard}}
+    <p class="small muted">{{len .StampRewards}} hadiah nomor ini yang belum ditukar, termasuk dari kartu sebelumnya.</p>
+  {{else}}
+    <p class="small muted">Semua {{len .StampRewards}} hadiah yang belum ditukar, terlama di atas.</p>
+  {{end}}
   <div class="card scroll-x">
     <table class="gifts">
       <thead>
@@ -212,7 +231,11 @@
     </table>
   </div>
 {{else}}
-  <p class="muted">Tidak ada hadiah yang menunggu.</p>
+  {{if .StampCard}}
+    <p class="muted">Nomor ini tidak punya hadiah yang menunggu.</p>
+  {{else}}
+    <p class="muted">Tidak ada hadiah yang menunggu.</p>
+  {{end}}
 {{end}}
 
 {{template "foot" .}}

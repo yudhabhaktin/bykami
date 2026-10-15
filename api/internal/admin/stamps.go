@@ -81,6 +81,35 @@ func (c *Console) stamps(w http.ResponseWriter, r *http.Request, op string) {
 	}
 	p.StampRewards = rewards
 
+	// The card view shows only the member's latest card, so a gift left on a
+	// closed card — typically the slot-9 "Free photobox" once the next purchase
+	// opens a new card — is invisible in the grid and would otherwise still be a
+	// hunt through the full list. Narrow the outstanding list to that member.
+	if p.StampCard != nil {
+		own := rewards[:0]
+		for _, r := range rewards {
+			if r.Phone == p.StampCard.Phone {
+				own = append(own, r)
+			}
+		}
+		p.StampRewards = own
+
+		// Count the open gifts the grid cannot show, so the card says a gift
+		// exists below rather than leaving the operator to infer it was never
+		// earned.
+		onCard := make(map[string]bool, len(p.StampCard.Slots))
+		for _, s := range p.StampCard.Slots {
+			if s.Reward != nil {
+				onCard[s.Reward.ID] = true
+			}
+		}
+		for _, r := range p.StampRewards {
+			if !onCard[r.ID] {
+				p.StampEarlier++
+			}
+		}
+	}
+
 	today, err := c.members.Today(r.Context())
 	if err != nil {
 		c.serverError(w, r, "stamps today", err, p)
@@ -167,7 +196,11 @@ func (c *Console) stampsRedeem(w http.ResponseWriter, r *http.Request, op string
 	switch {
 	case err == nil:
 	case errors.Is(err, membership.ErrAlreadyRedeemed):
-		c.backToStamps(w, r, phoneQuery, "Hadiah itu sudah ditukar.")
+		// The gift came back loaded, so name who took it and when rather than
+		// saying only that it is gone.
+		when := reward.RedeemedAt.In(wib).Format("15:04")
+		c.backToStamps(w, r, phoneQuery,
+			"Hadiah itu sudah ditukar oleh "+reward.RedeemedBy+", jam "+when+" WIB.")
 		return
 	case errors.Is(err, membership.ErrNotYetRedeemable):
 		c.backToStamps(w, r, phoneQuery, "Hadiah itu bisa ditukar besok, bukan hari ini.")

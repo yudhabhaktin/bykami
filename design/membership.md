@@ -168,7 +168,10 @@ app.
 - Everything the operator wrote carries their number.
 
 Below it, the purchases made today with a void action, then the outstanding
-gifts with a redeem button.
+gifts with a redeem button. A ready gift on the card shown carries its own
+Tukar in its slot, so it is given from the card rather than found in the
+list, and searching a member's number narrows the outstanding list to that
+member, including gifts left on an earlier card.
 
 **Corrections never edit.** The ledger is append-only and the purchase row is
 the durable record of a void — `voided_at` and `void_reason` on

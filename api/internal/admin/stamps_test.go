@@ -67,7 +67,7 @@ func TestStampsPageShowsTheCard(t *testing.T) {
 	// Correcting a mistyped amount is the frequent action after a POST, and
 	// every POST redirects to the top: today's list belongs above the gifts.
 	todayAt := strings.Index(body, "<h2>Stempel hari ini</h2>")
-	giftsAt := strings.Index(body, "<h2>Hadiah menunggu</h2>")
+	giftsAt := strings.Index(body, `<h2 id="hadiah">Hadiah menunggu</h2>`)
 	if todayAt < 0 || giftsAt < 0 {
 		t.Fatal("the page is missing one of the two section headings")
 	}
@@ -301,6 +301,214 @@ func TestStampsOutstandingListMarksAMissingName(t *testing.T) {
 	if !strings.Contains(card, "— · &#43;6281200000002") {
 		t.Errorf("the card of a nameless member does not start with a dash: %s", card)
 	}
+}
+
+// A ready gift can be handed over from the card's own slot, without hunting the
+// outstanding list for the row. The number posted is the card's own, so every
+// failure comes back to this member.
+func TestStampsCardSlotRedeemsAnAvailableGift(t *testing.T) {
+	f := newFixture(t)
+	token := f.signIn(t)
+
+	if _, err := f.stamps.Purchase(context.Background(), customerPhone, "Isyara Hadza", 90_000, "", operatorLabel, ""); err != nil {
+		t.Fatalf("seed purchase: %v", err)
+	}
+	card, err := f.stamps.StaffView(context.Background(), customerPhone)
+	if err != nil {
+		t.Fatalf("staff view: %v", err)
+	}
+	reward := card.Slots[1].Reward
+	if reward == nil {
+		t.Fatal("no gift on slot 2")
+	}
+	if _, err := f.db.Exec(`UPDATE membership_rewards SET redeem_after = 0`); err != nil {
+		t.Fatalf("make gifts due: %v", err)
+	}
+
+	page := f.get(t, "/stamps?phone="+customerPhone, token)
+	if page.Code != http.StatusOK {
+		t.Fatalf("stamps = %d, want 200: %s", page.Code, page.Body.String())
+	}
+	grid := sliceBetween(t, page.Body.String(), `<div class="stampgrid">`, `<h2>Tulis stempel</h2>`)
+	for _, want := range []string{
+		`action="/stamps/redeem"`,
+		`name="reward" value="` + reward.ID + `"`,
+		`name="phone" value="&#43;6281298765432"`,
+	} {
+		if !strings.Contains(grid, want) {
+			t.Errorf("the card grid is missing %q: %s", want, grid)
+		}
+	}
+
+	csrf := csrfFrom(t, page.Body.String())
+	form := url.Values{
+		"csrf":   {csrf},
+		"phone":  {"+6281298765432"},
+		"reward": {reward.ID},
+	}
+	w := f.post(t, "/stamps/redeem", form, token)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("redeem = %d, want 303: %s", w.Code, w.Body.String())
+	}
+	done := f.get(t, redirectPath(t, w), token)
+	if done.Code != http.StatusOK {
+		t.Fatalf("stamps = %d, want 200", done.Code)
+	}
+	body := done.Body.String()
+	grid = sliceBetween(t, body, `<div class="stampgrid">`, `<h2>Tulis stempel</h2>`)
+	if !strings.Contains(grid, "sudah ditukar") {
+		t.Errorf("the redeemed slot does not say sudah ditukar: %s", grid)
+	}
+	if strings.Contains(grid, `action="/stamps/redeem"`) {
+		t.Errorf("the redeemed slot still offers Tukar: %s", grid)
+	}
+	if strings.Contains(body, reward.ID) {
+		t.Errorf("the redeemed reward's id is still on the page: %s", body)
+	}
+
+	// A double tap: the second POST reports the first and lands back on the
+	// same member's card.
+	twice := f.post(t, "/stamps/redeem", form, token)
+	if twice.Code != http.StatusSeeOther {
+		t.Fatalf("second redeem = %d, want 303", twice.Code)
+	}
+	back := f.get(t, redirectPath(t, twice), token).Body.String()
+	if !strings.Contains(back, "Hadiah itu sudah ditukar oleh "+operatorLabel) {
+		t.Errorf("a double tap does not name who took the gift: %s", back)
+	}
+	if !strings.Contains(back, "Isyara Hadza · &#43;6281298765432") {
+		t.Errorf("the double tap did not land on the member's own card: %s", back)
+	}
+}
+
+// Only a gift that can actually be handed over gets a button. A slot already
+// redeemed or not yet due stays text.
+func TestStampsCardSlotOffersNoTukarForRedeemedOrNotYetDue(t *testing.T) {
+	f := newFixture(t)
+	token := f.signIn(t)
+
+	for i := 0; i < 2; i++ {
+		if _, err := f.stamps.Purchase(context.Background(), customerPhone, "Isyara Hadza", 90_000, "", operatorLabel, ""); err != nil {
+			t.Fatalf("seed purchase %d: %v", i, err)
+		}
+	}
+	card, err := f.stamps.StaffView(context.Background(), customerPhone)
+	if err != nil {
+		t.Fatalf("staff view: %v", err)
+	}
+	due := card.Slots[1].Reward
+	waiting := card.Slots[3].Reward
+	if due == nil || waiting == nil {
+		t.Fatal("two purchases did not mint gifts on slots 2 and 4")
+	}
+	// Make only slot 2 due, then hand it over through the service.
+	if _, err := f.db.Exec(`UPDATE membership_rewards SET redeem_after = 0 WHERE id = ?`, due.ID); err != nil {
+		t.Fatalf("make slot 2 due: %v", err)
+	}
+	if _, err := f.stamps.Redeem(context.Background(), due.ID, operatorLabel); err != nil {
+		t.Fatalf("redeem slot 2: %v", err)
+	}
+
+	grid := sliceBetween(t, f.get(t, "/stamps?phone="+customerPhone, token).Body.String(),
+		`<div class="stampgrid">`, `<h2>Tulis stempel</h2>`)
+	if !strings.Contains(grid, "sudah ditukar") {
+		t.Errorf("the redeemed slot does not say sudah ditukar: %s", grid)
+	}
+	if !strings.Contains(grid, "bisa ditukar besok") {
+		t.Errorf("the not-yet-due slot does not say bisa ditukar besok: %s", grid)
+	}
+	if strings.Contains(grid, `action="/stamps/redeem"`) {
+		t.Errorf("a slot that cannot be handed over still offers Tukar: %s", grid)
+	}
+}
+
+// A gift left on a closed earlier card has no slot to sit in, so the card must
+// say it exists and point at the list rather than letting the operator read the
+// missing photobox as not earned.
+func TestStampsCardPointsAtEarlierCardsGifts(t *testing.T) {
+	f := newFixture(t)
+	token := f.signIn(t)
+
+	// Card 1 closes with gifts on 2, 4, 6, 8 and 9; card 2 carries slot 2.
+	for i := 0; i < 6; i++ {
+		if _, err := f.stamps.Purchase(context.Background(), customerPhone, "Isyara Hadza", 90_000, "", operatorLabel, ""); err != nil {
+			t.Fatalf("seed purchase %d: %v", i, err)
+		}
+	}
+
+	card := sliceBetween(t, f.get(t, "/stamps?phone="+customerPhone, token).Body.String(),
+		"<h2>Kartu", "<h2>Tulis stempel</h2>")
+	if !strings.Contains(card, "5 hadiah dari kartu sebelumnya belum ditukar.") {
+		t.Errorf("the card does not say how many gifts sit on an earlier card: %s", card)
+	}
+	if !strings.Contains(card, `href="#hadiah"`) {
+		t.Errorf("the earlier-gift line does not link to the outstanding list: %s", card)
+	}
+
+	// All gifts on the open card: the line must not appear.
+	if _, err := f.stamps.Purchase(context.Background(), "081200000004", "Bima", 90_000, "", operatorLabel, ""); err != nil {
+		t.Fatalf("seed other member: %v", err)
+	}
+	own := sliceBetween(t, f.get(t, "/stamps?phone=081200000004", token).Body.String(),
+		"<h2>Kartu", "<h2>Tulis stempel</h2>")
+	if strings.Contains(own, "kartu sebelumnya") {
+		t.Error("a member whose gifts are all on the open card is told about an earlier card")
+	}
+}
+
+// Searching a number narrows the outstanding list to that member, so a gift
+// left on a closed card is still reachable even though the card view shows
+// only the member's latest card.
+func TestStampsListNarrowsToTheSearchedMember(t *testing.T) {
+	f := newFixture(t)
+	token := f.signIn(t)
+
+	// Six 90.000 purchases earn twelve stamps: card 1 closes with gifts on
+	// slots 2, 4, 6, 8 and 9, and card 2 carries a fresh slot-2 gift.
+	for i := 0; i < 6; i++ {
+		if _, err := f.stamps.Purchase(context.Background(), customerPhone, "Isyara Hadza", 90_000, "", operatorLabel, ""); err != nil {
+			t.Fatalf("seed purchase %d: %v", i, err)
+		}
+	}
+	if _, err := f.stamps.Purchase(context.Background(), "081200000003", "Dewi Lestari", 90_000, "", operatorLabel, ""); err != nil {
+		t.Fatalf("seed other member: %v", err)
+	}
+
+	searched := f.get(t, "/stamps?phone="+customerPhone, token).Body.String()
+	if !strings.Contains(searched, "Kartu 2") {
+		t.Fatal("the searched page is not showing card 2; the setup did not close card 1")
+	}
+	if strings.Contains(searched, "Dewi Lestari") {
+		t.Error("the searched page lists another member's gift")
+	}
+	// Card 2's grid prints the same slot-9 label, so slice from the heading to
+	// assert on the list itself.
+	gifts := sliceBetween(t, searched, `<h2 id="hadiah">Hadiah menunggu</h2>`, "</main>")
+	if !strings.Contains(gifts, "Free photobox 1 orang") {
+		t.Errorf("the narrowed list dropped the gift left on the closed card: %s", gifts)
+	}
+
+	all := f.get(t, "/stamps", token).Body.String()
+	if !strings.Contains(all, "Dewi Lestari") {
+		t.Error("the unsearched page does not list every outstanding gift")
+	}
+}
+
+// sliceBetween is the page from the first occurrence of from to the next
+// occurrence of to. Tests assert on a section through it so the same words
+// elsewhere on the page cannot pass for the section under test.
+func sliceBetween(t *testing.T, body, from, to string) string {
+	t.Helper()
+	i := strings.Index(body, from)
+	if i < 0 {
+		t.Fatalf("page missing %q", from)
+	}
+	rest := body[i:]
+	j := strings.Index(rest, to)
+	if j < 0 {
+		t.Fatalf("page missing %q after %q", to, from)
+	}
+	return rest[:j]
 }
 
 // redirectPath is the Location a POST sent the operator to, as a request path.
