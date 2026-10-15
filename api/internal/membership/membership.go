@@ -595,7 +595,9 @@ func (s *Service) Redeem(ctx context.Context, rewardID, operator string) (Reward
 	}
 	switch {
 	case r.RedeemedAt != nil:
-		return Reward{}, ErrAlreadyRedeemed
+		// Return the gift that is already loaded: the caller can name who took
+		// it and when, rather than showing only "already redeemed".
+		return r, ErrAlreadyRedeemed
 	case r.RedeemAfter.After(now):
 		return Reward{}, ErrNotYetRedeemable
 	}
